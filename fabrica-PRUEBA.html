@@ -1889,6 +1889,8 @@ let talleresCorteList = ['Adela','Willy Ramos'];
 let marcasList = ['By Nina'];
 // Telas usadas (editable: se puede agregar una nueva directo desde la tarjeta)
 let telasList = [];
+// Proveedores de tela (mismo patrón que Telas — se comparte y crece con lo que se va cargando)
+let proveedoresList = [];
 // Categoría y temporada del producto (editable, mismo patrón que Marca/Tela)
 let categoriasList = ['Remera','Top','Buzo','Pantalón','Vestido','Body','Short','Campera'];
 let temporadasList = ['Verano 2026','Invierno 2026'];
@@ -2200,6 +2202,11 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     if(v){ telasList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
     renderSections('diseno');renderSections('fabrica');
   });
+  db.ref('fabrica_v5/proveedores').on('value',snap=>{
+    const v=snap.val();
+    if(v){ proveedoresList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
+    renderSections('diseno');renderSections('fabrica');
+  });
   db.ref('fabrica_v5/actividad').on('value',snap=>{
     actividadData=snap.val()||{};
     renderNotifBadge();renderNotifPanel();
@@ -2344,6 +2351,40 @@ function onTelaBaseChange(secId,itemId,sel){
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(sel.value||null);
     logActivity('Editó nombre de tela',sel.value||'(sin elegir)');
     showToast('✓ Tela guardada');
+  }
+}
+
+// Proveedor de tela en Nuevos Desarrollos: mismo patrón — comparte proveedoresList,
+// así lo que se va cargando queda disponible para elegir la próxima vez.
+function buildProveedorTelaHtml(secId,itemId,item,canEdit){
+  if(!canEdit){
+    return item.tela_proveedor?`<span style="font-size:12px;font-weight:600">${item.tela_proveedor}</span>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`;
+  }
+  const opts=(proveedoresList||[]).map(n=>`<option value="${n}" ${item.tela_proveedor===n?'selected':''}>${n}</option>`).join('');
+  return `<select class="modelista-select" onchange="onProveedorTelaChange('${secId}','${itemId}',this)">
+    <option value="" ${!item.tela_proveedor?'selected':''}>Sin elegir</option>
+    ${opts}
+    <option value="__nuevo__">+ Agregar nuevo…</option>
+  </select>`;
+}
+
+function onProveedorTelaChange(secId,itemId,sel){
+  const item=sectionsData[secId].items[itemId];
+  if(sel.value==='__nuevo__'){
+    const nombre=prompt('Nombre del proveedor nuevo:');
+    if(!nombre||!nombre.trim()){ sel.value=item.tela_proveedor||''; return; }
+    const limpio=nombre.trim();
+    if(!proveedoresList.includes(limpio)){
+      proveedoresList=[...proveedoresList,limpio];
+      db.ref('fabrica_v5/proveedores').set(proveedoresList);
+    }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_proveedor`).set(limpio);
+    logActivity('Editó proveedor de tela',limpio);
+    showToast('✓ Proveedor guardado');
+  } else {
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_proveedor`).set(sel.value||null);
+    logActivity('Editó proveedor de tela',sel.value||'(sin elegir)');
+    showToast('✓ Proveedor guardado');
   }
 }
 
@@ -3648,10 +3689,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:11px;color:var(--text2);min-width:56px">Proveedor</span>
-                ${item.tela_proveedor
-                  ? `<span style="font-size:12px;font-weight:600">${item.tela_proveedor}</span>`
-                  : `<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-                ${canEdit?`<button class="btn-sm" onclick="editTelaProveedor('${secId}','${itemId}')">${item.tela_proveedor?'✏️ Editar':'+ Proveedor'}</button>`:''}
+                ${buildProveedorTelaHtml(secId,itemId,item,canEdit)}
               </div>
             </div>
           </div>

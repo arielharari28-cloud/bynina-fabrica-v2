@@ -2085,11 +2085,30 @@ function backfillPasosCorte(){
   });
   if(Object.keys(updates).length) db.ref().update(updates);
 }
+// Backfill único: todo lo que ya está en "Pendiente armar tizada" viene de una base aprobada
+// (así arranca ese flujo), pero los ítems viejos no tenían el flag base_aprobada tildado.
+let baseAprobadaTizadaBackfillDone=false;
+function backfillBaseAprobadaTizada(){
+  if(baseAprobadaTizadaBackfillDone) return;
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  baseAprobadaTizadaBackfillDone=true;
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  if(!destId||!sectionsData[destId]) return;
+  const updates={};
+  Object.entries(sectionsData[destId].items||{}).forEach(([itemId,item])=>{
+    if(!item.base_aprobada) updates[`fabrica_v5/sections/${destId}/items/${itemId}/base_aprobada`]=true;
+  });
+  if(Object.keys(updates).length){
+    db.ref().update(updates);
+    logActivity('Backfill: marcó base aprobada en todos los ítems de Pendiente armar tizada',`${Object.keys(updates).length} ítems`);
+  }
+}
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
     backfillFechasIngreso();
     backfillPasosNuevoDesarrollo();
     backfillPasosCorte();
+    backfillBaseAprobadaTizada();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();

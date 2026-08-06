@@ -1696,8 +1696,8 @@ function buildBaseTizadaHtml(secId,itemId,item,canEdit){
     <span class="modelista-label">🔁 Base:</span>
     <select class="modelista-select" style="max-width:100%" onchange="onBaseTizadaChange('${secId}','${itemId}',this)">
       <option value="">Elegir base…</option>
-      ${optsHtml}
       <option value="__manual__">+ Agregar manual…</option>
+      ${optsHtml}
     </select>
     ${base&&base.ficha_link?`<a href="${base.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:11px">📋 Ver ficha de la base</a>`:''}
   </div>`;

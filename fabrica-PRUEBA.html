@@ -2331,7 +2331,7 @@ function buildTelaBaseHtml(secId,itemId,item,canEdit){
     return item.tela_nombre?`<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin nombre cargado</span>`;
   }
   const opts=(telasList||[]).map(n=>`<option value="${n}" ${item.tela_nombre===n?'selected':''}>${n}</option>`).join('');
-  return `<select class="modelista-select" style="min-width:0;flex:1" onchange="onTelaBaseChange('${secId}','${itemId}',this)">
+  return `<select class="modelista-select" style="min-width:200px;max-width:100%;flex:1" onchange="onTelaBaseChange('${secId}','${itemId}',this)">
     <option value="" ${!item.tela_nombre?'selected':''}>Sin elegir</option>
     ${opts}
     <option value="__nueva__">+ Agregar nueva…</option>
@@ -2365,7 +2365,7 @@ function buildProveedorTelaHtml(secId,itemId,item,canEdit){
     return item.tela_proveedor?`<span style="font-size:12px;font-weight:600">${item.tela_proveedor}</span>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`;
   }
   const opts=(proveedoresList||[]).map(n=>`<option value="${n}" ${item.tela_proveedor===n?'selected':''}>${n}</option>`).join('');
-  return `<select class="modelista-select" style="min-width:0;flex:1" onchange="onProveedorTelaChange('${secId}','${itemId}',this)">
+  return `<select class="modelista-select" style="min-width:200px;max-width:100%;flex:1" onchange="onProveedorTelaChange('${secId}','${itemId}',this)">
     <option value="" ${!item.tela_proveedor?'selected':''}>Sin elegir</option>
     ${opts}
     <option value="__nuevo__">+ Agregar nuevo…</option>

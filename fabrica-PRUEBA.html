@@ -200,7 +200,7 @@
   .idea-tela-row{display:flex;align-items:center;gap:8px;margin-top:8px}
   .modelista-row{display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap}
   .modelista-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
-  .modelista-select{font-size:12px;border:1px solid var(--border2);border-radius:6px;padding:4px 8px;background:var(--bg);color:var(--text)}
+  .modelista-select{font-size:12px;border:1px solid var(--border2);border-radius:6px;padding:4px 8px;background:var(--bg);color:var(--text);max-width:100%}
   .responsable-badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 12px;border-radius:20px;font-weight:600;background:var(--accent-bg);color:var(--accent);margin:4px 0}
   .pendientes-group-title{font-size:13px;font-weight:700;margin:18px 0 8px;color:var(--text);display:flex;align-items:center;gap:8px}
   .pendientes-group-title:first-child{margin-top:0}
@@ -2331,7 +2331,7 @@ function buildTelaBaseHtml(secId,itemId,item,canEdit){
     return item.tela_nombre?`<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin nombre cargado</span>`;
   }
   const opts=(telasList||[]).map(n=>`<option value="${n}" ${item.tela_nombre===n?'selected':''}>${n}</option>`).join('');
-  return `<select class="modelista-select" onchange="onTelaBaseChange('${secId}','${itemId}',this)">
+  return `<select class="modelista-select" style="min-width:0;flex:1" onchange="onTelaBaseChange('${secId}','${itemId}',this)">
     <option value="" ${!item.tela_nombre?'selected':''}>Sin elegir</option>
     ${opts}
     <option value="__nueva__">+ Agregar nueva…</option>
@@ -2365,7 +2365,7 @@ function buildProveedorTelaHtml(secId,itemId,item,canEdit){
     return item.tela_proveedor?`<span style="font-size:12px;font-weight:600">${item.tela_proveedor}</span>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`;
   }
   const opts=(proveedoresList||[]).map(n=>`<option value="${n}" ${item.tela_proveedor===n?'selected':''}>${n}</option>`).join('');
-  return `<select class="modelista-select" onchange="onProveedorTelaChange('${secId}','${itemId}',this)">
+  return `<select class="modelista-select" style="min-width:0;flex:1" onchange="onProveedorTelaChange('${secId}','${itemId}',this)">
     <option value="" ${!item.tela_proveedor?'selected':''}>Sin elegir</option>
     ${opts}
     <option value="__nuevo__">+ Agregar nuevo…</option>
@@ -3693,13 +3693,13 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${item.foto_tela
               ? `<div class="item-photo-wrap small"><img class="item-photo" src="${item.foto_tela}" onclick="openPhotoModal('${item.foto_tela}')">${canEdit?`<button class="photo-edit-btn" onclick="event.stopPropagation();triggerFotoTelaUpload('${secId}','${itemId}')" title="Cambiar tela">✏️</button>`:''}</div>`
               : (canEdit?`<div class="item-photo-placeholder small" onclick="triggerFotoTelaUpload('${secId}','${itemId}')" title="Agregar tela base">🧵</div>`:'')}
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:11px;color:var(--text2);min-width:56px">Tela base</span>
+            <div style="display:flex;flex-direction:column;gap:6px;min-width:0;flex:1">
+              <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                <span style="font-size:11px;color:var(--text2);min-width:56px;flex-shrink:0">Tela base</span>
                 ${buildTelaBaseHtml(secId,itemId,item,canEdit)}
               </div>
-              <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:11px;color:var(--text2);min-width:56px">Proveedor</span>
+              <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                <span style="font-size:11px;color:var(--text2);min-width:56px;flex-shrink:0">Proveedor</span>
                 ${buildProveedorTelaHtml(secId,itemId,item,canEdit)}
               </div>
             </div>

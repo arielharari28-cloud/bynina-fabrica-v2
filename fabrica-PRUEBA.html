@@ -193,6 +193,8 @@
   .item-photo-wrap{position:relative;width:100px;height:100px;flex-shrink:0}
   .item-photo-wrap.small,.item-photo-wrap.small .item-photo{width:56px;height:56px}
   .item-photo-placeholder.small{width:56px;height:56px}
+  .item-photo-wrap.big,.item-photo-wrap.big .item-photo{width:160px;height:160px}
+  .item-photo-placeholder.big{width:160px;height:160px;font-size:34px}
   .photo-edit-btn{position:absolute;bottom:-4px;right:-4px;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1px solid var(--border2);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);padding:0}
   .item-photo-placeholder{width:100px;height:100px;border-radius:8px;flex-shrink:0;background:var(--surface2);border:1.5px dashed var(--border2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:22px;color:var(--text3)}
   .idea-tela-row{display:flex;align-items:center;gap:8px;margin-top:8px}
@@ -274,6 +276,7 @@
   .item-name-edit:hover{border-color:var(--border2);background:var(--surface2)}
   .item-name-edit:empty:before{content:'+ agregar nombre';color:var(--text3);font-style:italic}
   .item-name-edit-input{font-size:12px;border:1px solid var(--accent);border-radius:4px;padding:2px 6px;width:100%;margin-top:2px;background:var(--surface)}
+  .item-name.big,.item-name-edit.big{font-size:17px;font-weight:700;color:var(--text);margin-top:4px}
 
   .stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
   .search-input{width:100%;box-sizing:border-box;font-size:13px;border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:var(--bg);color:var(--text);margin-bottom:10px}
@@ -349,6 +352,9 @@
     .item-photo,.item-photo-wrap,.item-photo-placeholder{width:64px;height:64px}
     .item-photo-wrap.small,.item-photo-wrap.small .item-photo{width:44px;height:44px}
     .item-photo-placeholder.small{width:44px;height:44px}
+    .item-photo-wrap.big,.item-photo-wrap.big .item-photo{width:96px;height:96px}
+    .item-photo-placeholder.big{width:96px;height:96px;font-size:26px}
+    .item-name.big,.item-name-edit.big{font-size:15px}
     .pasos-panel{width:100%;max-width:100%;min-width:0;margin-top:8px}
     .specs-line{gap:8px 10px}
     .spec-label{font-size:10px}
@@ -1159,27 +1165,29 @@ function saveItemCode(secId,itemId,el){
   logActivity('Editó código', `${item.code} → ${newCode}`);
 }
 
-function buildPhotoHtml(secId,itemId,item,canEdit){
+function buildPhotoHtml(secId,itemId,item,canEdit,big){
+  const sizeClass = big?' big':'';
   if (item.foto) {
     const editBtn = canEdit
       ? `<button class="photo-edit-btn" onclick="event.stopPropagation();triggerPhotoUpload('${secId}','${itemId}')" title="Cambiar foto">✏️</button>`
       : '';
-    return `<div class="item-photo-wrap">
+    return `<div class="item-photo-wrap${sizeClass}">
       <img class="item-photo" src="${item.foto}" onclick="openPhotoModal('${item.foto}')">
       ${editBtn}
     </div>`;
   }
   if (canEdit) {
-    return `<div class="item-photo-placeholder" onclick="triggerPhotoUpload('${secId}','${itemId}')" title="Agregar foto">📷</div>`;
+    return `<div class="item-photo-placeholder${sizeClass}" onclick="triggerPhotoUpload('${secId}','${itemId}')" title="Agregar foto">📷</div>`;
   }
   return '';
 }
 
-function buildNameHtml(secId,itemId,item,canEdit){
+function buildNameHtml(secId,itemId,item,canEdit,big){
+  const sizeClass = big?' big':'';
   if (!canEdit) {
-    return item.name ? `<div class="item-name">${item.name}</div>` : '';
+    return item.name ? `<div class="item-name${sizeClass}">${item.name}</div>` : '';
   }
-  return `<div class="item-name-edit" contenteditable="true" data-secid="${secId}" data-itemid="${itemId}"
+  return `<div class="item-name-edit${sizeClass}" contenteditable="true" data-secid="${secId}" data-itemid="${itemId}"
     onblur="saveItemName('${secId}','${itemId}',this)"
     onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${item.name||''}</div>`;
 }
@@ -1394,6 +1402,31 @@ function toggleBaseAprobada(secId,itemId){
   showToast(nv?'✅ Base aprobada — se saltea moldería':'↩ Deshecho');
 }
 
+// Elección explícita en Nuevos Desarrollos: apenas hay nombre cargado, Peque elige si el
+// corte es un Nuevo Desarrollo (pasa por moldería) o una Base ya aprobada (molde existente).
+function setTipoDesarrollo(secId,itemId,esBase){
+  const item=sectionsData[secId].items[itemId];
+  const updates={base_aprobada:esBase};
+  if(esBase) updates.modelista=null;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
+  logActivity(esBase?'Marcó Base aprobada ya existente':'Marcó Nuevo Desarrollo',item.code||item.name||'');
+  showToast(esBase?'✅ Base aprobada ya existente — se saltea moldería':'🆕 Nuevo Desarrollo');
+}
+
+function buildTipoDesarrolloHtml(secId,itemId,item,canEdit){
+  if(!item.name||!item.name.trim()){
+    return `<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:6px">Escribí el nombre de la prenda para elegir si es Nuevo Desarrollo o Base aprobada ya existente</div>`;
+  }
+  const esBase=!!item.base_aprobada;
+  if(!canEdit){
+    return `<div style="font-size:11px;color:var(--text2);margin-top:6px">Tipo: <strong>${esBase?'Base aprobada ya existente':'Nuevo Desarrollo'}</strong></div>`;
+  }
+  return `<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+    <button class="radio-btn ${!esBase?'selected':''}" onclick="setTipoDesarrollo('${secId}','${itemId}',false)">🆕 Nuevo Desarrollo</button>
+    <button class="radio-btn ${esBase?'selected':''}" onclick="setTipoDesarrollo('${secId}','${itemId}',true)">✅ Base aprobada ya existente</button>
+  </div>`;
+}
+
 function getSectionIdByTitleExact(title){
   const found=Object.entries(sectionsData).find(([,s])=>(s.title||'').trim().toLowerCase()===title.trim().toLowerCase());
   return found?found[0]:null;
@@ -1401,8 +1434,8 @@ function getSectionIdByTitleExact(title){
 
 function pasarABaseAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(!item.name||!item.name.trim()||!item.code||!item.ficha_link||!item.marca||!item.tela_nombre||!item.tela_nombre.trim()){
-    showToast('Falta nombre, código, ficha técnica, marca o tela');
+  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef)){
+    showToast('Falta código, ficha técnica, Ninox o control de ficha');
     return;
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
@@ -3498,36 +3531,39 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const fichaStatusColor=(fichaModPendiente||fichaCorregidaEsperando||!controlDone) ? 'var(--warn-text)' : 'var(--accent)';
     const modelistaLocked=!(ninox&&controlDone)||fichaModPendiente;
     const esAdela=item.modelista==='Adela';
-    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&!!item.marca&&!!(item.tela_nombre&&item.tela_nombre.trim());
+    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone;
     const puedeAvanzar=item.base_aprobada
       ? baseAprobadaCompleta
       : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
+        ${buildPhotoHtml(secId,itemId,item,canEdit,true)}
         <div class="item-body">
           ${item.origen_mejora?`<div style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔧 <strong>Viene de una mejora:</strong> ${item.origen_mejora}</div>`:''}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildNameHtml(secId,itemId,item,canEdit,true)}
+          ${buildTipoDesarrolloHtml(secId,itemId,item,canEdit)}
           ${procesoInfoHtml(item,secId,itemId)}
-          <div class="idea-tela-row">
+          <div class="idea-tela-row" style="align-items:flex-start">
             ${item.foto_tela
               ? `<div class="item-photo-wrap small"><img class="item-photo" src="${item.foto_tela}" onclick="openPhotoModal('${item.foto_tela}')">${canEdit?`<button class="photo-edit-btn" onclick="event.stopPropagation();triggerFotoTelaUpload('${secId}','${itemId}')" title="Cambiar tela">✏️</button>`:''}</div>`
               : (canEdit?`<div class="item-photo-placeholder small" onclick="triggerFotoTelaUpload('${secId}','${itemId}')" title="Agregar tela base">🧵</div>`:'')}
-            <div style="display:flex;flex-direction:column;gap:2px">
-              <span style="font-size:11px;color:var(--text2)">Tela base</span>
-              ${item.tela_nombre
-                ? `<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>`
-                : `<span style="font-size:11px;color:var(--text3);font-style:italic">Sin nombre cargado</span>`}
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:11px;color:var(--text2);min-width:56px">Tela base</span>
+                ${item.tela_nombre
+                  ? `<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>`
+                  : `<span style="font-size:11px;color:var(--text3);font-style:italic">Sin nombre cargado</span>`}
+                ${canEdit?`<button class="btn-sm" onclick="editTelaNombre('${secId}','${itemId}')">${item.tela_nombre?'✏️ Editar':'+ Nombre'}</button>`:''}
+              </div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:11px;color:var(--text2);min-width:56px">Proveedor</span>
+                ${item.tela_proveedor
+                  ? `<span style="font-size:12px;font-weight:600">${item.tela_proveedor}</span>`
+                  : `<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
+                ${canEdit?`<button class="btn-sm" onclick="editTelaProveedor('${secId}','${itemId}')">${item.tela_proveedor?'✏️ Editar':'+ Proveedor'}</button>`:''}
+              </div>
             </div>
-            ${canEdit?`<button class="btn-sm" onclick="editTelaNombre('${secId}','${itemId}')">${item.tela_nombre?'✏️ Editar':'+ Nombre'}</button>`:''}
-            <div style="display:flex;flex-direction:column;gap:2px;margin-left:10px">
-              <span style="font-size:11px;color:var(--text2)">Proveedor</span>
-              ${item.tela_proveedor
-                ? `<span style="font-size:12px;font-weight:600">${item.tela_proveedor}</span>`
-                : `<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-            </div>
-            ${canEdit?`<button class="btn-sm" onclick="editTelaProveedor('${secId}','${itemId}')">${item.tela_proveedor?'✏️ Editar':'+ Proveedor'}</button>`:''}
           </div>
 
           ${canEdit?buildMarcaHtml(secId,itemId,item):''}
@@ -3549,12 +3585,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>
           <div class="avio-item" style="padding-left:0;border-top:none">
             <div class="c-check ${ninox?'checked':''}" onclick="${canEdit?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
-            <span class="c-label ${ninox?'done':''}" style="font-size:11px">Cargado en Ninox</span>
-          </div>
-
-          <div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${item.base_aprobada?'checked':''}" onclick="${canEdit?`toggleBaseAprobada('${secId}','${itemId}')`:''}">${item.base_aprobada?'✓':''}</div>
-            <span class="c-label ${item.base_aprobada?'done':''}" style="font-size:11px">Base ya aprobada (molde ya existe — no hace falta modelista, salta moldería)</span>
+            <span class="c-label" style="font-size:11px">Cargado en Ninox</span>
           </div>
 
           <div style="margin-top:10px">
@@ -3598,7 +3629,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNotasHtml(secId,itemId,item,canEdit)}
 
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta nombre, código, ficha técnica, marca o tela':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código, ficha técnica, Ninox o control de ficha':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>

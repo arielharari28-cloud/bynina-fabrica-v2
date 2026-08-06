@@ -1632,6 +1632,40 @@ function onRepoPerfectoChange(secId,itemId,sel){
   showToast('✓ Vinculado — código, nombre, marca y tela completados');
 }
 
+// Selector de "de qué base salimos" en Pendiente armar tizada: a diferencia de Reposición
+// (mismo código de un producto existente), acá el corte es un código NUEVO que usa el molde
+// de un producto ya aprobado como base — solo lo vinculamos como referencia, no autocompleta
+// código/nombre porque esos los tiene que asignar Peque.
+function buildBaseTizadaHtml(secId,itemId,item,canEdit){
+  const opts=buildProductosPerfectosOptions();
+  const optsHtml=opts.map(o=>`<option value="${o.secId}::${o.itemId}" ${(item.base_ref_sec===o.secId&&item.base_ref_id===o.itemId)?'selected':''}>${o.label}</option>`).join('');
+  const base=(item.base_ref_sec&&sectionsData[item.base_ref_sec])?sectionsData[item.base_ref_sec].items?.[item.base_ref_id]:null;
+  if(!canEdit){
+    return base?`<div style="font-size:11px;color:var(--text2);margin:4px 0">🔁 Base: <strong>${base.code?base.code+' — ':''}${base.name||''}</strong></div>`:'';
+  }
+  return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap">
+    <span class="modelista-label">🔁 Base:</span>
+    <select class="modelista-select" style="max-width:100%" onchange="onBaseTizadaChange('${secId}','${itemId}',this)">
+      <option value="">Elegir base…</option>
+      ${optsHtml}
+    </select>
+    ${base&&base.ficha_link?`<a href="${base.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:11px">📋 Ver ficha de la base</a>`:''}
+  </div>`;
+}
+
+function onBaseTizadaChange(secId,itemId,sel){
+  const item=sectionsData[secId].items[itemId];
+  if(!sel.value){
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:null,base_ref_id:null});
+    return;
+  }
+  const [refSec,refId]=sel.value.split('::');
+  const ref=sectionsData[refSec]?.items?.[refId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:refSec,base_ref_id:refId});
+  logActivity('Base vinculada (armar tizada)',`${item.code||item.name||''} ← ${ref?.code||ref?.name||''}`);
+  showToast('✓ Base vinculada');
+}
+
 function renderMarcaFilterBar(){
   const chips=['',...marcasList];
   const html=chips.map(m=>{
@@ -3799,6 +3833,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canToggle=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
   const canCortar=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='nahuel';
+  // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
+  // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
+  // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
+  const esArmarTizada = (sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
+  const baseHtml = esArmarTizada ? buildBaseTizadaHtml(secId,itemId,item,canFicha) : '';
   const checkHtml = secId==='s3'
     ? '' // en s3 no hay checkbox, se usa botón Marcar cortado
     : `<div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>`;
@@ -3868,6 +3907,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${secId==='sFIN'?(canEdit?buildCategoriaHtml(secId,itemId,item):(item.categoria?`<div style="font-size:11px;color:var(--text2)">Categoría: <strong>${item.categoria}</strong></div>`:'')):''}
         ${secId==='sFIN'?(canEdit?buildTemporadaHtml(secId,itemId,item):(item.temporada?`<div style="font-size:11px;color:var(--text2)">Temporada: <strong>${item.temporada}</strong></div>`:'')):''}
         ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
+        ${baseHtml}
         ${fichaHtml}
         <div class="specs-line">
           ${secId!=='sFIN'?`<span class="spec-chip">
@@ -3901,15 +3941,23 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${item.control_piezas_link?`<a href="${item.control_piezas_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:11px">🔗 Ver</a>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editControlPiezasLink('${secId}','${itemId}')">${item.control_piezas_link?'🔗 Editar link':'+ Link'}</button>`:''}
         </div>
+        ${esArmarTizada?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+          <div class="c-check ${item.en_ninox?'checked':''}" onclick="${canFicha?`toggleNinox('${secId}','${itemId}')`:''}">${item.en_ninox?'✓':''}</div>
+          <span class="c-label ${item.en_ninox?'done':''}" style="font-size:11px">Cargado en Ninox</span>
+        </div>`:''}
         ${!POST_S3_SECS.includes(secId)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>
           <span class="c-label ${item.base_aprobada?'done':''}" style="font-size:11px">🔁 Base ya aprobada (molde ya existe)</span>
         </div>`:''}
         ${(()=>{
           if(POST_S3_SECS.includes(secId)) return '';
-          const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null].filter(Boolean);
-          if(!faltantes.length) return '';
-          return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${faltantes.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
+          const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null];
+          if(esArmarTizada){
+            faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
+          }
+          const list=faltantes.filter(Boolean);
+          if(!list.length) return '';
+          return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
         })()}
         ${(secId==='sLT'||secId==='sFIN')?buildTallerCorteHtml(secId,itemId,item):''}
         ${numeroCorteHtml}
@@ -4677,7 +4725,10 @@ function moveItem(secId,itemId,targetSecId){
   // No puede entrar a "Cortes próximos a sacar" sin ficha, curva, ancho y control de piezas cargados:
   // esa info tiene que estar lista antes de que se considere un corte próximo a sacar.
   if(targetSecId==='s3'){
-    const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null].filter(Boolean);
+    const esArmarTizada=(sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
+    const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null,
+      ...(esArmarTizada?[!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null]:[])
+    ].filter(Boolean);
     if(faltantes.length){
       showToast(`⏳ Pendiente completar Peque: falta ${faltantes.join(', ')}`);
       return;

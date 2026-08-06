@@ -1434,7 +1434,7 @@ function getSectionIdByTitleExact(title){
 
 function pasarABaseAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef)||!item.base_ref_id){
+  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef)||!(item.base_ref_id||item.base_ref_manual)){
     showToast('Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale');
     return;
   }
@@ -1459,6 +1459,7 @@ function pasarABaseAprobada(secId,itemId){
     base_aprobada:true,
     base_ref_sec:item.base_ref_sec||null,
     base_ref_id:item.base_ref_id||null,
+    base_ref_manual:item.base_ref_manual||null,
     nota:item.tela_proveedor?`Base ya aprobada — Proveedor de tela: ${item.tela_proveedor}`:'Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)',
     done:false,
     avios:{},
@@ -1677,13 +1678,26 @@ function buildBaseTizadaHtml(secId,itemId,item,canEdit){
   const optsHtml=opts.map(o=>`<option value="${o.secId}::${o.itemId}" ${(item.base_ref_sec===o.secId&&item.base_ref_id===o.itemId)?'selected':''}>${o.label}</option>`).join('');
   const base=(item.base_ref_sec&&sectionsData[item.base_ref_sec])?sectionsData[item.base_ref_sec].items?.[item.base_ref_id]:null;
   if(!canEdit){
-    return base?`<div style="font-size:11px;color:var(--text2);margin:4px 0">🔁 Base: <strong>${base.code?base.code+' — ':''}${base.name||''}</strong></div>`:'';
+    if(base) return `<div style="font-size:11px;color:var(--text2);margin:4px 0">🔁 Base: <strong>${base.code?base.code+' — ':''}${base.name||''}</strong></div>`;
+    if(item.base_ref_manual) return `<div style="font-size:11px;color:var(--text2);margin:4px 0">🔁 Base: <strong>${item.base_ref_manual}</strong> <span style="color:var(--text3);font-style:italic">(manual)</span></div>`;
+    return '';
+  }
+  // Cargada manualmente (no está en la lista de Productos Perfectos, ej. un producto viejo)
+  if(item.base_ref_manual&&!base){
+    return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap">
+      <span class="modelista-label">🔁 Base:</span>
+      <span style="font-size:12px;font-weight:600">${item.base_ref_manual.replace(/</g,'&lt;')}</span>
+      <span style="font-size:10px;color:var(--text3);font-style:italic">(manual)</span>
+      <button class="btn-sm" onclick="editBaseTizadaManual('${secId}','${itemId}')">✏️ Editar</button>
+      <button class="btn-sm" onclick="clearBaseTizadaManual('${secId}','${itemId}')">↩ Elegir de la lista</button>
+    </div>`;
   }
   return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap">
     <span class="modelista-label">🔁 Base:</span>
     <select class="modelista-select" style="max-width:100%" onchange="onBaseTizadaChange('${secId}','${itemId}',this)">
       <option value="">Elegir base…</option>
       ${optsHtml}
+      <option value="__manual__">+ Agregar manual…</option>
     </select>
     ${base&&base.ficha_link?`<a href="${base.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:11px">📋 Ver ficha de la base</a>`:''}
   </div>`;
@@ -1691,15 +1705,37 @@ function buildBaseTizadaHtml(secId,itemId,item,canEdit){
 
 function onBaseTizadaChange(secId,itemId,sel){
   const item=sectionsData[secId].items[itemId];
+  if(sel.value==='__manual__'){
+    const texto=prompt('Código y/o nombre de la base (manual):','');
+    if(!texto||!texto.trim()){ sel.value=''; return; }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:null,base_ref_id:null,base_ref_manual:texto.trim()});
+    logActivity('Base vinculada manualmente (armar tizada)',`${item.code||item.name||''} ← ${texto.trim()}`);
+    showToast('✓ Base cargada manualmente');
+    return;
+  }
   if(!sel.value){
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:null,base_ref_id:null});
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:null,base_ref_id:null,base_ref_manual:null});
     return;
   }
   const [refSec,refId]=sel.value.split('::');
   const ref=sectionsData[refSec]?.items?.[refId];
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:refSec,base_ref_id:refId});
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:refSec,base_ref_id:refId,base_ref_manual:null});
   logActivity('Base vinculada (armar tizada)',`${item.code||item.name||''} ← ${ref?.code||ref?.name||''}`);
   showToast('✓ Base vinculada');
+}
+
+function editBaseTizadaManual(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const texto=prompt('Código y/o nombre de la base (manual):',item.base_ref_manual||'');
+  if(texto===null) return;
+  if(!texto.trim()){ showToast('No puede quedar vacío'); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/base_ref_manual`).set(texto.trim());
+  logActivity('Editó base manual (armar tizada)',`${item.code||item.name||''} ← ${texto.trim()}`);
+  showToast('✓ Base actualizada');
+}
+
+function clearBaseTizadaManual(secId,itemId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_manual:null});
 }
 
 function renderMarcaFilterBar(){
@@ -3553,7 +3589,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const fichaStatusColor=(fichaModPendiente||fichaCorregidaEsperando||!controlDone) ? 'var(--warn-text)' : 'var(--accent)';
     const modelistaLocked=!(ninox&&controlDone)||fichaModPendiente;
     const esAdela=item.modelista==='Adela';
-    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone&&!!item.base_ref_id;
+    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone&&!!(item.base_ref_id||item.base_ref_manual);
     const puedeAvanzar=item.base_aprobada
       ? baseAprobadaCompleta
       : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);

@@ -1709,6 +1709,7 @@ function onBaseTizadaChange(secId,itemId,sel){
     const texto=prompt('Código y/o nombre de la base (manual):','');
     if(!texto||!texto.trim()){ sel.value=''; return; }
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:null,base_ref_id:null,base_ref_manual:texto.trim()});
+    checkPasosNuevoDesarrollo(secId,itemId,{base_ref_manual:texto.trim()});
     logActivity('Base vinculada manualmente (armar tizada)',`${item.code||item.name||''} ← ${texto.trim()}`);
     showToast('✓ Base cargada manualmente');
     return;
@@ -1720,6 +1721,7 @@ function onBaseTizadaChange(secId,itemId,sel){
   const [refSec,refId]=sel.value.split('::');
   const ref=sectionsData[refSec]?.items?.[refId];
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_ref_sec:refSec,base_ref_id:refId,base_ref_manual:null});
+  checkPasosNuevoDesarrollo(secId,itemId,{base_ref_id:refId});
   logActivity('Base vinculada (armar tizada)',`${item.code||item.name||''} ← ${ref?.code||ref?.name||''}`);
   showToast('✓ Base vinculada');
 }
@@ -1730,6 +1732,7 @@ function editBaseTizadaManual(secId,itemId){
   if(texto===null) return;
   if(!texto.trim()){ showToast('No puede quedar vacío'); return; }
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/base_ref_manual`).set(texto.trim());
+  checkPasosNuevoDesarrollo(secId,itemId,{base_ref_manual:texto.trim()});
   logActivity('Editó base manual (armar tizada)',`${item.code||item.name||''} ← ${texto.trim()}`);
   showToast('✓ Base actualizada');
 }
@@ -2105,6 +2108,7 @@ function backfillPasosNuevoDesarrollo(){
       if(item.en_ninox&&item.ficha_link&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
       if((item.control_ariel||item.control_stef)&&!item.fecha_paso_control) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_control`]=ahora;
       if(item.modelista&&!item.fecha_paso_modelista) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_modelista`]=ahora;
+      if((item.base_ref_id||item.base_ref_manual)&&!item.fecha_paso_base) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_base`]=ahora;
     });
   });
   if(Object.keys(updates).length) db.ref().update(updates);
@@ -2865,6 +2869,7 @@ function checkPasosNuevoDesarrollo(secId,itemId,patch){
   if(merged.en_ninox&&merged.ficha_link&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
   if((merged.control_ariel||merged.control_stef)&&!item.fecha_paso_control) updates.fecha_paso_control=Date.now();
   if(merged.modelista&&!item.fecha_paso_modelista) updates.fecha_paso_modelista=Date.now();
+  if((merged.base_ref_id||merged.base_ref_manual)&&!item.fecha_paso_base) updates.fecha_paso_base=Date.now();
   if(Object.keys(updates).length){
     const dbUpdates={};
     Object.entries(updates).forEach(([k,v])=>{ dbUpdates[`fabrica_v5/sections/${secId}/items/${itemId}/${k}`]=v; });
@@ -2998,7 +3003,13 @@ function buildPasosPanelCorteHtml(item){
 
 function buildPasosPanelHtml(item){
   const now=Date.now();
-  const pasos=[
+  const pasos=item.base_aprobada?[
+    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:item.fecha_paso_ingreso },
+    { label:'Cargar Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
+    { label:'Control de ficha', resp:'Ariel / Stef', start:item.fecha_paso_peque, end:item.fecha_paso_control },
+    { label:'Elegir base', resp:'Peque', start:item.fecha_paso_control, end:item.fecha_paso_base },
+    { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_base, end:null }
+  ]:[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:item.fecha_paso_ingreso },
     { label:'Cargar Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
     { label:'Control de ficha', resp:'Ariel / Stef', start:item.fecha_paso_peque, end:item.fecha_paso_control },

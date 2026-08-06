@@ -3681,7 +3681,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
+      <div class="item-with-photo" style="flex:3;min-width:320px">
         ${buildPhotoHtml(secId,itemId,item,canEdit,true)}
         <div class="item-body">
           ${item.origen_mejora?`<div style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔧 <strong>Viene de una mejora:</strong> ${item.origen_mejora}</div>`:''}

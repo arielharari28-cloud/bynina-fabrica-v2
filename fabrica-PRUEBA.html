@@ -1434,8 +1434,8 @@ function getSectionIdByTitleExact(title){
 
 function pasarABaseAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef)){
-    showToast('Falta código, ficha técnica, Ninox o control de ficha');
+  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef)||!item.base_ref_id){
+    showToast('Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale');
     return;
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
@@ -1456,6 +1456,9 @@ function pasarABaseAprobada(secId,itemId){
     tela:telaNombre||null,
     foto:item.foto||'',
     ficha_link:item.ficha_link||'',
+    base_aprobada:true,
+    base_ref_sec:item.base_ref_sec||null,
+    base_ref_id:item.base_ref_id||null,
     nota:item.tela_proveedor?`Base ya aprobada — Proveedor de tela: ${item.tela_proveedor}`:'Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)',
     done:false,
     avios:{},
@@ -3550,7 +3553,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const fichaStatusColor=(fichaModPendiente||fichaCorregidaEsperando||!controlDone) ? 'var(--warn-text)' : 'var(--accent)';
     const modelistaLocked=!(ninox&&controlDone)||fichaModPendiente;
     const esAdela=item.modelista==='Adela';
-    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone;
+    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone&&!!item.base_ref_id;
     const puedeAvanzar=item.base_aprobada
       ? baseAprobadaCompleta
       : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
@@ -3562,6 +3565,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${item.origen_mejora?`<div style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔧 <strong>Viene de una mejora:</strong> ${item.origen_mejora}</div>`:''}
           ${buildNameHtml(secId,itemId,item,canEdit,true)}
           ${buildTipoDesarrolloHtml(secId,itemId,item,canEdit)}
+          ${item.base_aprobada?buildBaseTizadaHtml(secId,itemId,item,canEdit):''}
           ${procesoInfoHtml(item,secId,itemId)}
           <div class="idea-tela-row" style="align-items:flex-start">
             ${item.foto_tela
@@ -3598,7 +3602,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <span class="modelista-label">Código:</span>
+            <span class="modelista-label">${item.base_aprobada?'Código nuevo:':'Código:'}</span>
             ${item.code?`<span class="item-code" style="margin-top:0">${item.code}</span>`:`<span style="font-size:12px;color:var(--text3);font-style:italic">Sin cargar</span>`}
             ${canEdit?`<button class="btn-sm" onclick="editCodigoPrompt('${secId}','${itemId}')">✏️ Editar código</button>`:''}
           </div>
@@ -3648,7 +3652,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNotasHtml(secId,itemId,item,canEdit)}
 
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código, ficha técnica, Ninox o control de ficha':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>

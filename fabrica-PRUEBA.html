@@ -1384,8 +1384,7 @@ function assignTallerCorte(secId,itemId,nombre){
   showToast(nombre?`✓ Taller asignado: ${nombre}`:'Taller desasignado');
 }
 
-function assignModelista(secId,itemId,nombre){
-  const item=sectionsData[secId].items[itemId];
+function assignModelista(secId,itemId,nombre){  const item=sectionsData[secId].items[itemId];
   const sec=sectionsData[secId];
   if(sec.tipo==='muestra_prep'&&nombre&&!(item.en_ninox&&(item.control_ariel||item.control_stef))){
     showToast('Falta tildar Ninox y el control de ficha antes de asignar modelista');
@@ -1613,11 +1612,11 @@ function getResponsable(sec,item,secId){
   const tipo=sec.tipo||'';
   if(tipo==='mejora') return item.mejora_resuelta?null:'Peque';
   if(tipo==='muestra_prep'){
-    if(!item.code||!item.code.trim()) return 'Stef';
+    if(!item.code||!item.code.trim()) return 'Peque';
     if(!item.en_ninox) return 'Peque';
     if(!item.ficha_link) return 'Peque';
     if(!(item.control_ariel||item.control_stef)) return 'Ariel';
-    if(!item.modelista) return 'Peque';
+    if(!item.modelista) return 'Ariel y Stef';
     return 'Peque'; // modelista ya asignada: falta que Peque envíe a moldería
   }
   if(tipo==='muestra_molderia'){
@@ -1670,6 +1669,7 @@ function getProximaAccion(sec,item,secId){
     if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ficha corregida — esperando que Ariel/Stef la controlen';
     if(!(item.control_ariel||item.control_stef)) return 'Esperando control de ficha (Ariel/Stef)';
     if(!item.modelista) return 'Falta asignar modelista';
+    if(item.modelista==='Adela'&&!item.tela_entregada) return 'Falta darle la tela a Adela';
     return `Falta enviar a moldería · Modelista: ${item.modelista}`;
   }
   if(tipo==='muestra_molderia'){
@@ -2301,9 +2301,18 @@ function deshacerFichaCorregida(secId,itemId){
   showToast('↩ Vuelve a pendiente de modificar');
 }
 
+function toggleTelaEntregada(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item.tela_entregada||false);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_entregada`).set(nv);
+  logActivity(nv?'Le dio la tela a Adela':'Deshizo entrega de tela a Adela',item.code||item.name||'');
+  showToast(nv?'🧵 Tela entregada a Adela':'↩ Deshecho');
+}
+
 function pasarAMolderia(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.code||!item.ficha_link||!item.modelista){ showToast('Falta código, link de ficha o modelista asignada'); return; }
+  if(item.modelista==='Adela'&&!item.tela_entregada){ showToast('Falta darle la tela a Adela antes de mandarla a moldería'); return; }
   const newItem={...item,fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${SEC_MOLD}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -2452,6 +2461,15 @@ function enviarACorte(secId,itemId){
   if(!item.foto_drive_ok){ showToast('Falta cargar la foto en Drive antes de enviar a corte'); return; }
   const newItem={...item,fecha_etapa:Date.now()};
   delete newItem.estado; // limpia el flag de "modificaciones" al reingresar al circuito
+  if(item.modelista==='Adela'){
+    // Adela corta ella misma: se saltea "Muestras — pendiente corte" (Cortador) y entra directo como cortada.
+    newItem.ficha=false; newItem.lleva_avios=null; newItem.avios=item.avios||{};
+    db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Enviada a corte (Adela corta directo)',item.code);
+    showToast(`✂️ ${item.code} pasó directo a Cortadas — la corta Adela`);
+    return;
+  }
   db.ref(`fabrica_v5/sections/${SEC_PEND}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Enviada a corte',item.code);
@@ -2790,8 +2808,9 @@ function procesoInfoHtml(item,secId,itemId){
   }
   let html='';
   if(parts.length) html+=`<div style="font-size:11px;color:var(--text2);margin-top:4px">${parts.join(' &nbsp;·&nbsp; ')}</div>`;
-  // Botón/insignia de Estampado DTF: disponible en cualquier etapa del corte, no atado a un paso fijo del flujo.
-  if(secId&&itemId){
+  // Botón/insignia de Estampado DTF: solo aplica al flujo de Fábrica (cortes de producción),
+  // desde "Cortes próximos a sacar" hasta "Cortes Finalizados" — nunca en Diseño/Muestras.
+  if(secId&&itemId&&POST_S3_SECS.includes(secId)){
     if(item.estampado_dtf){
       const linkOk=item.estampado_id&&estampadosData[item.estampado_id];
       html+=linkOk
@@ -3388,7 +3407,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
         : (controlDone ? (item.ficha_estado==='modificada' ? '✅ Ficha Técnica Modificada' : '✅ Ficha Técnica Aprobada') : 'Pendiente');
     const fichaStatusColor=(fichaModPendiente||fichaCorregidaEsperando||!controlDone) ? 'var(--warn-text)' : 'var(--accent)';
     const modelistaLocked=!(ninox&&controlDone)||fichaModPendiente;
-    const puedeAvanzar=!!(item.code&&item.code.trim())&&!!item.ficha_link&&!!item.modelista&&!fichaModPendiente;
+    const esAdela=item.modelista==='Adela';
+    const puedeAvanzar=!!(item.code&&item.code.trim())&&!!item.ficha_link&&!!item.modelista&&!fichaModPendiente&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
@@ -3470,10 +3490,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
 
           ${buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha')}
 
+          ${esAdela?`<div class="avio-item" style="padding-left:0;border-top:none">
+            <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canEdit?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
+            <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Le di la tela a Adela (ella corta directo, sin pasar por Cortador)</span>
+          </div>`:''}
+
           ${buildNotasHtml(secId,itemId,item,canEdit)}
 
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':'Falta código, link de ficha o modelista'}" onclick="pasarAMolderia('${secId}','${itemId}')">🧵 Enviar a moldería</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista')}" onclick="pasarAMolderia('${secId}','${itemId}')">🧵 Enviar a moldería</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
@@ -3516,7 +3541,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>
           ${refBox}
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="enviarACorte('${secId}','${itemId}')">✂️ Enviar a corte</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="enviarACorte('${secId}','${itemId}')">✂️ ${item.modelista==='Adela'?'Ya corté — pasar a Cortadas':'Enviar a corte'}</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}

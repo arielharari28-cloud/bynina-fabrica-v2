@@ -1223,9 +1223,15 @@ function buildCapasHtml(item,secId,itemId,canEditCapas){
   </div>`;
 }
 
-function buildRollosHtml(item){
+function buildRollosHtml(item,secId,itemId,canEditRollos){
   const rows=Object.values(item.rollos||{}).filter(r=>r&&(r.color||r.kgmts||r.capas));
-  if(!rows.length) return '';
+  if(!rows.length){
+    // Fuera de "Cortes próximos a sacar" (s3) no existe el flujo pre-corte que carga esto,
+    // así que si no hay rollos cargados le damos un botón directo acá también.
+    return canEditRollos
+      ? `<div style="margin-top:4px"><button class="btn-sm" onclick="openRollosModal('${secId}','${itemId}')">+ Cargar rollos</button></div>`
+      : '';
+  }
   const largo=parseFloat(item.largo_capa)||0, pesoM=parseFloat(item.peso_metro)||0;
   const calc=r=>{ const capas=parseFloat(r.capas)||0; const usado=capas*largo*pesoM; const kgmts=parseFloat(r.kgmts)||0; return {usado,sobrante:kgmts-usado}; };
   const bodyRows=rows.map(r=>{
@@ -1255,6 +1261,7 @@ function buildRollosHtml(item){
       <tbody>${bodyRows}</tbody>
     </table>
     <div style="font-size:10px;color:var(--text2);margin-top:2px">Total usado: <strong>${totalUsado.toFixed(2)}</strong> · Total sobrante: <strong>${totalSobrante.toFixed(2)}</strong></div>
+    ${canEditRollos?`<button class="btn-sm" style="margin-top:6px" onclick="openRollosModal('${secId}','${itemId}')">✏️ Editar rollos</button>`:''}
   </div>`;
 }
 
@@ -3710,7 +3717,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
     ? `<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong></div>` : '';
   const canEditCapasFuera = secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const capasHtml = buildCapasHtml(item,secId,itemId,canEditCapasFuera);
-  const rollosHtml = buildRollosHtml(item);
+  // Emir carga rollos incluso fuera de s3 (ej. cortes que ya pasaron a Cortes Finalizados).
+  const canEditRollosFuera = secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel'||currentUser==='emir');
+  const rollosHtml = buildRollosHtml(item,secId,itemId,canEditRollosFuera);
   const realesHtml = buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = secId==='sFIN'&&item.fecha_salida_taller
     ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></div>` : '';

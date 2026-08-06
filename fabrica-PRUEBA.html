@@ -3806,10 +3806,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
     ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">✂️ Cortado: <strong>${item.fecha_corte}</strong></div>` : '';
   const numeroCorteHtml = item.numero_corte
     ? `<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong></div>` : '';
-  const canEditCapasFuera = secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
+  // Capas/colores y rollos son de después del corte (s3 en adelante): en etapas previas
+  // como "Pendiente armar tizada" todavía no existe esa info, no corresponde pedirla ahí.
+  const canEditCapasFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const capasHtml = buildCapasHtml(item,secId,itemId,canEditCapasFuera);
   // Emir carga rollos incluso fuera de s3 (ej. cortes que ya pasaron a Cortes Finalizados).
-  const canEditRollosFuera = secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel'||currentUser==='emir');
+  const canEditRollosFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel'||currentUser==='emir');
   const rollosHtml = buildRollosHtml(item,secId,itemId,canEditRollosFuera);
   const realesHtml = buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = secId==='sFIN'&&item.fecha_salida_taller
@@ -3880,7 +3882,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${item.ancho?`<span class="spec-val">${item.ancho}</span>`:`<span class="spec-empty">Sin cargar</span>`}
             ${canFicha?`<button class="btn-sm" onclick="editAnchoPrompt('${secId}','${itemId}')">${item.ancho?'✏️':'+ Ancho'}</button>`:''}
           </span>
-          <span class="spec-chip">
+          ${secId==='s3'?`<span class="spec-chip">
             <span class="c-check checked-auto ${item.peso_metro?'checked':''}" title="Se tilda solo cuando hay peso x metro cargado">${item.peso_metro?'✓':''}</span>
             <span class="spec-label" title="Peso x metro">Peso x m:</span>
             ${item.peso_metro?`<span class="spec-val">${item.peso_metro}</span>`:`<span class="spec-empty">Sin cargar</span>`}
@@ -3891,7 +3893,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <span class="spec-label" title="Largo de capa">Largo cap.:</span>
             ${item.largo_capa?`<span class="spec-val">${item.largo_capa}</span>`:`<span class="spec-empty">Sin cargar</span>`}
             ${canFicha?`<button class="btn-sm" onclick="editLargoCapaPrompt('${secId}','${itemId}')">${item.largo_capa?'✏️':'+ Largo de capa'}</button>`:''}
-          </span>`:''}
+          </span>`:''}`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check checked-auto ${item.control_piezas_link?'checked':''}" title="Se tilda solo cuando hay link de control de piezas cargado">${item.control_piezas_link?'✓':''}</div>

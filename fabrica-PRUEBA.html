@@ -1401,16 +1401,29 @@ function getSectionIdByTitleExact(title){
 
 function pasarABaseAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(!item.code||!item.ficha_link){ showToast('Falta código o link de ficha'); return; }
+  if(!item.name||!item.name.trim()||!item.code||!item.ficha_link||!item.marca||!item.tela_nombre||!item.tela_nombre.trim()){
+    showToast('Falta nombre, código, ficha técnica, marca o tela');
+    return;
+  }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
+  // La tela en Diseño es texto libre (tela_nombre); en Fábrica es un desplegable controlado (telasList) —
+  // si el nombre no está en la lista, lo agregamos para no perderlo.
+  const telaNombre=(item.tela_nombre||'').trim();
+  if(telaNombre&&!telasList.includes(telaNombre)){
+    telasList=[...telasList,telaNombre];
+    db.ref('fabrica_v5/telas').set(telasList);
+  }
   const newItem={
     code:item.code,
     name:item.name||'',
     marca:item.marca||(marcasList&&marcasList[0])||'By Nina',
+    categoria:item.categoria||null,
+    temporada:item.temporada||null,
+    tela:telaNombre||null,
     foto:item.foto||'',
     ficha_link:item.ficha_link||'',
-    nota:`Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)${item.tela_nombre?` — Tela sugerida: ${item.tela_nombre}${item.tela_proveedor?' / '+item.tela_proveedor:''}`:''}`,
+    nota:item.tela_proveedor?`Base ya aprobada — Proveedor de tela: ${item.tela_proveedor}`:'Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)',
     done:false,
     avios:{},
     fecha_ingreso:Date.now(),
@@ -1708,7 +1721,11 @@ function getProximaAccion(sec,item,secId){
     if(!(item.control_ariel||item.control_stef)) return 'Esperando control de ficha (Ariel/Stef)';
     if(!item.modelista&&!item.base_aprobada) return 'Falta asignar modelista';
     if(item.modelista==='Adela'&&!item.tela_entregada) return 'Falta darle la tela a Adela';
-    if(item.base_aprobada) return 'Falta enviar a Pendiente armar tizada (base ya aprobada, sin moldería)';
+    if(item.base_aprobada){
+      if(!item.marca) return 'Falta cargar la marca';
+      if(!item.tela_nombre||!item.tela_nombre.trim()) return 'Falta cargar la tela';
+      return 'Falta enviar a Pendiente armar tizada (base ya aprobada, sin moldería)';
+    }
     return `Falta enviar a moldería · Modelista: ${item.modelista}`;
   }
   if(tipo==='muestra_molderia'){
@@ -3447,7 +3464,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const fichaStatusColor=(fichaModPendiente||fichaCorregidaEsperando||!controlDone) ? 'var(--warn-text)' : 'var(--accent)';
     const modelistaLocked=!(ninox&&controlDone)||fichaModPendiente;
     const esAdela=item.modelista==='Adela';
-    const puedeAvanzar=!!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&(item.base_aprobada||!!item.modelista)&&(!esAdela||!!item.tela_entregada);
+    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&!!item.marca&&!!(item.tela_nombre&&item.tela_nombre.trim());
+    const puedeAvanzar=item.base_aprobada
+      ? baseAprobadaCompleta
+      : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
@@ -3544,7 +3564,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNotasHtml(secId,itemId,item,canEdit)}
 
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista')}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta nombre, código, ficha técnica, marca o tela':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta darle la tela a Adela':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
@@ -3879,6 +3899,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${item.control_piezas_link?`<a href="${item.control_piezas_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:11px">🔗 Ver</a>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editControlPiezasLink('${secId}','${itemId}')">${item.control_piezas_link?'🔗 Editar link':'+ Link'}</button>`:''}
         </div>
+        ${!POST_S3_SECS.includes(secId)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+          <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>
+          <span class="c-label ${item.base_aprobada?'done':''}" style="font-size:11px">🔁 Base ya aprobada (molde ya existe)</span>
+        </div>`:''}
         ${(()=>{
           if(POST_S3_SECS.includes(secId)) return '';
           const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null].filter(Boolean);

@@ -2313,6 +2313,40 @@ function editCodigoPrompt(secId,itemId){
   showToast('✓ Código guardado');
 }
 
+// Tela base en Nuevos Desarrollos: comparte la misma lista de telas que Fábrica (telasList),
+// así lo que se va cargando acá queda disponible para elegir después, y viceversa.
+function buildTelaBaseHtml(secId,itemId,item,canEdit){
+  if(!canEdit){
+    return item.tela_nombre?`<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin nombre cargado</span>`;
+  }
+  const opts=(telasList||[]).map(n=>`<option value="${n}" ${item.tela_nombre===n?'selected':''}>${n}</option>`).join('');
+  return `<select class="modelista-select" onchange="onTelaBaseChange('${secId}','${itemId}',this)">
+    <option value="" ${!item.tela_nombre?'selected':''}>Sin elegir</option>
+    ${opts}
+    <option value="__nueva__">+ Agregar nueva…</option>
+  </select>`;
+}
+
+function onTelaBaseChange(secId,itemId,sel){
+  const item=sectionsData[secId].items[itemId];
+  if(sel.value==='__nueva__'){
+    const nombre=prompt('Nombre de la tela nueva:');
+    if(!nombre||!nombre.trim()){ sel.value=item.tela_nombre||''; return; }
+    const limpio=nombre.trim();
+    if(!telasList.includes(limpio)){
+      telasList=[...telasList,limpio];
+      db.ref('fabrica_v5/telas').set(telasList);
+    }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(limpio);
+    logActivity('Editó nombre de tela',limpio);
+    showToast('✓ Tela guardada');
+  } else {
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(sel.value||null);
+    logActivity('Editó nombre de tela',sel.value||'(sin elegir)');
+    showToast('✓ Tela guardada');
+  }
+}
+
 function editTelaNombre(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const val=prompt('Nombre de la tela:',item.tela_nombre||'');
@@ -3610,10 +3644,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <div style="display:flex;flex-direction:column;gap:6px">
               <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:11px;color:var(--text2);min-width:56px">Tela base</span>
-                ${item.tela_nombre
-                  ? `<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>`
-                  : `<span style="font-size:11px;color:var(--text3);font-style:italic">Sin nombre cargado</span>`}
-                ${canEdit?`<button class="btn-sm" onclick="editTelaNombre('${secId}','${itemId}')">${item.tela_nombre?'✏️ Editar':'+ Nombre'}</button>`:''}
+                ${buildTelaBaseHtml(secId,itemId,item,canEdit)}
               </div>
               <div style="display:flex;align-items:center;gap:8px">
                 <span style="font-size:11px;color:var(--text2);min-width:56px">Proveedor</span>

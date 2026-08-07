@@ -1524,6 +1524,7 @@ function buildMarcaHtml(secId,itemId,item){
   return `<div style="display:flex;align-items:center;gap:8px;margin-top:10px">
     <span class="modelista-label">Marca:</span>
     <select class="modelista-select" onchange="onMarcaChange('${secId}','${itemId}',this)">
+      <option value="" ${!item.marca?'selected':''}>— Sin asignar —</option>
       ${opts}
       <option value="__nueva__">+ Agregar nueva…</option>
     </select>

@@ -4159,7 +4159,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
               const refLabel=ref?` — Reponiendo: <strong>${ref.code?ref.code+' — ':''}${ref.name||''}</strong>`:'';
               return `<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Tipo: <strong>${item.reposicion?'Reposición':'Nuevo Desarrollo'}</strong>${refLabel}</div>`;
             })()
-          : `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+          : esArmarTizada
+            ? (item.reposicion?(()=>{
+                const ref=(item.reposicion_ref_sec&&sectionsData[item.reposicion_ref_sec])?sectionsData[item.reposicion_ref_sec].items?.[item.reposicion_ref_id]:null;
+                return `<div style="font-size:11px;color:var(--text2);margin-bottom:4px">🔁 Reposición${ref?` — <strong>${ref.code?ref.code+' — ':''}${ref.name||''}</strong>`:''}</div>`;
+              })():'')
+            : `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
           <div class="c-check ${item.reposicion?'checked':''}" onclick="${canFicha?`toggleReposicion('${secId}','${itemId}')`:''}">${item.reposicion?'✓':''}</div>
           <span class="c-label ${item.reposicion?'done':''}" style="font-size:11px">Reposición</span>
         </div>

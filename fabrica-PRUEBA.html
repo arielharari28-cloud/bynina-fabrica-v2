@@ -4370,8 +4370,52 @@ function openOrdenCorteModal(secId,itemId){
   // Precargar colores/capas ya guardados (si se está reeditando)
   const filasExistentes=Object.entries(item.capas||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
   ordenCtx.colores=filasExistentes.length?filasExistentes:[];
+  // Artículos/estampas de este corte (si va a DTF) — arranca con 1 fila usando el artículo y
+  // la foto del producto como base; se pueden agregar más filas si el corte se divide en varias
+  // estampas distintas (cada una con su propia foto), y las cantidades se reparten solas después.
+  ordenCtx.dtf=!!item.estampado_dtf;
+  ordenCtx.estampasArticulos=[{id:'a'+Date.now(),articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||''),img:item.foto||''}];
   renderOrdenCorteModal();
   document.getElementById('modal-orden-corte').classList.remove('hidden');
+}
+function ordenCorteToggleDtf(checked){
+  ordenCtx.dtf=checked;
+  renderOrdenCorteModal();
+}
+function ordenCorteAddArticulo(){
+  ordenCtx.estampasArticulos.push({id:'a'+Date.now()+Math.random().toString(36).slice(2,5),articulo:'',img:''});
+  renderOrdenCorteModal();
+}
+function ordenCorteRemoveArticulo(id){
+  ordenCtx.estampasArticulos=ordenCtx.estampasArticulos.filter(a=>a.id!==id);
+  renderOrdenCorteModal();
+}
+function ordenCorteUpdateArticuloNombre(id,val){
+  const a=ordenCtx.estampasArticulos.find(a=>a.id===id);
+  if(a) a.articulo=val;
+}
+function ordenCorteTriggerArticuloFoto(id){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept='image/*';
+  input.onchange=(e)=>{ if(e.target.files[0]) ordenCorteUploadArticuloFoto(id,e.target.files[0]); };
+  input.click();
+}
+async function ordenCorteUploadArticuloFoto(id,file){
+  showToast('📤 Subiendo foto...');
+  const formData=new FormData();
+  formData.append('file',file);
+  formData.append('upload_preset',CLOUDINARY_PRESET);
+  try{
+    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+    const data=await res.json();
+    if(data.secure_url){
+      const a=ordenCtx.estampasArticulos.find(a=>a.id===id);
+      if(a) a.img=data.secure_url;
+      renderOrdenCorteModal();
+      showToast('✓ Foto cargada');
+    } else showToast('✗ Error al subir foto');
+  }catch(e){ showToast('✗ Error al subir foto'); }
 }
 function ordenCorteAddColorFromInput(){
   const inp=document.getElementById('oc-color-input');
@@ -4461,9 +4505,18 @@ function renderOrdenCorteModal(){
     <button class="btn-sm" onclick="ordenCorteAddColorFromInput()" style="width:100%;padding:8px">+ Agregar color</button>
     ${tableHtml}
     <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-      <input type="checkbox" id="oc-dtf-check" ${sectionsData[ordenCtx.secId]?.items?.[ordenCtx.itemId]?.estampado_dtf?'checked':''} style="width:16px;height:16px">
+      <input type="checkbox" id="oc-dtf-check" ${ordenCtx.dtf?'checked':''} onchange="ordenCorteToggleDtf(this.checked)" style="width:16px;height:16px">
       <label for="oc-dtf-check" style="font-size:12px;cursor:pointer">🎨 Este corte va a estampado DTF</label>
     </div>
+    ${ordenCtx.dtf?`<div style="margin-top:10px">
+      <div class="oc-hint" style="margin-bottom:6px">Artículos/estampas de este corte — si se divide en varios diseños distintos, agregá una fila por cada uno con su foto. Las cantidades se reparten solas entre todos después.</div>
+      ${ordenCtx.estampasArticulos.map(a=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px;background:var(--surface2);border-radius:8px">
+        <div style="width:40px;height:40px;border-radius:6px;flex-shrink:0;background:var(--surface) center/cover no-repeat;${a.img?`background-image:url('${a.img}')`:''};display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px dashed var(--border2)" onclick="ordenCorteTriggerArticuloFoto('${a.id}')">${a.img?'':'📷'}</div>
+        <input type="text" value="${(a.articulo||'').replace(/"/g,'&quot;')}" placeholder="Nombre del artículo" oninput="ordenCorteUpdateArticuloNombre('${a.id}',this.value)" style="flex:1;font-size:12px;padding:6px 8px;border:1px solid var(--border2);border-radius:6px">
+        <button class="btn-danger" style="padding:4px 8px;font-size:11px" onclick="ordenCorteRemoveArticulo('${a.id}')">✕</button>
+      </div>`).join('')}
+      <button class="btn-sm" onclick="ordenCorteAddArticulo()">+ Agregar artículo</button>
+    </div>`:''}
   `;
 }
 function saveOrdenCorte(){
@@ -4489,17 +4542,16 @@ function saveOrdenCorte(){
   logActivity('Orden de corte',`${item.code}: ${Object.keys(capasObj).length} color(es), ${totalGeneral} prendas`);
   // Definir acá si va a estampado DTF es el momento ideal (recién se cargaron los colores/capas).
   // Se puede cambiar de opinión después con el botón/insignia que queda en la card, pero no es lo ideal.
-  const dtfCheck=document.getElementById('oc-dtf-check');
-  if(dtfCheck&&dtfCheck.checked&&!item.estampado_dtf){
-    crearEstampadoDesdeOrden(secId,itemId,capasObj,{...item,tela_nombre:item.tela_nombre,tela:item.tela});
-  } else if(dtfCheck&&!dtfCheck.checked&&item.estampado_dtf){
+  if(ordenCtx.dtf&&!item.estampado_dtf){
+    crearEstampadoDesdeOrden(secId,itemId,capasObj,{...item},ordenCtx.estampasArticulos);
+  } else if(!ordenCtx.dtf&&item.estampado_dtf){
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({estampado_dtf:false,estampado_id:null});
     logActivity('Desmarcó estampado DTF (desde Orden de corte)',item.code);
   }
   document.getElementById('modal-orden-corte').classList.add('hidden');
   showToast('📋 Orden de corte guardada');
 }
-async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item){
+async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item,articulos){
   const filas=Object.values(capasObj||{}).filter(r=>r.color);
   const fotos={};
   filas.forEach(r=>{
@@ -4507,16 +4559,19 @@ async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item){
     const fid=db.ref('fabrica_v5/estampados').push().key;
     fotos[fid]={color:r.color,estampaColor:'',cant};
   });
-  // Se crea directo la primera estampa con el artículo y la foto del producto como punto de
-  // partida (Diseño la reemplaza por el arte real de la estampa si hace falta) — así arranca
-  // directo a armar dibujo/plancha en vez de tener que crear la estampa a mano primero.
+  // Se crean directo las estampas cargadas en el modal (una fila por cada artículo/diseño
+  // distinto, con su propia foto) — así Diseño arranca directo a trabajar en vez de tener que
+  // crearlas a mano una por una. Las cantidades por color se reparten solas entre todas.
   const estampas={};
-  const eid=db.ref('fabrica_v5/estampados').push().key;
-  estampas[eid]={
-    articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||'(sin nombre)'),
-    estado:'dibujo',
-    img:item.foto||''
-  };
+  const lista=(articulos&&articulos.length)?articulos:[{articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||''),img:item.foto||''}];
+  lista.forEach(a=>{
+    const eid=db.ref('fabrica_v5/estampados').push().key;
+    estampas[eid]={
+      articulo:(a.articulo||'').trim()||(item.code?`${item.code} — ${item.name||''}`:(item.name||'(sin nombre)')),
+      estado:'dibujo',
+      img:a.img||''
+    };
+  });
   const newRef=db.ref('fabrica_v5/estampados').push();
   const estId=newRef.key;
   await newRef.set({

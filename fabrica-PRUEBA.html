@@ -1839,12 +1839,18 @@ function getResponsable(sec,item,secId){
   const tipo=sec.tipo||'';
   if(tipo==='mejora') return item.mejora_resuelta?null:'Peque';
   if(tipo==='muestra_prep'){
-    if(!item.code||!item.code.trim()) return 'Peque';
-    if(!item.en_ninox) return 'Peque';
-    if(!item.ficha_link) return 'Peque';
-    if(!(item.control_ariel||item.control_stef)) return 'Ariel';
-    if(!item.modelista&&!item.base_aprobada) return 'Ariel y Stef';
-    return 'Peque'; // modelista/base ya lista: falta que Peque envíe a moldería o a corte
+    if(!stefCompletoNuevoDesarrollo(item)) return 'Stef';
+    if(item.ficha_estado==='modificar') return 'Peque';
+    if(!pequeCompletoNuevoDesarrollo(item)) return 'Peque';
+    if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ariel y Stef';
+    if(!(item.control_ariel||item.control_stef)) return 'Ariel y Stef';
+    if(item.base_aprobada){
+      if(!(item.base_ref_id||item.base_ref_manual)) return 'Peque';
+      return 'Peque';
+    }
+    if(!item.modelista) return 'Peque';
+    if(item.modelista==='Adela'&&!item.tela_entregada) return 'Peque';
+    return 'Peque'; // modelista ya asignado: falta que Peque envíe a moldería
   }
   if(tipo==='muestra_molderia'){
     if(!item.foto_drive_ok) return 'Peque';
@@ -1889,18 +1895,30 @@ function getProximaAccion(sec,item,secId){
     return item.mejora_resuelta?null:'Falta resolver la mejora';
   }
   if(tipo==='muestra_prep'){
-    if(!item.code||!item.code.trim()) return 'Falta cargar el código';
+    if(!stefCompletoNuevoDesarrollo(item)){
+      const falta=[];
+      if(!(item.name&&item.name.trim())) falta.push('nombre');
+      if(!(item.tela_nombre&&item.tela_nombre.trim())) falta.push('tela base');
+      if(!(item.tela_proveedor&&item.tela_proveedor.trim())) falta.push('proveedor');
+      if(!item.marca) falta.push('marca');
+      if(!item.categoria) falta.push('categoría');
+      if(!item.temporada) falta.push('temporada');
+      return `Falta cargar (Stef): ${falta.join(', ')}`;
+    }
     if(item.ficha_estado==='modificar') return 'Falta corregir la ficha técnica pedida';
-    if(!item.en_ninox) return 'Falta cargar en Ninox';
-    if(!item.ficha_link) return 'Falta subir la ficha técnica';
+    if(!pequeCompletoNuevoDesarrollo(item)){
+      if(!item.code||!item.code.trim()) return 'Falta cargar el código';
+      if(!item.en_ninox) return 'Falta cargar en Ninox';
+      return 'Falta subir la ficha técnica';
+    }
     if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ficha corregida — esperando que Ariel/Stef la controlen';
     if(!(item.control_ariel||item.control_stef)) return 'Esperando control de ficha (Ariel/Stef)';
-    if(!item.modelista&&!item.base_aprobada) return 'Falta asignar modelista';
-    if(item.modelista==='Adela'&&!item.tela_entregada) return 'Falta tildar Tela separada';
     if(item.base_aprobada){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Falta elegir de qué base sale';
       return 'Falta enviar a Pendiente armar tizada (base ya aprobada, sin moldería)';
     }
+    if(!item.modelista) return 'Falta asignar modelista';
+    if(item.modelista==='Adela'&&!item.tela_entregada) return 'Falta tildar Tela separada';
     return `Falta enviar a moldería · Modelista: ${item.modelista}`;
   }
   if(tipo==='muestra_molderia'){
@@ -2191,7 +2209,7 @@ function backfillPasosNuevoDesarrollo(){
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     if(sec.tipo!=='muestra_prep') return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      const stefCompleta=!!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada;
+      const stefCompleta=stefCompletoNuevoDesarrollo(item);
       if(stefCompleta&&!item.fecha_paso_ingreso) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=ahora;
       if(item.code&&item.code.trim()&&item.en_ninox&&item.ficha_link&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
       if((item.control_ariel||item.control_stef)&&!item.fecha_paso_control) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_control`]=ahora;
@@ -3191,12 +3209,21 @@ function diasEntreTs(a,b){
 // Marca automáticamente cuándo se completó cada macro-paso del proceso de Nuevos Desarrollos,
 // comparando el item actual con el "patch" recién escrito (el listener de Firebase todavía no
 // actualizó sectionsData en este momento, por eso se arma un merge manual acá).
+// Criterio único de "¿ya completó lo suyo?" para Stef y Peque en Nuevos Desarrollos —
+// usado por el panel de pasos, los backfills y la pestaña Pendientes, para que todos
+// coincidan siempre (antes cada uno tenía su propia copia y se desincronizaban).
+function stefCompletoNuevoDesarrollo(item){
+  return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada;
+}
+function pequeCompletoNuevoDesarrollo(item){
+  return !!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
+}
 function checkPasosNuevoDesarrollo(secId,itemId,patch){
   const sec=sectionsData[secId]; if(!sec||sec.tipo!=='muestra_prep') return;
   const item=sec.items[itemId]; if(!item) return;
   const merged={...item,...patch};
   const updates={};
-  const stefCompleta=!!(merged.name&&merged.name.trim())&&!!(merged.tela_nombre&&merged.tela_nombre.trim())&&!!(merged.tela_proveedor&&merged.tela_proveedor.trim())&&!!merged.marca&&!!merged.categoria&&!!merged.temporada;
+  const stefCompleta=stefCompletoNuevoDesarrollo(merged);
   if(stefCompleta&&!item.fecha_paso_ingreso) updates.fecha_paso_ingreso=Date.now();
   if(merged.code&&String(merged.code).trim()&&merged.en_ninox&&merged.ficha_link&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
   if((merged.control_ariel||merged.control_stef)&&!item.fecha_paso_control) updates.fecha_paso_control=Date.now();
@@ -3338,8 +3365,8 @@ function buildPasosPanelHtml(item,secId,itemId){
   // Se recalcula en vivo si Stef/Peque ya completaron sus campos, en vez de depender
   // exclusivamente de que algún backfill haya corrido a tiempo — así el panel nunca
   // se queda pegado en "Pendiente" aunque los datos ya estén completos.
-  const stefCompletaLive=!!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada;
-  const pequeCompletaLive=!!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
+  const stefCompletaLive=stefCompletoNuevoDesarrollo(item);
+  const pequeCompletaLive=pequeCompletoNuevoDesarrollo(item);
   const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompletaLive?(item.fecha_ingreso||now):null);
   const fechaPasoPeque=item.fecha_paso_peque||(pequeCompletaLive?(fechaPasoIngreso||now):null);
   if(secId&&itemId){

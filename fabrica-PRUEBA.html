@@ -2721,12 +2721,13 @@ function enviarACorte(secId,itemId){
   const newItem={...item,fecha_etapa:Date.now()};
   delete newItem.estado; // limpia el flag de "modificaciones" al reingresar al circuito
   if(item.modelista==='Adela'){
-    // Adela corta ella misma: se saltea "Muestras — pendiente corte" (Cortador) y entra directo como cortada.
-    newItem.ficha=false; newItem.lleva_avios=null; newItem.avios=item.avios||{};
-    db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
+    // Adela hace todo sola (corta y arma la muestra): se saltea Cortadas, Listas para taller
+    // y En taller — al marcarla entregada pasa directo a Diseño / Probar muestra.
+    newItem.fecha_entregada=Date.now();
+    db.ref(`fabrica_v5/sections/${SEC_DISENO}/items`).push(newItem);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-    logActivity('Enviada a corte (Adela corta directo)',item.code);
-    showToast(`✂️ ${item.code} pasó directo a Cortadas — la corta Adela`);
+    logActivity('Entregada (Adela hizo la muestra sola)',item.code);
+    showToast(`✅ ${item.code} pasó directo a Diseño / Probar muestra`);
     return;
   }
   db.ref(`fabrica_v5/sections/${SEC_PEND}/items`).push(newItem);
@@ -3810,7 +3811,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>
           ${refBox}
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="enviarACorte('${secId}','${itemId}')">✂️ ${item.modelista==='Adela'?'Ya corté — pasar a Cortadas':'Enviar a corte'}</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="enviarACorte('${secId}','${itemId}')">${item.modelista==='Adela'?'✅ Entregada — pasar a Diseño':'✂️ Enviar a corte'}</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}

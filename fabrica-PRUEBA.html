@@ -2243,29 +2243,28 @@ function backfillAvioPendienteEnTaller(){
     logActivity('Migró a Pendiente recibir avío',item.code);
   });
 }
-// Migración única: ítems de Moldería que ya tenían "foto_drive_ok" tildado de antes de que
-// tildar ese check pasara a mover el ítem directo a corte (o a Diseño si es Adela) — quedaron
-// pegados ahí porque el tilde ya estaba puesto y no volvió a dispararse el pasaje.
-let fotoDriveOkBackfillDone=false;
+// Migración única (y de una sola vez, marcada en Firebase para no repetirse): el check de
+// "foto_drive_ok" antes solo significaba "subí la foto a Drive", sin relación con si la
+// modelista entregó de verdad la prenda. Ahora tildarlo mueve el ítem directo — así que
+// cualquier ítem viejo que ya lo tuviera tildado por el motivo anterior hay que destildarlo,
+// para que quien corresponda lo vuelva a confirmar a mano (nunca movemos solos por las dudas).
+let fotoDriveOkResetChecking=false;
 function backfillFotoDriveOkPendiente(){
-  if(fotoDriveOkBackfillDone) return;
   if(!(currentUser==='ariel'||currentUser==='stef')) return;
-  fotoDriveOkBackfillDone=true;
-  Object.entries(sectionsData).forEach(([secId,sec])=>{
-    if(sec.tipo!=='muestra_molderia') return;
-    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(!item.foto_drive_ok) return;
-      const newItem={...item,fecha_etapa:Date.now()};
-      delete newItem.estado;
-      if(item.modelista==='Adela'){
-        newItem.fecha_entregada=Date.now();
-        db.ref(`fabrica_v5/sections/${SEC_DISENO}/items`).push(newItem);
-      } else {
-        db.ref(`fabrica_v5/sections/${SEC_PEND}/items`).push(newItem);
-      }
-      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-      logActivity('Backfill: destrabó entrega pendiente de moldería',item.code);
+  if(fotoDriveOkResetChecking) return;
+  fotoDriveOkResetChecking=true;
+  db.ref('fabrica_v5/meta/fotoDriveOkResetDone').once('value').then(snap=>{
+    if(snap.val()){ return; }
+    const updates={};
+    Object.entries(sectionsData).forEach(([secId,sec])=>{
+      if(sec.tipo!=='muestra_molderia') return;
+      Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+        if(item.foto_drive_ok) updates[`fabrica_v5/sections/${secId}/items/${itemId}/foto_drive_ok`]=false;
+      });
     });
+    updates['fabrica_v5/meta/fotoDriveOkResetDone']=true;
+    db.ref().update(updates);
+    logActivity('Backfill: destildó "foto en Drive" heredado en Moldería para que se confirme a mano','');
   });
 }
 db.ref('fabrica_v5/sections').on('value',snap=>{

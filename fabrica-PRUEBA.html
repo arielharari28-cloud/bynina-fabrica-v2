@@ -419,7 +419,7 @@
       <button class="add-sec-btn hidden" id="add-sec-btn-diseno">+ Nueva sección</button>
     </div>
     <div id="tab-fabrica" class="hidden">
-      <input type="text" class="search-input" id="search-input-fabrica" placeholder="Buscador por código o nombre" oninput="onSearchInput('fabrica',this.value)">
+      <input type="text" class="search-input" id="search-input-fabrica" placeholder="Buscador por código, nombre o N° de corte" oninput="onSearchInput('fabrica',this.value)">
       <div id="marca-filter-bar-fabrica" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
       <div id="sections-container-fabrica"><div class="loading">Conectando...</div></div>
       <button class="add-sec-btn hidden" id="add-sec-btn-fabrica">+ Nueva sección</button>
@@ -1963,11 +1963,34 @@ function backfillPasosCorte(){
   });
   if(Object.keys(updates).length) db.ref().update(updates);
 }
+
+// Migración única: cortes que ya estaban en "Cortes en talleres" (sFIN) de antes de que
+// existiera el sector "Pendiente recibir avío", con algún avío sin marcar recibido —
+// se mudan al sector nuevo para que Peque los tenga todos juntos.
+let avioPendienteBackfillDone=false;
+function backfillAvioPendienteEnTaller(){
+  if(avioPendienteBackfillDone) return;
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  const sec=sectionsData['sFIN'];
+  if(!sec) return;
+  avioPendienteBackfillDone=true;
+  ensureSeccionCorte('s6');
+  Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+    const avList=Object.values(item.avios||{});
+    const pendiente=avList.length>0 && !avList.every(a=>a.recibido);
+    if(!pendiente) return;
+    db.ref(`fabrica_v5/sections/s6/items`).push(item);
+    db.ref(`fabrica_v5/sections/sFIN/items/${itemId}`).remove();
+    logActivity('Migró a Pendiente recibir avío',item.code);
+  });
+}
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
+    ensureSeccionCorte('s6'); // Sector nuevo: que siempre exista y se vea aunque esté en 0.
     backfillFechasIngreso();
     backfillPasosNuevoDesarrollo();
     backfillPasosCorte();
+    backfillAvioPendienteEnTaller();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
@@ -2955,7 +2978,7 @@ function renderSections(board){
     }
     if(searchQuery){
       const q=searchQuery.trim().toLowerCase();
-      items=items.filter(([,item])=>(item.code||'').toLowerCase().includes(q)||(item.name||'').toLowerCase().includes(q));
+      items=items.filter(([,item])=>(item.code||'').toLowerCase().includes(q)||(item.name||'').toLowerCase().includes(q)||(item.numero_corte||'').toLowerCase().includes(q));
     }
     const count=items.length;
     const div=document.createElement('div');div.className='section';

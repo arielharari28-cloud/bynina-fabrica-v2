@@ -3331,17 +3331,37 @@ function buildPasosPanelCorteHtml(item){
 }
 
 
-function buildPasosPanelHtml(item){
+const pasosAutoFixed=new Set();
+function buildPasosPanelHtml(item,secId,itemId){
   const now=Date.now();
+  // Se recalcula en vivo si Stef/Peque ya completaron sus campos, en vez de depender
+  // exclusivamente de que algún backfill haya corrido a tiempo — así el panel nunca
+  // se queda pegado en "Pendiente" aunque los datos ya estén completos.
+  const stefCompletaLive=!!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada;
+  const pequeCompletaLive=!!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
+  const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompletaLive?(item.fecha_ingreso||now):null);
+  const fechaPasoPeque=item.fecha_paso_peque||(pequeCompletaLive?(fechaPasoIngreso||now):null);
+  if(secId&&itemId){
+    const key=secId+'/'+itemId;
+    if(!pasosAutoFixed.has(key)){
+      const upd={};
+      if(stefCompletaLive&&!item.fecha_paso_ingreso) upd[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=fechaPasoIngreso;
+      if(pequeCompletaLive&&!item.fecha_paso_peque) upd[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=fechaPasoPeque;
+      if(Object.keys(upd).length){
+        pasosAutoFixed.add(key);
+        db.ref().update(upd);
+      }
+    }
+  }
   const pasos=item.base_aprobada?[
-    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:item.fecha_paso_ingreso },
-    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
-    { label:'Control de ficha', resp:'Ariel / Stef', start:item.fecha_paso_peque, end:item.fecha_paso_control },
+    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
+    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
+    { label:'Control de ficha', resp:'Ariel / Stef', start:fechaPasoPeque, end:item.fecha_paso_control },
     { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_control, end:null }
   ]:[
-    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:item.fecha_paso_ingreso },
-    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
-    { label:'Control de ficha', resp:'Ariel / Stef', start:item.fecha_paso_peque, end:item.fecha_paso_control },
+    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
+    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
+    { label:'Control de ficha', resp:'Ariel / Stef', start:fechaPasoPeque, end:item.fecha_paso_control },
     { label:'Elegir modelista', resp:'Peque', start:item.fecha_paso_control, end:item.fecha_paso_modelista },
     { label:'Enviar a moldería', resp:'Peque', start:item.fecha_paso_modelista, end:null }
   ];
@@ -4131,7 +4151,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>
         </div>
       </div>
-      ${buildPasosPanelHtml(item)}
+      ${buildPasosPanelHtml(item,secId,itemId)}
     </div>`;
   }
 

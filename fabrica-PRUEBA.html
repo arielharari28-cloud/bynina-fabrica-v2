@@ -4218,7 +4218,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canControlFichaCorreccion?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
           <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
         </div>`:''}
-        ${!POST_S3_SECS.includes(secId)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+        ${(!POST_S3_SECS.includes(secId)&&!esArmarTizada)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>
           <span class="c-label ${item.base_aprobada?'done':''}" style="font-size:11px">🔁 Base ya aprobada (molde ya existe)</span>
         </div>`:''}
@@ -4981,12 +4981,18 @@ function confirmRepoAdd(){
   const ahora=Date.now();
   const ni={
     code:ref.code||'',name:ref.name||'',marca:ref.marca||'',tela:ref.tela||'',
+    foto:ref.foto||'',
+    ficha_link:ref.ficha_link||'',
+    control_piezas_link:ref.control_piezas_link||'',
+    en_ninox:true,
+    base_aprobada:true,
+    base_ref_sec:refSec,base_ref_id:refId,
     reposicion:true,reposicion_ref_sec:refSec,reposicion_ref_id:refId,
     done:false,avios:{},fecha_ingreso:ahora,fecha_etapa:ahora
   };
   db.ref(`fabrica_v5/sections/${repoAddSecId}/items`).push(ni);
   logActivity('Agregó ítem (reposición)',ref.code||ref.name||'');
-  showToast('✓ Reposición agregada');
+  showToast('✓ Reposición agregada — falta Curva, Ancho y armar la tizada');
   closeRepoAddModal();
 }
 document.getElementById('close-modal-repo').onclick=closeRepoAddModal;

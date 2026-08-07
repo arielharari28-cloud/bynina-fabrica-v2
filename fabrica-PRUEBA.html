@@ -2598,21 +2598,35 @@ function deshacerModificacionMolderia(secId,itemId){
 function corregirFichaYEnviarCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.foto_drive_ok){ showToast('Falta cargar la foto en Drive antes de enviar a corte'); return; }
-  if(!confirm(`¿Confirmás que el molde de ${item.code} ya está corregido y que ${item.code} puede pasar directo a Producción/Corte (solo falta ajustar la ficha técnica)?`)) return;
+  if(!confirm(`¿Confirmás que el molde de ${item.code} ya está corregido? Pasa a Pendiente armar tizada — falta ajustar la ficha técnica y que Ariel/Stef la vuelvan a controlar antes de seguir a corte.`)) return;
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
   const notaCorreccion=`🔧 Molde corregido en moldería, sin nueva muestra — pendiente ajustar ficha: ${(item.modificaciones||'').trim()}`;
   const newItem={...item,
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
+    base_aprobada:true,
+    ficha_control_pendiente:true,
     fecha_aprobada:Date.now(),
+    fecha_ingreso:Date.now(),
     fecha_etapa:Date.now()};
   delete newItem.estado;
   delete newItem.modificaciones;
-  if(!sectionsData['s3']||!sectionsData['s3'].title){
-    db.ref('fabrica_v5/sections/s3').update({title:'Cortes próximos a sacar',color:'accent',order:4,collapsed:false});
-  }
-  db.ref(`fabrica_v5/sections/s3/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Molde corregido sin nueva muestra — directo a corte',item.code);
-  showToast(`✅ ${item.code} pasó directo a Producción/Corte — falta ajustar ficha`);
+  logActivity('Molde corregido sin nueva muestra — a Pendiente armar tizada',item.code);
+  showToast(`✅ ${item.code} pasó a Pendiente armar tizada — falta ajustar y volver a controlar la ficha`);
+}
+
+// Control de ficha corregida (molde ya corregido en moldería) — vuelve a pedir un ok de
+// Ariel/Stef una vez que Peque ajustó la ficha, antes de dejarlo avanzar a corte.
+function toggleControlFichaCorregida(secId,itemId,campo){
+  const item=sectionsData[secId].items[itemId];
+  if(!item.ficha_link){ showToast('Cargá la ficha corregida primero'); return; }
+  const nv=!(item[campo]||false);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/${campo}`).set(nv);
+  if(nv) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/ficha_control_pendiente`).set(false);
+  logActivity(`Control ficha corregida ${nv?'✓':'✗'}`,item.code);
+  showToast(nv?'✅ Ficha corregida controlada':'↩ Deshecho');
 }
 
 function toggleTelaEntregada(secId,itemId){
@@ -4086,6 +4100,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canToggle=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
   const canCortar=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='nahuel';
+  const canControlFichaCorreccion=(currentUser==='ariel'||currentUser==='stef');
   // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
@@ -4198,6 +4213,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div class="c-check ${item.en_ninox?'checked':''}" onclick="${canFicha?`toggleNinox('${secId}','${itemId}')`:''}">${item.en_ninox?'✓':''}</div>
           <span class="c-label ${item.en_ninox?'done':''}" style="font-size:11px">Cargado en Ninox</span>
         </div>`:''}
+        ${item.ficha_control_pendiente?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
+          <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">🔧 Molde corregido — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
+          ${canControlFichaCorreccion?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
+          <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
+        </div>`:''}
         ${!POST_S3_SECS.includes(secId)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>
           <span class="c-label ${item.base_aprobada?'done':''}" style="font-size:11px">🔁 Base ya aprobada (molde ya existe)</span>
@@ -4208,6 +4228,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           if(esArmarTizada){
             faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
           }
+          if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida');
           const list=faltantes.filter(Boolean);
           if(!list.length) return '';
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
@@ -4980,7 +5001,8 @@ function moveItem(secId,itemId,targetSecId){
   if(targetSecId==='s3'){
     const esArmarTizada=(sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
     const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null,
-      ...(esArmarTizada?[!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null]:[])
+      ...(esArmarTizada?[!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null]:[]),
+      item.ficha_control_pendiente?'Control de ficha corregida':null
     ].filter(Boolean);
     if(faltantes.length){
       showToast(`⏳ Pendiente completar Peque: falta ${faltantes.join(', ')}`);

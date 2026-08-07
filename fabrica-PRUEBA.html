@@ -3146,25 +3146,27 @@ function procesoInfoHtml(item,secId,itemId){
   }
   let html='';
   if(parts.length) html+=`<div style="font-size:11px;color:var(--text2);margin-top:4px">${parts.join(' &nbsp;·&nbsp; ')}</div>`;
-  // Botón/insignia de Estampado DTF: solo aplica al flujo de Fábrica (cortes de producción),
-  // desde "Cortes próximos a sacar" hasta "Cortes Finalizados" — nunca en Diseño/Muestras.
-  if(secId&&itemId&&POST_S3_SECS.includes(secId)){
-    if(item.estampado_dtf){
-      const linkOk=item.estampado_id&&estampadosData[item.estampado_id];
-      html+=linkOk
-        ? `<div class="estampado-badge-wrap">
-             <span class="estampado-badge" onclick="irAEstampado('${secId}','${itemId}')" title="Tocá para ver/editar en la pestaña Estampas">🎨 En Estampas ✓</span>
-             <button class="estampado-x" title="Quitar la marca" onclick="event.stopPropagation();desmarcarEstampadoDTF('${secId}','${itemId}')">✕</button>
-           </div>`
-        : `<div class="estampado-badge-wrap" style="background:var(--danger-bg)">
-             <span class="estampado-badge" style="color:var(--danger)" onclick="irAEstampado('${secId}','${itemId}')" title="El corte ya no existe en Estampas — tocá para crear uno nuevo">⚠️ Se borró en Estampas</span>
-             <button class="estampado-x" title="Quitar aviso" onclick="event.stopPropagation();desmarcarEstampadoDTF('${secId}','${itemId}')">✕</button>
-           </div>`;
-    } else {
-      html+=`<button class="btn-sm estampado-btn" onclick="irAEstampado('${secId}','${itemId}')">🎨 Marcar para estampado DTF</button>`;
-    }
-  }
   return html;
+}
+
+// Badge/botón de Estampado DTF: lo ideal es definirlo al cargar la Orden de corte (ahí aparece
+// el checkbox), esto de acá es solo para poder cambiar de opinión después sin tener que volver
+// a abrir esa orden — por eso va más abajo en la card, no arriba de todo.
+function estampadoBadgeHtml(item,secId,itemId){
+  if(!(secId&&itemId&&POST_S3_SECS.includes(secId))) return '';
+  if(item.estampado_dtf){
+    const linkOk=item.estampado_id&&estampadosData[item.estampado_id];
+    return linkOk
+      ? `<div class="estampado-badge-wrap">
+           <span class="estampado-badge" onclick="irAEstampado('${secId}','${itemId}')" title="Tocá para ver/editar en la pestaña Estampas">🎨 En Estampas ✓</span>
+           <button class="estampado-x" title="Quitar la marca" onclick="event.stopPropagation();desmarcarEstampadoDTF('${secId}','${itemId}')">✕</button>
+         </div>`
+      : `<div class="estampado-badge-wrap" style="background:var(--danger-bg)">
+           <span class="estampado-badge" style="color:var(--danger)" onclick="irAEstampado('${secId}','${itemId}')" title="El corte ya no existe en Estampas — tocá para crear uno nuevo">⚠️ Se borró en Estampas</span>
+           <button class="estampado-x" title="Quitar aviso" onclick="event.stopPropagation();desmarcarEstampadoDTF('${secId}','${itemId}')">✕</button>
+         </div>`;
+  }
+  return `<button class="btn-sm estampado-btn" onclick="irAEstampado('${secId}','${itemId}')">🎨 Marcar para estampado DTF</button>`;
 }
 
 function checkListaParaTaller(secId,itemId,ficha,llevaAvios,avios){
@@ -4240,6 +4242,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         })()}
         ${(secId==='sLT'||secId==='sFIN')?buildTallerCorteHtml(secId,itemId,item):''}
         ${numeroCorteHtml}
+        ${estampadoBadgeHtml(item,secId,itemId)}
         ${sinConfirmarHtml}
         ${capasHtml}
         ${rollosHtml}
@@ -4450,6 +4453,10 @@ function renderOrdenCorteModal(){
     </div>
     <button class="btn-sm" onclick="ordenCorteAddColorFromInput()" style="width:100%;padding:8px">+ Agregar color</button>
     ${tableHtml}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <input type="checkbox" id="oc-dtf-check" ${sectionsData[ordenCtx.secId]?.items?.[ordenCtx.itemId]?.estampado_dtf?'checked':''} style="width:16px;height:16px">
+      <label for="oc-dtf-check" style="font-size:12px;cursor:pointer">🎨 Este corte va a estampado DTF</label>
+    </div>
   `;
 }
 function saveOrdenCorte(){
@@ -4473,8 +4480,42 @@ function saveOrdenCorte(){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   const totalGeneral=Object.values(capasObj).reduce((s,r)=>s+Object.values(r.cant).reduce((a,b)=>a+b,0),0);
   logActivity('Orden de corte',`${item.code}: ${Object.keys(capasObj).length} color(es), ${totalGeneral} prendas`);
+  // Definir acá si va a estampado DTF es el momento ideal (recién se cargaron los colores/capas).
+  // Se puede cambiar de opinión después con el botón/insignia que queda en la card, pero no es lo ideal.
+  const dtfCheck=document.getElementById('oc-dtf-check');
+  if(dtfCheck&&dtfCheck.checked&&!item.estampado_dtf){
+    crearEstampadoDesdeOrden(secId,itemId,capasObj,{...item,tela_nombre:item.tela_nombre,tela:item.tela});
+  } else if(dtfCheck&&!dtfCheck.checked&&item.estampado_dtf){
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({estampado_dtf:false,estampado_id:null});
+    logActivity('Desmarcó estampado DTF (desde Orden de corte)',item.code);
+  }
   document.getElementById('modal-orden-corte').classList.add('hidden');
   showToast('📋 Orden de corte guardada');
+}
+async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item){
+  const filas=Object.values(capasObj||{}).filter(r=>r.color);
+  const fotos={};
+  filas.forEach(r=>{
+    const cant=Object.values(r.cant||{}).reduce((a,b)=>a+(parseInt(b)||0),0);
+    const fid=db.ref('fabrica_v5/estampados').push().key;
+    fotos[fid]={color:r.color,estampaColor:'',cant};
+  });
+  const newRef=db.ref('fabrica_v5/estampados').push();
+  const estId=newRef.key;
+  await newRef.set({
+    numero:item.numero_corte||item.code||item.name||'(sin código)',
+    tela:item.tela_nombre||item.tela||'',
+    coloresImg:'',
+    fotos,
+    estampas:{},
+    fecha_creado:Date.now(),
+    link_secId:secId,
+    link_itemId:itemId
+  });
+  await db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    estampado_dtf:true, estampado_id:estId, estampado_dtf_fecha:Date.now()
+  });
+  logActivity('Creó corte en Estampas (desde Orden de corte)',item.code||item.name);
 }
 document.getElementById('close-modal-orden-corte').onclick=()=>document.getElementById('modal-orden-corte').classList.add('hidden');
 document.getElementById('cancel-modal-orden-corte').onclick=()=>document.getElementById('modal-orden-corte').classList.add('hidden');

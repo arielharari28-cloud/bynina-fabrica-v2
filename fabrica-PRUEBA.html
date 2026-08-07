@@ -3542,6 +3542,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNameHtml(secId,itemId,item,canEdit)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text2)">Color: <strong>${item.color||'—'}</strong></span>
+            <span style="font-size:11px;color:var(--text2)">Talle: <strong>${item.talle||'—'}</strong></span>
+            ${canCheck?`<button class="btn-sm" onclick="editColorPrompt('${secId}','${itemId}')">✏️ Color</button>`:''}
+            ${canCheck?`<button class="btn-sm" onclick="editTallePrompt('${secId}','${itemId}')">✏️ Talle</button>`:''}
+          </div>
           ${buildRefLinkHtml(secId,itemId,item,canEdit)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
           <div class="cortada-panel">

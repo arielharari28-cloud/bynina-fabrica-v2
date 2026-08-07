@@ -2090,6 +2090,18 @@ function doLogin(user){
     document.getElementById('tab-fabrica').classList.remove('hidden');
   }
   startListening();
+  // Los backfills de más abajo dependen de currentUser, pero el listener de fabrica_v5/sections
+  // arranca antes del login (cuando currentUser todavía es null) — por eso nunca llegaban a
+  // correr si no había otro cambio de datos que volviera a disparar el listener. Los repetimos
+  // acá, ya logueados, usando los datos que ya están cargados.
+  setTimeout(()=>{
+    backfillFechasIngreso();
+    backfillPasosNuevoDesarrollo();
+    backfillPasosCorte();
+    backfillBaseAprobadaTizada();
+    backfillAvioPendienteEnTaller();
+    backfillFotoDriveOkPendiente();
+  },300);
 }
 function doLogout(){
   currentUser=null;

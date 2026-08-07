@@ -277,6 +277,7 @@
   .item-name-edit:empty:before{content:'+ agregar nombre';color:var(--text3);font-style:italic}
   .item-name-edit-input{font-size:12px;border:1px solid var(--accent);border-radius:4px;padding:2px 6px;width:100%;margin-top:2px;background:var(--surface)}
   .item-name.big,.item-name-edit.big{font-size:17px;font-weight:700;color:var(--text);margin-top:4px}
+  .item-code-edit:empty:before{content:'+ agregar código';color:var(--text3);font-style:italic;font-weight:400}
 
   .stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
   .search-input{width:100%;box-sizing:border-box;font-size:13px;border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:var(--bg);color:var(--text);margin-bottom:10px}
@@ -571,7 +572,7 @@
   <div class="modal">
     <div class="modal-header"><span class="modal-title">Agregar nuevo artículo desde base</span><button class="modal-close" id="close-modal-base-add">×</button></div>
     <div class="modal-body">
-      <div class="field"><label>Código nuevo</label><input type="text" id="base-add-code" placeholder="Código del artículo nuevo…"></div>
+      <div class="field"><label>Nombre de la prenda</label><input type="text" id="base-add-name" placeholder="Ej: Camisa Vila…"></div>
       <div class="field"><label>Base (molde ya aprobado)</label>
         <select id="base-add-select">
           <option value="">Elegir producto…</option>
@@ -579,6 +580,7 @@
         </select>
       </div>
       <div class="field" id="base-add-manual-wrap" style="display:none"><label>Base manual (código/nombre)</label><input type="text" id="base-add-manual"></div>
+      <div class="field"><label>Código (opcional — lo puede cargar Peque después)</label><input type="text" id="base-add-code" placeholder="Si todavía no lo tenés, dejalo vacío…"></div>
     </div>
     <div class="modal-footer"><button class="btn-secondary" id="cancel-modal-base-add">Cancelar</button><button class="btn-primary" id="save-modal-base-add">Crear</button></div>
   </div>
@@ -4328,8 +4330,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
             const ref=(item.reposicion_ref_sec&&sectionsData[item.reposicion_ref_sec])?sectionsData[item.reposicion_ref_sec].items?.[item.reposicion_ref_id]:null;
             return ref?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Reponiendo: <strong>${ref.code?ref.code+' — ':''}${ref.name||''}</strong></div>`:'';
           })()):''}`}
-        ${buildCodeHtml(secId,itemId,item,canEdit)}
-        ${buildNameHtml(secId,itemId,item,canEdit)}
+        ${item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
+        ${buildNameHtml(secId,itemId,item,canEdit,!item.code)}
+        ${!item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
         ${buildTelaBaseLineHtml(item)}
         ${item.sub?`<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:1px">${item.sub}</div>`:''}
         ${procesoInfoHtml(item,secId,itemId)}
@@ -5364,6 +5367,7 @@ function openBaseAddModal(secId){
   const opts=buildProductosPerfectosOptions();
   const sel=document.getElementById('base-add-select');
   sel.innerHTML='<option value="">Elegir producto…</option><option value="__manual__">+ Base manual (no está en la lista)…</option>'+opts.map(o=>`<option value="${o.secId}::${o.itemId}">${o.label}</option>`).join('');
+  document.getElementById('base-add-name').value='';
   document.getElementById('base-add-code').value='';
   document.getElementById('base-add-manual').value='';
   document.getElementById('base-add-manual-wrap').style.display='none';
@@ -5375,10 +5379,17 @@ function closeBaseAddModal(){
 }
 document.getElementById('base-add-select').onchange=function(){
   document.getElementById('base-add-manual-wrap').style.display=(this.value==='__manual__')?'':'none';
+  if(this.value&&this.value!=='__manual__'){
+    const [refSec,refId]=this.value.split('::');
+    const ref=sectionsData[refSec]?.items?.[refId];
+    const nameInp=document.getElementById('base-add-name');
+    if(ref&&ref.name&&!nameInp.value.trim()) nameInp.value=ref.name;
+  }
 };
 function confirmBaseAdd(){
+  const name=(document.getElementById('base-add-name').value||'').trim();
+  if(!name){ showToast('Falta el nombre de la prenda'); return; }
   const code=(document.getElementById('base-add-code').value||'').trim();
-  if(!code){ showToast('Falta el código nuevo'); return; }
   const sel=document.getElementById('base-add-select');
   if(!sel.value){ showToast('Elegí de qué base sale'); return; }
   let refSec=null,refId=null,refManual=null,ref=null;
@@ -5393,7 +5404,7 @@ function confirmBaseAdd(){
   const ahora=Date.now();
   const ni={
     code,
-    name:ref?.name||'',
+    name,
     marca:ref?.marca||(marcasList&&marcasList[0])||'By Nina',
     tela:ref?.tela||null,
     foto:ref?.foto||'',
@@ -5403,8 +5414,8 @@ function confirmBaseAdd(){
     done:false,avios:{},fecha_ingreso:ahora,fecha_etapa:ahora
   };
   db.ref(`fabrica_v5/sections/${baseAddSecId}/items`).push(ni);
-  logActivity('Agregó artículo nuevo desde base (sin moldería)',`${code} ← ${ref?.code||ref?.name||refManual||''}`);
-  showToast('✓ Artículo agregado — falta Ficha, Curva, Ancho, Control de piezas y Ninox');
+  logActivity('Agregó artículo nuevo desde base (sin moldería)',`${name} ← ${ref?.code||ref?.name||refManual||''}`);
+  showToast(code?'✓ Artículo agregado — falta Ficha, Curva, Ancho, Control de piezas y Ninox':'✓ Artículo agregado — falta código (Peque), Ficha, Curva, Ancho, Control de piezas y Ninox');
   closeBaseAddModal();
 }
 document.getElementById('close-modal-base-add').onclick=closeBaseAddModal;

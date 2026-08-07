@@ -1840,7 +1840,10 @@ function getProximaAccion(sec,item,secId){
     if(!item.foto_drive_ok) return 'Falta cargar la foto en Drive';
     return `Falta enviar a corte · Modelista: ${item.modelista||'sin asignar'}`;
   }
-  if(tipo==='muestra_pend') return 'Falta armar la tizada / orden de corte';
+  if(tipo==='muestra_pend'){
+    if(!item.color||!item.talle) return 'Falta cargar Color y/o Talle antes de cortar';
+    return 'Falta marcar cortada';
+  }
   if(tipo==='muestra_cort'){
     if(!item.ficha) return 'Falta marcar la Ficha Producto como lista';
     if(item.lleva_avios===null||item.lleva_avios===undefined) return 'Falta definir si lleva avíos';
@@ -2257,6 +2260,7 @@ function reactivarMuestra(secId,itemId){
 
 function moverACortada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(!item.color||!item.talle){ showToast('Falta cargar Color y/o Talle antes de marcar cortada'); return; }
   const newItem={...item,ficha:false,lleva_avios:null,avios:item.avios||{},fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -2419,6 +2423,18 @@ function editColorPrompt(secId,itemId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   logActivity('Editó color',trimmed||'(vacío)');
   showToast('✓ Color guardado');
+}
+
+function editTallePrompt(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const val=prompt('Talle de la muestra:',item.talle||'');
+  if(val===null) return;
+  const trimmed=val.trim();
+  const updates={talle:trimmed};
+  updates.talle_set_by = trimmed ? (USER_DISPLAY[currentUser]||currentUser) : null;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
+  logActivity('Editó talle',trimmed||'(vacío)');
+  showToast('✓ Talle guardado');
 }
 
 function editNotasPrompt(secId,itemId){
@@ -3467,13 +3483,20 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editColorPrompt('${secId}','${itemId}')">${item.color?'✏️ Editar':'+ Color'}</button>`:''}
           </div>
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
+            <span class="modelista-label">Talle:</span>
+            ${item.talle
+              ? `<span style="font-size:12px;font-weight:600">${item.talle}</span><span style="font-size:10px;color:var(--text3)">(cargado por ${item.talle_set_by||'—'})</span>`
+              : `<span style="font-size:12px;color:var(--warn-text);font-style:italic">⚠️ Sin talle</span>`}
+            ${canCheck?`<button class="btn-sm" onclick="editTallePrompt('${secId}','${itemId}')">${item.talle?'✏️ Editar':'+ Talle'}</button>`:''}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
             ${item.ficha_link
               ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
               : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
+            ${canEdit?`<button class="btn-advance" ${(item.color&&item.talle)?'':'disabled'} title="${(item.color&&item.talle)?'':'Falta cargar Color y/o Talle'}" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}

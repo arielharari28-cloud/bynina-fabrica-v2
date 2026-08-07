@@ -1856,6 +1856,11 @@ function getProximaAccion(sec,item,secId){
   }
   if(tipo==='muestra_lista') return 'Falta elegir taller y enviar';
   if(tipo==='muestra_en_taller') return 'Esperando que el taller entregue';
+  if(tipo==='muestra_diseno'){
+    const fotos=Object.keys(item.fotos_prueba||{});
+    if(!fotos.length) return 'Falta cargar foto de cómo queda puesta';
+    return 'Falta decidir: Aprobar / A revisión / Corregir sin muestra';
+  }
   if(secId==='s3'){
     if(item.sin_confirmar) return 'Esperando confirmación (Ariel)';
     const avios=Object.values(item.avios||{});
@@ -2805,6 +2810,8 @@ function deleteFotoPrueba(secId,itemId,fotoId){
 
 function marcarAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  const fotos=Object.keys(item.fotos_prueba||{});
+  if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
   if(!confirm(`¿Aprobar ${item.code} y pasarla a Producción/Corte?`)) return;
   const newItem={...item, fecha_aprobada:Date.now()};
   delete newItem.estado;
@@ -3858,6 +3865,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   if(tipo==='muestra_diseno'){
     const canDesign=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
     const fotos=Object.entries(item.fotos_prueba||{});
+    const tieneFotos=fotos.length>0;
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
         ${buildPhotoHtml(secId,itemId,item,canEdit)}
@@ -3895,7 +3903,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             </div>
           </div>
           <div class="item-actions">
-            ${canDesign?`<button class="btn-approve" onclick="marcarAprobada('${secId}','${itemId}')">✅ Aprobar</button>`:''}
+            ${canDesign?`<button class="btn-approve" ${tieneFotos?'':'disabled'} title="${tieneFotos?'':'Cargá al menos una foto de cómo queda puesta'}" onclick="marcarAprobada('${secId}','${itemId}')">✅ Aprobar</button>`:''}
             ${canDesign?`<button class="btn-revision" onclick="marcarRevision('${secId}','${itemId}')" title="Necesita que le hagan una muestra nueva">🔁 A revisión (nueva muestra)</button>`:''}
             ${canDesign?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarCorregirSinMuestra('${secId}','${itemId}')" title="Se corrige molde/ficha pero NO hace falta otra muestra">🔧 Corregir sin nueva muestra</button>`:''}
             ${moveOpts}

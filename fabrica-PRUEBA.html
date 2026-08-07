@@ -2578,7 +2578,41 @@ function deshacerFichaCorregida(secId,itemId){
     ficha_resuelta_fecha:null
   });
   logActivity('Deshizo "ficha corregida"',item.code);
-  showToast('↩ Vuelve a pendiente de modificar');
+  showToast('↩ Vuelve a esperar la corrección');
+}
+
+// --- Modificaciones pedidas en Moldería (vino de "A revisión" en Diseño / probar muestra) ---
+function deshacerModificacionMolderia(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(!confirm(`¿Deshacer el pedido de modificación de ${item.code||item.name||'esta muestra'}? Vuelve a quedar como una moldería normal.`)) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    estado:null,
+    modificaciones:null
+  });
+  logActivity('Deshizo modificaciones pedidas (moldería)',item.code);
+  showToast('↩ Deshecho — vuelve a moldería normal');
+}
+
+// El molde ya se corrigió a mano (no hace falta hacer una muestra nueva ni volver a probarla en
+// Diseño) — solo falta ajustar la ficha técnica, y de ahí el corte sigue directo a Producción/Corte.
+function corregirFichaYEnviarCorte(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(!item.foto_drive_ok){ showToast('Falta cargar la foto en Drive antes de enviar a corte'); return; }
+  if(!confirm(`¿Confirmás que el molde de ${item.code} ya está corregido y que ${item.code} puede pasar directo a Producción/Corte (solo falta ajustar la ficha técnica)?`)) return;
+  const notaCorreccion=`🔧 Molde corregido en moldería, sin nueva muestra — pendiente ajustar ficha: ${(item.modificaciones||'').trim()}`;
+  const newItem={...item,
+    nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
+    fecha_aprobada:Date.now(),
+    fecha_etapa:Date.now()};
+  delete newItem.estado;
+  delete newItem.modificaciones;
+  if(!sectionsData['s3']||!sectionsData['s3'].title){
+    db.ref('fabrica_v5/sections/s3').update({title:'Cortes próximos a sacar',color:'accent',order:4,collapsed:false});
+  }
+  db.ref(`fabrica_v5/sections/s3/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Molde corregido sin nueva muestra — directo a corte',item.code);
+  showToast(`✅ ${item.code} pasó directo a Producción/Corte — falta ajustar ficha`);
 }
 
 function toggleTelaEntregada(secId,itemId){
@@ -3825,6 +3859,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
       <div>${item.modificaciones?item.modificaciones.replace(/</g,'&lt;'):'(sin detalle)'}</div>
       ${item.fotos_prueba&&Object.keys(item.fotos_prueba).length?`<div class="diseno-fotos-grid" style="margin-top:6px">
         ${Object.values(item.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}
+      </div>`:''}
+      ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="corregirFichaYEnviarCorte('${secId}','${itemId}')">🔧 Molde ya corregido — solo falta ficha, ir a corte</button>
+        <button class="btn-sm" onclick="deshacerModificacionMolderia('${secId}','${itemId}')">↩ Deshacer modificación</button>
       </div>`:''}
     </div>`:'';
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">

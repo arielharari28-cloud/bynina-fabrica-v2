@@ -3794,6 +3794,24 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}</div>` : '';
   const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
+  const avioPendiente=(secId==='s4'||secId==='s5');
+  const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
+  let sacarTallerHtml='';
+  if(canSacarTaller){
+    if(!avioPendiente){
+      sacarTallerHtml=`<button class="btn-advance" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`;
+    } else if(esAutorizador){
+      sacarTallerHtml=item.pedido_sin_avio
+        ? `<button class="btn-advance" onclick="autorizarSacarSinAvio('${secId}','${itemId}')">✅ Autorizar y sacar a taller</button>
+           <button class="btn-sm" onclick="rechazarSinAvio('${secId}','${itemId}')">✖ Rechazar pedido</button>`
+        : `<button class="btn-advance" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`;
+    } else {
+      sacarTallerHtml=item.pedido_sin_avio
+        ? `<span class="c-label" style="font-size:11px;color:var(--warn-text);flex:0">🔔 Esperando autorización de Ariel/Stef</span>`
+        : `<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionSinAvio('${secId}','${itemId}')">🔔 Pedir autorización para sacar sin avío</button>`;
+    }
+  }
+  const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
   const listoParaCortar = secId!=='s3' || (!!item.encimado_terminado && !item.sin_confirmar);
@@ -3886,11 +3904,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${fechaCorteHtml}
         ${fechaSalidaHtml}
         ${notaHtml}
+        ${pedidoSinAvioHtml}
         ${aviosHtml}
         ${buildPasosExtraHtml(secId,itemId,item,canFicha)}
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
-          ${canSacarTaller?`<button class="btn-advance" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`:''}
+          ${sacarTallerHtml}
           ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → Revisión</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
@@ -4354,11 +4373,34 @@ function sacarATaller(secId,itemId){
   if(!item.taller_corte){ showToast('Asigná un taller antes de sacarlo'); return; }
   if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
   const newItem={...item, fecha_salida_taller:Date.now()};
+  delete newItem.pedido_sin_avio;
   ensureSeccionCorte('sFIN');
   db.ref(`fabrica_v5/sections/sFIN/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Corte sacado a taller',`${item.code} → ${item.taller_corte}`);
   showToast(`📦 ${item.code} salió a ${item.taller_corte}`);
+}
+
+// Cuando el avío todavía está pendiente (s4/s5), Emir/Peque no pueden sacar el corte
+// directo — piden autorización a Ariel/Stef, que queda como notificación (campana) y
+// como aviso destacado en la tarjeta hasta que se autoriza o se rechaza.
+function pedirAutorizacionSinAvio(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pedido_sin_avio`).set({por:currentUser,fecha:Date.now()});
+  logActivity('🔔 Pidió sacar sin avío',`${item.code} — necesita autorización de Ariel/Stef`);
+  showToast('🔔 Le avisamos a Ariel/Stef — esperá la autorización');
+}
+
+function autorizarSacarSinAvio(secId,itemId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pedido_sin_avio`).remove();
+  sacarATaller(secId,itemId);
+}
+
+function rechazarSinAvio(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pedido_sin_avio`).remove();
+  logActivity('Rechazó pedido de sacar sin avío',item.code);
+  showToast('Pedido rechazado');
 }
 
 function deshacerCorte(secId,itemId){

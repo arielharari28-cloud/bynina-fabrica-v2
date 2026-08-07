@@ -2243,6 +2243,31 @@ function backfillAvioPendienteEnTaller(){
     logActivity('Migró a Pendiente recibir avío',item.code);
   });
 }
+// Migración única: ítems de Moldería que ya tenían "foto_drive_ok" tildado de antes de que
+// tildar ese check pasara a mover el ítem directo a corte (o a Diseño si es Adela) — quedaron
+// pegados ahí porque el tilde ya estaba puesto y no volvió a dispararse el pasaje.
+let fotoDriveOkBackfillDone=false;
+function backfillFotoDriveOkPendiente(){
+  if(fotoDriveOkBackfillDone) return;
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  fotoDriveOkBackfillDone=true;
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    if(sec.tipo!=='muestra_molderia') return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item.foto_drive_ok) return;
+      const newItem={...item,fecha_etapa:Date.now()};
+      delete newItem.estado;
+      if(item.modelista==='Adela'){
+        newItem.fecha_entregada=Date.now();
+        db.ref(`fabrica_v5/sections/${SEC_DISENO}/items`).push(newItem);
+      } else {
+        db.ref(`fabrica_v5/sections/${SEC_PEND}/items`).push(newItem);
+      }
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+      logActivity('Backfill: destrabó entrega pendiente de moldería',item.code);
+    });
+  });
+}
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
     ensureSeccionCorte('s6'); // Sector nuevo: que siempre exista y se vea aunque esté en 0.
@@ -2251,6 +2276,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     backfillPasosCorte();
     backfillBaseAprobadaTizada();
     backfillAvioPendienteEnTaller();
+    backfillFotoDriveOkPendiente();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();

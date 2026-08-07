@@ -2223,6 +2223,51 @@ function buildTelaBaseLineHtml(item){
   return `<div style="font-size:11px;color:var(--text2);margin-top:2px">🧵 Tela: <strong>${item.tela_nombre||'—'}</strong>${item.tela_proveedor?` · ${item.tela_proveedor}`:''}</div>`;
 }
 
+// PASOS EXTRA: terminaciones que se hacen en otro taller aparte del de armado
+// (plancha, ojal, broche, etc). No bloquean nada — es solo un checklist libre que
+// viaja con la prenda, visible en cualquier etapa de corte, incluso ya en Finalizados.
+function buildPasosExtraHtml(secId,itemId,item,canEdit){
+  const pasos=Object.entries(item.pasos_extra||{});
+  const canDel=(currentUser==='ariel'||currentUser==='stef');
+  const rows=pasos.map(([pasoId,p])=>`<div class="avio-item">
+      <div class="c-check ${p.hecho?'checked':''}" style="cursor:${canEdit?'pointer':'default'}" onclick="${canEdit?`togglePasoExtra('${secId}','${itemId}','${pasoId}')`:''}">${p.hecho?'✓':''}</div>
+      <span class="avio-name" style="${p.hecho?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}</span>
+      ${canDel?`<button class="avio-btn" onclick="deletePasoExtra('${secId}','${itemId}','${pasoId}')">🗑</button>`:''}
+    </div>`).join('');
+  return `<div style="margin-top:6px">
+    <span class="modelista-label">Pasos extra (plancha, ojal, broche...):</span>
+    ${rows||`<div style="font-size:12px;color:var(--text3);font-style:italic;margin-top:2px">Sin pasos extra cargados</div>`}
+    ${canEdit?`<button class="btn-sm" style="margin-top:4px" onclick="addPasoExtra('${secId}','${itemId}')">+ Agregar paso</button>`:''}
+  </div>`;
+}
+
+function addPasoExtra(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nombre=prompt('Paso extra (ej: Plancha, Ojal, Broche):');
+  if(!nombre||!nombre.trim()) return;
+  const id='p'+Date.now();
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pasos_extra/${id}`).set({nombre:nombre.trim(),hecho:false});
+  logActivity('Agregó paso extra',`${nombre.trim()} — ${item.code}`);
+  showToast('✓ Paso agregado');
+}
+
+function togglePasoExtra(secId,itemId,pasoId){
+  const item=sectionsData[secId].items[itemId];
+  const paso=item.pasos_extra[pasoId];
+  const nv=!paso.hecho;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pasos_extra/${pasoId}/hecho`).set(nv);
+  logActivity(`Paso extra ${nv?'✓':'✗'}`,`${paso.nombre} — ${item.code}`);
+  showToast(nv?'✓ Paso marcado':'Paso desmarcado');
+}
+
+function deletePasoExtra(secId,itemId,pasoId){
+  const item=sectionsData[secId].items[itemId];
+  const paso=item.pasos_extra[pasoId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pasos_extra/${pasoId}`).remove();
+  logActivity('Eliminó paso extra',`${paso?.nombre||''} — ${item.code}`);
+  showToast('Paso eliminado');
+}
+
 function buildRefLinkHtml(secId,itemId,item,canEdit){
   return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
     <span class="modelista-label">Link original:</span>
@@ -3748,7 +3793,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
     </div>`;
   const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}</div>` : '';
   const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
-  const canSacarTaller=secId==='sLT'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
+  const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
   const listoParaCortar = secId!=='s3' || (!!item.encimado_terminado && !item.sin_confirmar);
@@ -3831,7 +3876,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           if(!faltantes.length) return '';
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${faltantes.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
         })()}
-        ${(secId==='sLT'||secId==='sFIN')?buildTallerCorteHtml(secId,itemId,item):''}
+        ${(secId==='sLT'||secId==='sFIN'||secId==='s4'||secId==='s5')?buildTallerCorteHtml(secId,itemId,item):''}
         ${numeroCorteHtml}
         ${sinConfirmarHtml}
         ${capasHtml}
@@ -3842,6 +3887,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${fechaSalidaHtml}
         ${notaHtml}
         ${aviosHtml}
+        ${buildPasosExtraHtml(secId,itemId,item,canFicha)}
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${canSacarTaller?`<button class="btn-advance" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`:''}

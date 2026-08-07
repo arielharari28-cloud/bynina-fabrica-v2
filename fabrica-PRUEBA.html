@@ -1969,7 +1969,7 @@ const INITIAL_SECTIONS = {
     i8:{code:'Corte 97',name:'1163 · Pantalon Pinzas Clasico',done:false,avios:{a1:{nombre:'Botón Yarda a tono',proveedor:'Walter Botonera Union',fecha_pedido:'18/6/2026',recibido:false},a2:{nombre:'Cierre 14cm',proveedor:'Walter Botonera Union',fecha_pedido:'18/6/2026',recibido:false}}},
   }},
   sLT:{title:'Cortes listo para taller',color:'green',order:6.5,items:{}},
-  sFIN:{title:'Cortes Finalizados',color:'purple',order:7,items:{}},
+  sFIN:{title:'Cortes en talleres',color:'purple',order:7,items:{}},
 };
 
 let currentUser=null, sectionsData={}, actividadData={};
@@ -2162,12 +2162,23 @@ function backfillBaseAprobadaTizada(){
     logActivity('Backfill: marcó base aprobada en todos los ítems de Pendiente armar tizada',`${Object.keys(updates).length} ítems`);
   }
 }
+let renombreCortesFinalizadosDone=false;
+function backfillRenombreCortesFinalizados(){
+  if(renombreCortesFinalizadosDone) return;
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  renombreCortesFinalizadosDone=true;
+  if(sectionsData['sFIN']&&(sectionsData['sFIN'].title||'').trim()==='Cortes Finalizados'){
+    db.ref('fabrica_v5/sections/sFIN/title').set('Cortes en talleres');
+    logActivity('Backfill: renombró "Cortes Finalizados" a "Cortes en talleres"','');
+  }
+}
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
     backfillFechasIngreso();
     backfillPasosNuevoDesarrollo();
     backfillPasosCorte();
     backfillBaseAprobadaTizada();
+    backfillRenombreCortesFinalizados();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
@@ -4108,6 +4119,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
 
   const canToggle=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
   const canCortar=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
+  const necesitaRollosParaSeguir=POST_S3_SECS.includes(secId)&&secId!=='s3'&&secId!=='sFIN'&&!Object.values(item.rollos||{}).some(r=>r&&(r.color||r.kgmts||r.capas));
   const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='nahuel';
   const canControlFichaCorreccion=(currentUser==='ariel'||currentUser==='stef');
   // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
@@ -4142,6 +4154,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}</div>` : '';
   const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const canSacarTaller=secId==='sLT'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
+  const listaSalidaTaller=(secId==='sLT'&&avios.length&&item.lleva_avios!==false)?!!item.taller_avios_entregados:true;
+  const puedeSacarTaller=!!item.taller_muestra_entregada&&!!item.taller_ficha_entregada&&!!item.taller_ninox_salida&&listaSalidaTaller;
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
   const listoParaCortar = secId!=='s3' || (!!item.encimado_terminado && !item.sin_confirmar);
@@ -4248,6 +4262,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
         })()}
         ${(secId==='sLT'||secId==='sFIN')?buildTallerCorteHtml(secId,itemId,item):''}
+        ${secId==='sLT'?`<div class="cortada-panel" style="margin:6px 0">
+          <div class="cortada-row"><div class="c-check ${item.taller_muestra_entregada?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_muestra_entregada')`:''}">${item.taller_muestra_entregada?'✓':''}</div><span class="c-label ${item.taller_muestra_entregada?'done':''}">Muestra entregada</span></div>
+          <div class="cortada-row"><div class="c-check ${item.taller_ficha_entregada?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_ficha_entregada')`:''}">${item.taller_ficha_entregada?'✓':''}</div><span class="c-label ${item.taller_ficha_entregada?'done':''}">Ficha entregada</span></div>
+          <div class="cortada-row"><div class="c-check ${item.taller_ninox_salida?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_ninox_salida')`:''}">${item.taller_ninox_salida?'✓':''}</div><span class="c-label ${item.taller_ninox_salida?'done':''}">Salida en Ninox realizada</span></div>
+          ${(avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${item.taller_avios_entregados?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_avios_entregados')`:''}">${item.taller_avios_entregados?'✓':''}</div><span class="c-label ${item.taller_avios_entregados?'done':''}">Avíos entregados</span></div>`:''}
+        </div>`:''}
         ${numeroCorteHtml}
         ${estampadoBadgeHtml(item,secId,itemId)}
         ${sinConfirmarHtml}
@@ -4259,14 +4279,29 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${fechaSalidaHtml}
         ${notaHtml}
         ${aviosHtml}
+        ${(()=>{
+          if((secId!=='s4'&&secId!=='s5')||!avios.length) return '';
+          const faltaAlgun=avios.some(([,a])=>!a.recibido);
+          if(!faltaAlgun) return '';
+          if(item.avios_autorizado_sin_recibir){
+            return `<div class="cortada-row" style="background:var(--accent-bg);border-radius:6px;padding:6px 8px;margin:4px 0">
+              <span class="c-label" style="font-weight:600;color:var(--accent)">✅ Autorizado por Ariel/Stef — puede salir sin esperar el avío</span>
+              ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" onclick="toggleAutorizarSinAvio('${secId}','${itemId}')">↩ Sacar autorización</button>`:''}
+              ${(currentUser==='emir'||canEdit)?`<button class="btn-advance" onclick="sacarSinAvio('${secId}','${itemId}')">📦 Sacar a taller sin avío</button>`:''}
+            </div>`;
+          }
+          return (currentUser==='ariel'||currentUser==='stef')
+            ? `<div style="margin:4px 0"><button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="toggleAutorizarSinAvio('${secId}','${itemId}')">✅ Autorizar a Emir a sacar sin este avío</button></div>`
+            : '';
+        })()}
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
-          ${canSacarTaller?`<button class="btn-advance" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`:''}
+          ${canSacarTaller?`<button class="btn-advance" ${puedeSacarTaller?'':'disabled'} title="${puedeSacarTaller?'':'Falta completar el checklist: Muestra, Ficha, Ninox y Avíos (si lleva)'}" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`:''}
           ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → Revisión</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
-          ${canEdit?`<button class="btn-advance" onclick="siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`:''}
+          ${canEdit?`<button class="btn-advance" ${necesitaRollosParaSeguir?'disabled':''} title="${necesitaRollosParaSeguir?'Falta cargar los rollos utilizados':''}" onclick="siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`:''}
           ${moveOpts}
           ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
         </div>
@@ -4751,7 +4786,7 @@ const SEC_DEFAULTS_CORTE={
   s4:{title:'Corte pendiente avío no pedido para sacar a taller',color:'danger',order:5},
   s5:{title:'Cortes pendiente avío para sacar a taller',color:'warn',order:6},
   sLT:{title:'Cortes listo para taller',color:'green',order:6.5},
-  sFIN:{title:'Cortes Finalizados',color:'purple',order:7},
+  sFIN:{title:'Cortes en talleres',color:'purple',order:7},
 };
 
 function ensureSeccionCorte(id){
@@ -4792,6 +4827,28 @@ function marcarCorteRealizado(secId,itemId){
   showToast(toastMsg);
 }
 
+// Autorización de Ariel/Stef para que Emir saque un corte a taller sin esperar un avío puntual
+// (hay avíos que se colocan recién después de confección, o que directamente no hacen falta).
+function toggleAutorizarSinAvio(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item.avios_autorizado_sin_recibir||false);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios_autorizado_sin_recibir`).set(nv);
+  logActivity(nv?'Autorizó sacar sin avío':'Sacó autorización de sacar sin avío',item.code);
+  showToast(nv?'✅ Autorizado — Emir puede sacar sin avío':'↩ Autorización retirada');
+}
+
+function sacarSinAvio(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(!item.avios_autorizado_sin_recibir){ showToast('Necesita autorización de Ariel/Stef primero'); return; }
+  if(!confirm(`¿Confirmás que ${item.code} sale a taller sin esperar el avío (autorizado)?`)) return;
+  ensureSeccionCorte('sLT');
+  const newItem={...item,fecha_etapa:Date.now()};
+  db.ref(`fabrica_v5/sections/sLT/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Salió a taller sin avío (autorizado)',item.code);
+  showToast(`📦 ${item.code} pasó a Cortes listo para taller — sin esperar avío`);
+}
+
 function checkCorteListoParaTaller(secId,itemId,avios){
   if(secId!=='s4'&&secId!=='s5'&&secId!=='s3b') return;
   const item=sectionsData[secId]?.items?.[itemId];
@@ -4823,9 +4880,21 @@ function checkCorteVuelveABloqueado(secId,itemId,avios){
   },400);
 }
 
+function toggleChecklistTaller(secId,itemId,campo){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item[campo]||false);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/${campo}`).set(nv);
+  logActivity(`Checklist salida a taller: ${campo} ${nv?'✓':'✗'}`,item.code);
+}
+
 function sacarATaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.taller_corte){ showToast('Asigná un taller antes de sacarlo'); return; }
+  const faltaAvios=(item.avios&&Object.keys(item.avios).length&&item.lleva_avios!==false)&&!item.taller_avios_entregados;
+  if(!item.taller_muestra_entregada||!item.taller_ficha_entregada||!item.taller_ninox_salida||faltaAvios){
+    showToast('Falta completar el checklist antes de sacar a taller');
+    return;
+  }
   if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
   const newItem={...item, fecha_salida_taller:Date.now()};
   ensureSeccionCorte('sFIN');
@@ -5130,6 +5199,15 @@ function moveItem(secId,itemId,targetSecId){
     ].filter(Boolean);
     if(faltantes.length){
       showToast(`⏳ Pendiente completar Peque: falta ${faltantes.join(', ')}`);
+      return;
+    }
+  }
+  // Un corte ya cortado (post "Cortes próximos a sacar") no puede seguir de largo sin haber
+  // cargado los rollos utilizados — esa info se necesita para saber cuánta tela se usó/sobró.
+  if(POST_S3_SECS.includes(secId)&&secId!=='s3'&&secId!=='sFIN'){
+    const tieneRollos=Object.values(item.rollos||{}).some(r=>r&&(r.color||r.kgmts||r.capas));
+    if(!tieneRollos){
+      showToast('⏳ Falta cargar los rollos utilizados antes de pasar al siguiente paso');
       return;
     }
   }

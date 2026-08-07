@@ -566,6 +566,24 @@
   </div>
 </div>
 
+<!-- Modal agregar nuevo artículo desde una base ya aprobada (sin pasar por Nuevos Desarrollos) -->
+<div class="modal-overlay hidden" id="modal-base-add">
+  <div class="modal">
+    <div class="modal-header"><span class="modal-title">Agregar nuevo artículo desde base</span><button class="modal-close" id="close-modal-base-add">×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Código nuevo</label><input type="text" id="base-add-code" placeholder="Código del artículo nuevo…"></div>
+      <div class="field"><label>Base (molde ya aprobado)</label>
+        <select id="base-add-select">
+          <option value="">Elegir producto…</option>
+          <option value="__manual__">+ Base manual (no está en la lista)…</option>
+        </select>
+      </div>
+      <div class="field" id="base-add-manual-wrap" style="display:none"><label>Base manual (código/nombre)</label><input type="text" id="base-add-manual"></div>
+    </div>
+    <div class="modal-footer"><button class="btn-secondary" id="cancel-modal-base-add">Cancelar</button><button class="btn-primary" id="save-modal-base-add">Crear</button></div>
+  </div>
+</div>
+
 <!-- Modal curva (talles + cantidad por capa) -->
 <div class="modal-overlay hidden" id="modal-curva">
   <div class="modal">
@@ -3361,7 +3379,10 @@ function renderSections(board){
     const addRow=(canAdd||canAddMold)?`<div class="sec-add"><input type="text" placeholder="Código de muestra..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
     const addRowPrep=canAddPrep?`<div class="sec-add"><input type="text" placeholder="Nombre de la prenda nueva..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
     const canAddGeneral=currentUser==='ariel'&&!FIXED_SECS.includes(secId);
-    const addRowGeneral=canAddGeneral?`<div class="sec-add"><input type="text" placeholder="Código / nombre..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button><button class="btn-sm" onclick="openRepoAddModal('${secId}')">🔁 Agregar como reposición</button></div>`:'';
+    const esPendienteArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
+    const canAddDesdeBase=esPendienteArmarTizada&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
+    const btnDesdeBaseHtml=canAddDesdeBase?`<button class="btn-sm" onclick="openBaseAddModal('${secId}')">🔁 Agregar nuevo artículo desde base</button>`:'';
+    const addRowGeneral=(canAddGeneral||canAddDesdeBase)?`<div class="sec-add">${canAddGeneral?`<input type="text" placeholder="Código / nombre..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button><button class="btn-sm" onclick="openRepoAddModal('${secId}')">🔁 Agregar como reposición</button>`:''}${btnDesdeBaseHtml}</div>`:'';
 
     // Productos Perfectos: agrupar el mismo modelo (mismo nombre) junto, ordenado por N° de corte.
     let itemsHtml;
@@ -5332,6 +5353,63 @@ function confirmRepoAdd(){
 document.getElementById('close-modal-repo').onclick=closeRepoAddModal;
 document.getElementById('cancel-modal-repo').onclick=closeRepoAddModal;
 document.getElementById('save-modal-repo').onclick=confirmRepoAdd;
+
+// --- Agregar directo un artículo nuevo (código propio) que sale de una base ya aprobada,
+// sin pasar por todo el checklist de Nuevos Desarrollos (Ninox/ficha/control) — Peque carga
+// el código, elige la base, y el resto (ficha, curva, ancho, control de piezas, ninox) lo
+// completa ahí mismo en Pendiente armar tizada, igual que con cualquier corte.
+let baseAddSecId=null;
+function openBaseAddModal(secId){
+  baseAddSecId=secId;
+  const opts=buildProductosPerfectosOptions();
+  const sel=document.getElementById('base-add-select');
+  sel.innerHTML='<option value="">Elegir producto…</option><option value="__manual__">+ Base manual (no está en la lista)…</option>'+opts.map(o=>`<option value="${o.secId}::${o.itemId}">${o.label}</option>`).join('');
+  document.getElementById('base-add-code').value='';
+  document.getElementById('base-add-manual').value='';
+  document.getElementById('base-add-manual-wrap').style.display='none';
+  document.getElementById('modal-base-add').classList.remove('hidden');
+}
+function closeBaseAddModal(){
+  document.getElementById('modal-base-add').classList.add('hidden');
+  baseAddSecId=null;
+}
+document.getElementById('base-add-select').onchange=function(){
+  document.getElementById('base-add-manual-wrap').style.display=(this.value==='__manual__')?'':'none';
+};
+function confirmBaseAdd(){
+  const code=(document.getElementById('base-add-code').value||'').trim();
+  if(!code){ showToast('Falta el código nuevo'); return; }
+  const sel=document.getElementById('base-add-select');
+  if(!sel.value){ showToast('Elegí de qué base sale'); return; }
+  let refSec=null,refId=null,refManual=null,ref=null;
+  if(sel.value==='__manual__'){
+    refManual=(document.getElementById('base-add-manual').value||'').trim();
+    if(!refManual){ showToast('Cargá el nombre/código de la base manual'); return; }
+  } else {
+    [refSec,refId]=sel.value.split('::');
+    ref=sectionsData[refSec]?.items?.[refId];
+    if(!ref){ showToast('No encontré esa base'); return; }
+  }
+  const ahora=Date.now();
+  const ni={
+    code,
+    name:ref?.name||'',
+    marca:ref?.marca||(marcasList&&marcasList[0])||'By Nina',
+    tela:ref?.tela||null,
+    foto:ref?.foto||'',
+    base_aprobada:true,
+    base_ref_sec:refSec,base_ref_id:refId,base_ref_manual:refManual,
+    nota:`Base ya aprobada — cargado directo en Pendiente armar tizada${ref?.code||ref?.name?` (base: ${ref?.code||''} ${ref?.name||''})`.trim():''}`,
+    done:false,avios:{},fecha_ingreso:ahora,fecha_etapa:ahora
+  };
+  db.ref(`fabrica_v5/sections/${baseAddSecId}/items`).push(ni);
+  logActivity('Agregó artículo nuevo desde base (sin moldería)',`${code} ← ${ref?.code||ref?.name||refManual||''}`);
+  showToast('✓ Artículo agregado — falta Ficha, Curva, Ancho, Control de piezas y Ninox');
+  closeBaseAddModal();
+}
+document.getElementById('close-modal-base-add').onclick=closeBaseAddModal;
+document.getElementById('cancel-modal-base-add').onclick=closeBaseAddModal;
+document.getElementById('save-modal-base-add').onclick=confirmBaseAdd;
 
 function moveItem(secId,itemId,targetSecId){
   if(!targetSecId||!itemId)return;

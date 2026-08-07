@@ -2216,6 +2216,13 @@ function editRefLink(secId,itemId){
 // El link de referencia original y las notas de diseño se cargan una sola vez en Nuevos
 // Desarrollos, pero hacen falta en TODO el recorrido (moldería, corte, taller, revisión final)
 // para poder comparar contra la prenda original. Antes solo se veían en la primera etapa.
+// Tela base + proveedor cargados en Nuevos Desarrollos: se muestran en TODAS las etapas
+// siguientes (solo lectura acá; se edita únicamente desde Nuevos Desarrollos).
+function buildTelaBaseLineHtml(item){
+  if(!item.tela_nombre && !item.tela_proveedor) return '';
+  return `<div style="font-size:11px;color:var(--text2);margin-top:2px">🧵 Tela: <strong>${item.tela_nombre||'—'}</strong>${item.tela_proveedor?` · ${item.tela_proveedor}`:''}</div>`;
+}
+
 function buildRefLinkHtml(secId,itemId,item,canEdit){
   return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
     <span class="modelista-label">Link original:</span>
@@ -3171,6 +3178,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
@@ -3231,6 +3239,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           ${buildRefLinkHtml(secId,itemId,item,canEdit)}
@@ -3277,6 +3286,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
@@ -3323,6 +3333,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
@@ -3498,6 +3509,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           ${enRevision?`<div class="mod-badge">🔁 Modificaciones pendientes</div>`:''}
@@ -3536,6 +3548,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
@@ -3584,6 +3597,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
@@ -3618,6 +3632,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           ${resuelta?`<div class="mod-badge" style="background:var(--green-bg);color:var(--green-text)">✓ Resuelta</div>`:''}
@@ -3669,6 +3684,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${item.numero_corte?`<div style="font-size:11px;color:var(--text2);margin-top:2px">🔢 N° de corte: <strong>${item.numero_corte}</strong></div>`:''}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
@@ -3769,6 +3785,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           })()):''}`}
         ${buildCodeHtml(secId,itemId,item,canEdit)}
         ${buildNameHtml(secId,itemId,item,canEdit)}
+        ${buildTelaBaseLineHtml(item)}
         ${item.sub?`<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:1px">${item.sub}</div>`:''}
         ${procesoInfoHtml(item,secId,itemId)}
         ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}

@@ -525,14 +525,14 @@
 <!-- Modal notas (lista, un renglón por concepto) -->
 <div class="modal-overlay hidden" id="modal-notas">
   <div class="modal">
-    <div class="modal-header"><span class="modal-title">Notas / observaciones</span><button class="modal-close" onclick="closeNotasModal()">×</button></div>
+    <div class="modal-header"><span class="modal-title">Agregar nota</span><button class="modal-close" onclick="closeNotasModal()">×</button></div>
     <div class="modal-body">
       <div class="field">
-        <label>Un concepto por línea</label>
-        <textarea id="notas-modal-textarea" rows="6" placeholder="Ej: Cartera 5 botones&#10;Pinzas en tazas&#10;Mismo largo que Top Maddie" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:8px;resize:vertical"></textarea>
+        <label>Tu nota queda firmada con tu usuario y la hora</label>
+        <textarea id="notas-modal-textarea" rows="4" placeholder="Ej: Cartera 5 botones, pinzas en tazas…" style="width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--border);border-radius:8px;resize:vertical"></textarea>
       </div>
     </div>
-    <div class="modal-footer"><button class="btn-secondary" onclick="closeNotasModal()">Cancelar</button><button class="btn-primary" onclick="saveNotasModal()">Guardar</button></div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="closeNotasModal()">Cancelar</button><button class="btn-primary" onclick="saveNotasModal()">Agregar</button></div>
   </div>
 </div>
 
@@ -1179,6 +1179,7 @@ function saveItemName(secId,itemId,el){
   const item = sectionsData[secId].items[itemId];
   if (newName === (item.name||'')) return;
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/name`).set(newName);
+  checkPasosNuevoDesarrollo(secId,itemId,{name:newName});
   logActivity('Editó nombre', `${item.code} → ${newName}`);
 }
 
@@ -1481,13 +1482,15 @@ function pasarABaseAprobada(secId,itemId){
     categoria:item.categoria||null,
     temporada:item.temporada||null,
     tela:telaNombre||null,
+    proveedor:item.tela_proveedor||null,
+    ref_link:item.ref_link||null,
     foto:item.foto||'',
     ficha_link:item.ficha_link||'',
     base_aprobada:true,
     base_ref_sec:item.base_ref_sec||null,
     base_ref_id:item.base_ref_id||null,
     base_ref_manual:item.base_ref_manual||null,
-    nota:item.tela_proveedor?`Base ya aprobada — Proveedor de tela: ${item.tela_proveedor}`:'Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)',
+    nota:'Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)',
     done:false,
     avios:{},
     fecha_ingreso:Date.now(),
@@ -1546,6 +1549,7 @@ function onMarcaChange(secId,itemId,sel){
 function assignMarca(secId,itemId,nombre){
   const item=sectionsData[secId].items[itemId];
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/marca`).set(nombre||null);
+  checkPasosNuevoDesarrollo(secId,itemId,{marca:nombre||null});
   logActivity('Asignó marca',`${item.code||item.name||''} → ${nombre||'sin asignar'}`);
   showToast(`✓ Marca: ${nombre}`);
 }
@@ -1576,6 +1580,7 @@ function onCategoriaChange(secId,itemId,sel){
   } else {
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/categoria`).set(sel.value||null);
   }
+  checkPasosNuevoDesarrollo(secId,itemId,{categoria:sel.value||null});
   logActivity('Asignó categoría',`${item.code||item.name||''} → ${sel.value||'sin asignar'}`);
 }
 
@@ -1604,6 +1609,7 @@ function onTemporadaChange(secId,itemId,sel){
   } else {
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/temporada`).set(sel.value||null);
   }
+  checkPasosNuevoDesarrollo(secId,itemId,{temporada:sel.value||null});
   logActivity('Asignó temporada',`${item.code||item.name||''} → ${sel.value||'sin asignar'}`);
 }
 
@@ -1632,6 +1638,39 @@ function onTelaChange(secId,itemId,sel){
     assignTela(secId,itemId,limpio);
   } else {
     assignTela(secId,itemId,sel.value);
+  }
+}
+
+// Proveedor de tela para cortes genéricos (fuera de Nuevos Desarrollos) — mismo patrón que
+// buildTelaHtml/onTelaChange, usa proveedoresList y el campo item.proveedor.
+function buildProveedorHtml(secId,itemId,item){
+  const opts=(proveedoresList||[]).map(n=>`<option value="${n}" ${item.proveedor===n?'selected':''}>${n}</option>`).join('');
+  return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+    <span class="modelista-label">Proveedor:</span>
+    <select class="modelista-select" onchange="onProveedorChange('${secId}','${itemId}',this)">
+      <option value="" ${!item.proveedor?'selected':''}>Sin elegir</option>
+      ${opts}
+      <option value="__nuevo__">+ Agregar nuevo…</option>
+    </select>
+  </div>`;
+}
+function onProveedorChange(secId,itemId,sel){
+  const item=sectionsData[secId].items[itemId];
+  if(sel.value==='__nuevo__'){
+    const nombre=prompt('Nombre del proveedor nuevo:');
+    if(!nombre||!nombre.trim()){ sel.value=item.proveedor||''; return; }
+    const limpio=nombre.trim();
+    if(!proveedoresList.includes(limpio)){
+      proveedoresList=[...proveedoresList,limpio];
+      db.ref('fabrica_v5/proveedores').set(proveedoresList);
+    }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/proveedor`).set(limpio);
+    logActivity('Editó proveedor',limpio);
+    showToast('✓ Proveedor guardado');
+  } else {
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/proveedor`).set(sel.value||null);
+    logActivity('Editó proveedor',sel.value||'(sin elegir)');
+    showToast('✓ Proveedor guardado');
   }
 }
 
@@ -2139,11 +2178,11 @@ function backfillPasosNuevoDesarrollo(){
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     if(sec.tipo!=='muestra_prep') return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(item.code&&item.code.trim()&&!item.fecha_paso_ingreso) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=ahora;
-      if(item.en_ninox&&item.ficha_link&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
+      const stefCompleta=!!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada;
+      if(stefCompleta&&!item.fecha_paso_ingreso) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=ahora;
+      if(item.code&&item.code.trim()&&item.en_ninox&&item.ficha_link&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
       if((item.control_ariel||item.control_stef)&&!item.fecha_paso_control) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_control`]=ahora;
       if(item.modelista&&!item.fecha_paso_modelista) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_modelista`]=ahora;
-      if((item.base_ref_id||item.base_ref_manual)&&!item.fecha_paso_base) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_base`]=ahora;
     });
   });
   if(Object.keys(updates).length) db.ref().update(updates);
@@ -2408,10 +2447,12 @@ function onTelaBaseChange(secId,itemId,sel){
       db.ref('fabrica_v5/telas').set(telasList);
     }
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(limpio);
+    checkPasosNuevoDesarrollo(secId,itemId,{tela_nombre:limpio});
     logActivity('Editó nombre de tela',limpio);
     showToast('✓ Tela guardada');
   } else {
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(sel.value||null);
+    checkPasosNuevoDesarrollo(secId,itemId,{tela_nombre:sel.value||null});
     logActivity('Editó nombre de tela',sel.value||'(sin elegir)');
     showToast('✓ Tela guardada');
   }
@@ -2442,10 +2483,12 @@ function onProveedorTelaChange(secId,itemId,sel){
       db.ref('fabrica_v5/proveedores').set(proveedoresList);
     }
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_proveedor`).set(limpio);
+    checkPasosNuevoDesarrollo(secId,itemId,{tela_proveedor:limpio});
     logActivity('Editó proveedor de tela',limpio);
     showToast('✓ Proveedor guardado');
   } else {
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_proveedor`).set(sel.value||null);
+    checkPasosNuevoDesarrollo(secId,itemId,{tela_proveedor:sel.value||null});
     logActivity('Editó proveedor de tela',sel.value||'(sin elegir)');
     showToast('✓ Proveedor guardado');
   }
@@ -2501,22 +2544,30 @@ function editNotasPrompt(secId,itemId){
 // Se guardan con \n como separador; para mostrarlas se arma una fila por línea, igual
 // que el resto de las listas de la app (avíos, pasos del proceso, etc).
 function buildNotasHtml(secId,itemId,item,canEdit,label){
-  const lineas=(item.notas||'').split('\n').map(l=>l.trim()).filter(Boolean);
-  const lista=lineas.length
-    ? `<div class="notas-list">${lineas.map(l=>`<div class="notas-row"><span class="notas-dot"></span><span>${l.replace(/</g,'&lt;')}</span></div>`).join('')}</div>`
+  // Notas = mini-conversación: cualquiera puede sumar una nota, queda quién y cuándo la escribió.
+  // canEdit acá solo controla si aparece el botón para agregar (se pasa true en casi todas las tarjetas).
+  const legacyLineas=(item.notas||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  const log=Object.entries(item.notas_log||{}).sort((a,b)=>(a[1].fecha||0)-(b[1].fecha||0));
+  const legacyHtml=legacyLineas.map(l=>`<div class="notas-row"><span class="notas-dot"></span><span>${l.replace(/</g,'&lt;')}</span></div>`).join('');
+  const logHtml=log.map(([,n])=>`<div class="notas-row" style="flex-direction:column;align-items:flex-start;gap:2px">
+      <span>${(n.texto||'').replace(/</g,'&lt;')}</span>
+      <span style="font-size:10px;color:var(--text3)">— ${USER_DISPLAY[n.autor]||n.autor||'?'} · ${fmtTime(n.fecha)}</span>
+    </div>`).join('');
+  const hayAlgo=legacyLineas.length||log.length;
+  const lista=hayAlgo
+    ? `<div class="notas-list">${legacyHtml}${logHtml}</div>`
     : `<span style="font-size:12px;color:var(--text3);font-style:italic;margin-left:6px">Sin notas</span>`;
   return `<div style="margin-top:10px">
     <span class="modelista-label">${label||'Notas:'}</span>
     ${lista}
-    ${canEdit?`<div style="margin-top:4px"><button class="btn-sm" onclick="openNotasModal('${secId}','${itemId}')">${lineas.length?'✏️ Editar notas':'+ Nota'}</button></div>`:''}
+    ${canEdit?`<div style="margin-top:4px"><button class="btn-sm" onclick="openNotasModal('${secId}','${itemId}')">+ Agregar nota</button></div>`:''}
   </div>`;
 }
 
 let notasModalCtx=null;
 function openNotasModal(secId,itemId){
-  const item=sectionsData[secId].items[itemId];
   notasModalCtx={secId,itemId};
-  document.getElementById('notas-modal-textarea').value=item.notas||'';
+  document.getElementById('notas-modal-textarea').value='';
   document.getElementById('modal-notas').classList.remove('hidden');
   setTimeout(()=>document.getElementById('notas-modal-textarea').focus(),50);
 }
@@ -2527,11 +2578,11 @@ function closeNotasModal(){
 function saveNotasModal(){
   if(!notasModalCtx) return;
   const {secId,itemId}=notasModalCtx;
-  const val=document.getElementById('notas-modal-textarea').value;
-  const limpio=val.split('\n').map(l=>l.trim()).filter(Boolean).join('\n');
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/notas`).set(limpio);
-  logActivity('Editó notas',(limpio||'(vacío)').slice(0,60));
-  showToast('✓ Notas guardadas');
+  const val=(document.getElementById('notas-modal-textarea').value||'').trim();
+  if(!val){ closeNotasModal(); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/notas_log`).push({texto:val,autor:currentUser,fecha:Date.now()});
+  logActivity('Agregó nota',val.slice(0,60));
+  showToast('✓ Nota agregada');
   closeNotasModal();
 }
 
@@ -2754,8 +2805,30 @@ function pasarAMolderia(secId,itemId){
 function toggleFotoDriveOk(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const nv=!(item.foto_drive_ok||false);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/foto_drive_ok`).set(nv);
-  logActivity(`Foto en Drive ${nv?'✓':'✗'}`,item.code);
+  if(!nv){
+    // Solo se puede destildar si todavía está acá (por las dudas, aunque en la práctica
+    // al tildar ya se mueve de sección y este botón deja de existir para este ítem).
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/foto_drive_ok`).set(nv);
+    logActivity('Foto en Drive ✗',item.code);
+    return;
+  }
+  // Peque marca que la modelista entregó la muestra (con la foto ya en Drive) → pasa directo
+  // a corte, sin un botón "Enviar a corte" aparte.
+  logActivity('Foto en Drive ✓',item.code);
+  const newItem={...item,foto_drive_ok:true,fecha_etapa:Date.now()};
+  delete newItem.estado;
+  if(item.modelista==='Adela'){
+    newItem.fecha_entregada=Date.now();
+    db.ref(`fabrica_v5/sections/${SEC_DISENO}/items`).push(newItem);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Entregada (Adela hizo la muestra sola)',item.code);
+    showToast(`✅ ${item.code} pasó directo a Diseño / Probar muestra`);
+    return;
+  }
+  db.ref(`fabrica_v5/sections/${SEC_PEND}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Entregada por modelista — enviada a corte',item.code);
+  showToast(`✂️ ${item.code} pasó a Pendiente de corte`);
 }
 
 // --- CORTES FINALIZADOS → REVISIÓN FINAL ---
@@ -2887,27 +2960,6 @@ function volverAMejora(secId,itemId){
 }
 
 // --- MOLDERÍA ---
-function enviarACorte(secId,itemId){
-  const item=sectionsData[secId].items[itemId];
-  if(!item.foto_drive_ok){ showToast('Falta cargar la foto en Drive antes de enviar a corte'); return; }
-  const newItem={...item,fecha_etapa:Date.now()};
-  delete newItem.estado; // limpia el flag de "modificaciones" al reingresar al circuito
-  if(item.modelista==='Adela'){
-    // Adela hace todo sola (corta y arma la muestra): se saltea Cortadas, Listas para taller
-    // y En taller — al marcarla entregada pasa directo a Diseño / Probar muestra.
-    newItem.fecha_entregada=Date.now();
-    db.ref(`fabrica_v5/sections/${SEC_DISENO}/items`).push(newItem);
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-    logActivity('Entregada (Adela hizo la muestra sola)',item.code);
-    showToast(`✅ ${item.code} pasó directo a Diseño / Probar muestra`);
-    return;
-  }
-  db.ref(`fabrica_v5/sections/${SEC_PEND}/items`).push(newItem);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Enviada a corte',item.code);
-  showToast(`✂️ ${item.code} pasó a Pendiente de corte`);
-}
-
 // --- ENTREGA DE TALLER → DISEÑO ---
 function marcarEntregada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
@@ -3039,11 +3091,11 @@ function checkPasosNuevoDesarrollo(secId,itemId,patch){
   const item=sec.items[itemId]; if(!item) return;
   const merged={...item,...patch};
   const updates={};
-  if(merged.code&&String(merged.code).trim()&&!item.fecha_paso_ingreso) updates.fecha_paso_ingreso=Date.now();
-  if(merged.en_ninox&&merged.ficha_link&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
+  const stefCompleta=!!(merged.name&&merged.name.trim())&&!!(merged.tela_nombre&&merged.tela_nombre.trim())&&!!(merged.tela_proveedor&&merged.tela_proveedor.trim())&&!!merged.marca&&!!merged.categoria&&!!merged.temporada;
+  if(stefCompleta&&!item.fecha_paso_ingreso) updates.fecha_paso_ingreso=Date.now();
+  if(merged.code&&String(merged.code).trim()&&merged.en_ninox&&merged.ficha_link&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
   if((merged.control_ariel||merged.control_stef)&&!item.fecha_paso_control) updates.fecha_paso_control=Date.now();
   if(merged.modelista&&!item.fecha_paso_modelista) updates.fecha_paso_modelista=Date.now();
-  if((merged.base_ref_id||merged.base_ref_manual)&&!item.fecha_paso_base) updates.fecha_paso_base=Date.now();
   if(Object.keys(updates).length){
     const dbUpdates={};
     Object.entries(updates).forEach(([k,v])=>{ dbUpdates[`fabrica_v5/sections/${secId}/items/${itemId}/${k}`]=v; });
@@ -3179,13 +3231,12 @@ function buildPasosPanelHtml(item){
   const now=Date.now();
   const pasos=item.base_aprobada?[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:item.fecha_paso_ingreso },
-    { label:'Cargar Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
+    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
     { label:'Control de ficha', resp:'Ariel / Stef', start:item.fecha_paso_peque, end:item.fecha_paso_control },
-    { label:'Elegir base', resp:'Peque', start:item.fecha_paso_control, end:item.fecha_paso_base },
-    { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_base, end:null }
+    { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_control, end:null }
   ]:[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:item.fecha_paso_ingreso },
-    { label:'Cargar Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
+    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:item.fecha_paso_ingreso, end:item.fecha_paso_peque },
     { label:'Control de ficha', resp:'Ariel / Stef', start:item.fecha_paso_peque, end:item.fecha_paso_control },
     { label:'Elegir modelista', resp:'Peque', start:item.fecha_paso_control, end:item.fecha_paso_modelista },
     { label:'Enviar a moldería', resp:'Peque', start:item.fecha_paso_modelista, end:null }
@@ -3880,50 +3931,52 @@ function buildItem(secId,itemId,item,sec,idx,total){
       ? baseAprobadaCompleta
       : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
+    const canStef=(currentUser==='ariel'||currentUser==='stef');
+    const canPeque=(currentUser==='ariel'||currentUser==='peque');
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:3;min-width:320px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit,true)}
+        ${buildPhotoHtml(secId,itemId,item,canStef,true)}
         <div class="item-body">
           ${item.origen_mejora?`<div style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔧 <strong>Viene de una mejora:</strong> ${item.origen_mejora}</div>`:''}
-          ${buildNameHtml(secId,itemId,item,canEdit,true)}
-          ${buildTipoDesarrolloHtml(secId,itemId,item,canEdit)}
-          ${item.base_aprobada?buildBaseTizadaHtml(secId,itemId,item,canEdit):''}
+          ${buildNameHtml(secId,itemId,item,canStef,true)}
+          ${buildTipoDesarrolloHtml(secId,itemId,item,canStef)}
+          ${item.base_aprobada?buildBaseTizadaHtml(secId,itemId,item,canPeque):''}
           ${procesoInfoHtml(item,secId,itemId)}
           <div class="idea-tela-row" style="align-items:flex-start">
             ${item.foto_tela
-              ? `<div class="item-photo-wrap small"><img class="item-photo" src="${item.foto_tela}" onclick="openPhotoModal('${item.foto_tela}')">${canEdit?`<button class="photo-edit-btn" onclick="event.stopPropagation();triggerFotoTelaUpload('${secId}','${itemId}')" title="Cambiar tela">✏️</button>`:''}</div>`
-              : (canEdit?`<div class="item-photo-placeholder small" onclick="triggerFotoTelaUpload('${secId}','${itemId}')" title="Agregar tela base">🧵</div>`:'')}
+              ? `<div class="item-photo-wrap small"><img class="item-photo" src="${item.foto_tela}" onclick="openPhotoModal('${item.foto_tela}')">${canStef?`<button class="photo-edit-btn" onclick="event.stopPropagation();triggerFotoTelaUpload('${secId}','${itemId}')" title="Cambiar tela">✏️</button>`:''}</div>`
+              : (canStef?`<div class="item-photo-placeholder small" onclick="triggerFotoTelaUpload('${secId}','${itemId}')" title="Agregar tela base">🧵</div>`:'')}
             <div style="display:flex;flex-direction:column;gap:6px;min-width:0;flex:1">
               <div style="display:flex;align-items:center;gap:8px;min-width:0">
                 <span style="font-size:11px;color:var(--text2);min-width:56px;flex-shrink:0">Tela base</span>
-                ${buildTelaBaseHtml(secId,itemId,item,canEdit)}
+                ${buildTelaBaseHtml(secId,itemId,item,canStef)}
               </div>
               <div style="display:flex;align-items:center;gap:8px;min-width:0">
                 <span style="font-size:11px;color:var(--text2);min-width:56px;flex-shrink:0">Proveedor</span>
-                ${buildProveedorTelaHtml(secId,itemId,item,canEdit)}
+                ${buildProveedorTelaHtml(secId,itemId,item,canStef)}
               </div>
             </div>
           </div>
 
-          ${canEdit?buildMarcaHtml(secId,itemId,item):''}
-          ${canEdit?buildCategoriaHtml(secId,itemId,item):''}
-          ${canEdit?buildTemporadaHtml(secId,itemId,item):''}
+          ${canStef?buildMarcaHtml(secId,itemId,item):''}
+          ${canStef?buildCategoriaHtml(secId,itemId,item):''}
+          ${canStef?buildTemporadaHtml(secId,itemId,item):''}
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
             <span class="modelista-label">Link:</span>
             ${item.ref_link
               ? `<a href="${item.ref_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">🔗 Ver</a>`
               : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin link</span>`}
-            ${canEdit?`<button class="btn-sm" onclick="editRefLink('${secId}','${itemId}')">${item.ref_link?'🔗 Editar link':'+ Link'}</button>`:''}
+            ${canStef?`<button class="btn-sm" onclick="editRefLink('${secId}','${itemId}')">${item.ref_link?'🔗 Editar link':'+ Link'}</button>`:''}
           </div>
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
             <span class="modelista-label">${item.base_aprobada?'Código nuevo:':'Código:'}</span>
             ${item.code?`<span class="item-code" style="margin-top:0">${item.code}</span>`:`<span style="font-size:12px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-            ${canEdit?`<button class="btn-sm" onclick="editCodigoPrompt('${secId}','${itemId}')">✏️ Editar código</button>`:''}
+            ${canPeque?`<button class="btn-sm" onclick="editCodigoPrompt('${secId}','${itemId}')">✏️ Editar código</button>`:''}
           </div>
           <div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${ninox?'checked':''}" onclick="${canEdit?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
+            <div class="c-check ${ninox?'checked':''}" onclick="${canPeque?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
             <span class="c-label" style="font-size:11px">Cargado en Ninox</span>
           </div>
 
@@ -3932,7 +3985,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${item.ficha_link
               ? `<span style="font-size:12px;font-weight:600;color:var(--accent)">Cargada ✓</span> <a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">🔗 Ver</a>`
               : `<span style="font-size:12px;font-weight:600;color:var(--warn-text)">Pendiente</span>`}
-            ${canEdit?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar link':'+ Link'}</button>`:''}
+            ${canPeque?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar link':'+ Link'}</button>`:''}
           </div>
 
           <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -3947,28 +4000,28 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <div class="mod-ref-title">🔧 Modificación pedida${item.ficha_mod_por?` por ${item.ficha_mod_por}`:''}:</div>
             <div>${(item.ficha_mod_notas||'').replace(/</g,'&lt;')}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-              ${canEdit?`<button class="btn-advance" onclick="marcarFichaCorregida('${secId}','${itemId}')">✅ Ya corregí la ficha</button>`:''}
+              ${canPeque?`<button class="btn-advance" onclick="marcarFichaCorregida('${secId}','${itemId}')">✅ Ya corregí la ficha</button>`:''}
               ${canControl?`<button class="btn-sm" onclick="deshacerPedidoModificacion('${secId}','${itemId}')">↩ Deshacer pedido</button>`:''}
             </div>
           </div>`:''}
           ${fichaCorregidaEsperando?`<div class="mod-ref-box" style="background:var(--accent-bg);color:var(--accent)">
             <div class="mod-ref-title">🔄 Ficha corregida — falta que Ariel/Stef la vuelvan a controlar</div>
-            ${canEdit?`<button class="btn-sm" onclick="deshacerFichaCorregida('${secId}','${itemId}')">↩ Todavía no está corregida</button>`:''}
+            ${canPeque?`<button class="btn-sm" onclick="deshacerFichaCorregida('${secId}','${itemId}')">↩ Todavía no está corregida</button>`:''}
           </div>`:''}
 
           ${item.base_aprobada
             ? `<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3);font-style:italic">No aplica — base ya aprobada</span></div>`
-            : buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha')}
+            : (canPeque?buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha'):`<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3)">${item.modelista||'— Sin asignar —'}</span></div>`)}
 
           ${esAdela?`<div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canEdit?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
+            <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canPeque?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
             <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada (ella corta directo, sin pasar por Cortador)</span>
           </div>`:''}
 
           ${buildNotasHtml(secId,itemId,item,canEdit)}
 
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta tildar Tela separada':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
+            ${canPeque?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta tildar Tela separada':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
@@ -3979,6 +4032,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   }
 
   if(tipo==='muestra_molderia'){
+    const canCorregirOrigen=(currentUser==='ariel'||currentUser==='stef');
     const enRevision=item.estado==='modificaciones';
     const refBox=enRevision?`<div class="mod-ref-box">
       <div class="mod-ref-title">🔁 Modificaciones pedidas:</div>
@@ -3999,7 +4053,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNameHtml(secId,itemId,item,canEdit)}
           ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+          ${canCorregirOrigen?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           ${enRevision?`<div class="mod-badge">🔁 Modificaciones pendientes</div>`:''}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
             ${item.ficha_link
@@ -4008,15 +4062,14 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
           ${buildModelistaHtml(secId,itemId,item)}
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
+          ${buildRefLinkHtml(secId,itemId,item,canCorregirOrigen)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
           <div class="cortada-row" style="padding:6px 0;border:none">
             <div class="c-check ${item.foto_drive_ok?'checked':''}" onclick="${canEdit?`toggleFotoDriveOk('${secId}','${itemId}')`:''}">${item.foto_drive_ok?'✓':''}</div>
-            <span class="c-label ${item.foto_drive_ok?'done':''}">Cargar foto en Drive con nombre prenda y código <span style="font-size:10px;color:var(--text3)">(Peque)</span></span>
+            <span class="c-label ${item.foto_drive_ok?'done':''}">Modelista entregó — foto en Drive con nombre prenda y código <span style="font-size:10px;color:var(--text3)">(Peque — pasa directo a corte)</span></span>
           </div>
           ${refBox}
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="enviarACorte('${secId}','${itemId}')">${item.modelista==='Adela'?'✅ Entregada — pasar a Diseño':'✂️ Enviar a corte'}</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
@@ -4337,9 +4390,19 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${item.sub?`<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:1px">${item.sub}</div>`:''}
         ${procesoInfoHtml(item,secId,itemId)}
         ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-        ${secId==='sFIN'?(canEdit?buildCategoriaHtml(secId,itemId,item):(item.categoria?`<div style="font-size:11px;color:var(--text2)">Categoría: <strong>${item.categoria}</strong></div>`:'')):''}
-        ${secId==='sFIN'?(canEdit?buildTemporadaHtml(secId,itemId,item):(item.temporada?`<div style="font-size:11px;color:var(--text2)">Temporada: <strong>${item.temporada}</strong></div>`:'')):''}
-        ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
+        ${(secId==='sFIN'||item.base_aprobada)?(canEdit?buildCategoriaHtml(secId,itemId,item):(item.categoria?`<div style="font-size:11px;color:var(--text2)">Categoría: <strong>${item.categoria}</strong></div>`:'')):''}
+        ${(secId==='sFIN'||item.base_aprobada)?(canEdit?buildTemporadaHtml(secId,itemId,item):(item.temporada?`<div style="font-size:11px;color:var(--text2)">Temporada: <strong>${item.temporada}</strong></div>`:'')):''}
+        ${item.base_aprobada
+          ? `<div style="display:flex;flex-direction:column;gap:2px;margin-top:6px">
+              ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
+              ${canFicha?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
+              <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+                <span style="font-size:11px;color:var(--text2)">Link:</span>
+                ${item.ref_link?`<a href="${item.ref_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">🔗 Ver</a>`:`<span style="font-size:12px;color:var(--text3);font-style:italic">Sin link</span>`}
+                ${canFicha?`<button class="btn-sm" onclick="editRefLink('${secId}','${itemId}')">${item.ref_link?'🔗 Editar link':'+ Link'}</button>`:''}
+              </div>
+            </div>`
+          : (canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:''))}
         ${baseHtml}
         ${fichaHtml}
         <div class="specs-line">
@@ -5406,7 +5469,11 @@ function confirmBaseAdd(){
     code,
     name,
     marca:ref?.marca||(marcasList&&marcasList[0])||'By Nina',
+    categoria:ref?.categoria||null,
+    temporada:ref?.temporada||null,
     tela:ref?.tela||null,
+    proveedor:ref?.proveedor||null,
+    ref_link:ref?.ref_link||null,
     foto:ref?.foto||'',
     base_aprobada:true,
     base_ref_sec:refSec,base_ref_id:refId,base_ref_manual:refManual,

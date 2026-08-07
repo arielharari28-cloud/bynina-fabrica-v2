@@ -3640,6 +3640,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNameHtml(secId,itemId,item,canEdit)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text2)">Color: <strong>${item.color||'—'}</strong></span>
+            <span style="font-size:11px;color:var(--text2)">Talle: <strong>${item.talle||'—'}</strong></span>
+          </div>
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
             ${item.ficha_link
               ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
@@ -3862,6 +3866,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNameHtml(secId,itemId,item,canEdit)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text2)">Color: <strong>${item.color||'—'}</strong></span>
+            <span style="font-size:11px;color:var(--text2)">Talle: <strong>${item.talle||'—'}</strong></span>
+          </div>
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
             ${item.ficha_link
               ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`

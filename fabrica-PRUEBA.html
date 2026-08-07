@@ -396,6 +396,7 @@
     <div style="display:flex;align-items:center">
       <button class="notif-btn hidden" id="pins-btn" title="Cambiar PIN de usuarios">🔑</button>
       <button class="notif-btn hidden" id="backup-btn" title="Descargar backup de todos los datos">💾</button>
+      <button class="notif-btn" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
       <button class="notif-btn hidden" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
       <div class="user-chip" id="user-chip">— <span style="opacity:.4">salir</span></div>
     </div>
@@ -1496,8 +1497,7 @@ function pasarABaseAprobada(secId,itemId){
     fecha_ingreso:Date.now(),
     fecha_etapa:Date.now()
   };
-  db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  moveItemUndoable(secId,itemId,destId,newItem);
   logActivity('Enviada a Pendiente armar tizada (base ya aprobada, sin moldería)',item.code);
   showToast(`✂️ ${item.code} pasó directo a Pendiente armar tizada — base ya aprobada`);
 }
@@ -2345,6 +2345,57 @@ function logActivity(action,details){
   db.ref('fabrica_v5/actividad').push({user:userName,action,details,timestamp:Date.now(),read:false});
 }
 
+// --- DESHACER ÚLTIMA ACCIÓN (global, cualquier usuario) ---
+// Cada vez que un ítem se mueve de sección o se elimina, queda una foto de cómo estaba antes
+// en fabrica_v5/undo_stack. El botón "Deshacer" en el header toma la última entrada y la revierte.
+// Se guarda un máximo de 15 entradas (se van recortando las más viejas).
+function pushUndo(entry){
+  const ref=db.ref('fabrica_v5/undo_stack').push({...entry,by:USER_DISPLAY[currentUser]||currentUser,ts:Date.now()});
+  db.ref('fabrica_v5/undo_stack').once('value').then(snap=>{
+    const keys=Object.keys(snap.val()||{});
+    if(keys.length>15){
+      const sorted=keys.sort();
+      const aBorrar=sorted.slice(0,keys.length-15);
+      const upd={};
+      aBorrar.forEach(k=>{ upd[k]=null; });
+      db.ref('fabrica_v5/undo_stack').update(upd);
+    }
+  });
+  return ref;
+}
+function moveItemUndoable(fromSecId,fromItemId,toSecId,newItemData){
+  const snapshot=JSON.parse(JSON.stringify(sectionsData[fromSecId]?.items?.[fromItemId]||newItemData));
+  const newRef=db.ref(`fabrica_v5/sections/${toSecId}/items`).push(newItemData);
+  db.ref(`fabrica_v5/sections/${fromSecId}/items/${fromItemId}`).remove();
+  pushUndo({tipo:'move',fromSecId,fromItemId,toSecId,toItemId:newRef.key,snapshot});
+  return newRef;
+}
+function deleteItemUndoable(secId,itemId){
+  const snapshot=JSON.parse(JSON.stringify(sectionsData[secId]?.items?.[itemId]||{}));
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  pushUndo({tipo:'delete',secId,itemId,snapshot});
+}
+function deshacerUltimaAccion(){
+  db.ref('fabrica_v5/undo_stack').once('value').then(snap=>{
+    const val=snap.val();
+    if(!val){ showToast('No hay nada para deshacer'); return; }
+    const keys=Object.keys(val).sort();
+    const lastKey=keys[keys.length-1];
+    const entry=val[lastKey];
+    const desc=entry.snapshot?.code||entry.snapshot?.name||'ítem';
+    if(!confirm(`¿Deshacer la última acción (${entry.by||'alguien'}): "${desc}"?`)) return;
+    if(entry.tipo==='move'){
+      db.ref(`fabrica_v5/sections/${entry.toSecId}/items/${entry.toItemId}`).remove();
+      db.ref(`fabrica_v5/sections/${entry.fromSecId}/items/${entry.fromItemId}`).set(entry.snapshot);
+    } else if(entry.tipo==='delete'){
+      db.ref(`fabrica_v5/sections/${entry.secId}/items/${entry.itemId}`).set(entry.snapshot);
+    }
+    db.ref(`fabrica_v5/undo_stack/${lastKey}`).remove();
+    logActivity('Deshizo una acción',desc);
+    showToast('↩ Acción deshecha');
+  });
+}
+
 // AUTO-MOVE muestra: de pendiente → cortada
 // --- CANCELAR MUESTRA: se saca del flujo normal y queda archivada en "Canceladas" ---
 function cancelarMuestra(secId,itemId){
@@ -2809,11 +2860,27 @@ function toggleControlFichaCorregida(secId,itemId,campo){
 }
 
 function toggleTelaEntregada(secId,itemId){
-  const item=sectionsData[secId].items[itemId];
+  const sec=sectionsData[secId];
+  const item=sec.items[itemId];
   const nv=!(item.tela_entregada||false);
+  if(!nv){
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_entregada`).set(nv);
+    logActivity('Deshizo entrega de tela a Adela',item.code||item.name||'');
+    showToast('↩ Deshecho');
+    return;
+  }
+  // En Moldería: apenas se le da la tela a Adela, pasa directo a "Muestras — en taller"
+  // (ella corta y cose sola, así que ese es su equivalente al taller externo).
+  if(sec.tipo==='muestra_molderia'){
+    const newItem={...item,tela_entregada:true,tallerista:'Adela',fecha_envio_taller:Date.now(),fecha_etapa:Date.now()};
+    moveItemUndoable(secId,itemId,SEC_TALLER,newItem);
+    logActivity('Le dio la tela a Adela — pasó a En taller',item.code||item.name||'');
+    showToast('🧵 Tela entregada — pasó a Muestras en taller');
+    return;
+  }
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_entregada`).set(nv);
-  logActivity(nv?'Le dio la tela a Adela':'Deshizo entrega de tela a Adela',item.code||item.name||'');
-  showToast(nv?'🧵 Tela entregada a Adela':'↩ Deshecho');
+  logActivity('Le dio la tela a Adela',item.code||item.name||'');
+  showToast('🧵 Tela entregada a Adela');
 }
 
 function pasarAMolderia(secId,itemId){
@@ -4087,12 +4154,16 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
           ${buildModelistaHtml(secId,itemId,item)}
+          ${item.modelista==='Adela'?`<div class="avio-item" style="padding-left:0;border-top:none">
+            <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canEdit?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
+            <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada — ¿ya se le dio la tela a Adela?</span>
+          </div>`:''}
           ${buildRefLinkHtml(secId,itemId,item,canCorregirOrigen)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div class="cortada-row" style="padding:6px 0;border:none">
+          ${item.modelista!=='Adela'?`<div class="cortada-row" style="padding:6px 0;border:none">
             <div class="c-check ${item.foto_drive_ok?'checked':''}" onclick="${canEdit?`toggleFotoDriveOk('${secId}','${itemId}')`:''}">${item.foto_drive_ok?'✓':''}</div>
             <span class="c-label ${item.foto_drive_ok?'done':''}">Modelista entregó — foto en Drive con nombre prenda y código <span style="font-size:10px;color:var(--text3)">(Peque — pasa directo a corte)</span></span>
-          </div>
+          </div>`:''}
           ${refBox}
           <div class="item-actions">
             ${moveOpts}
@@ -5539,15 +5610,16 @@ function moveItem(secId,itemId,targetSecId){
       return;
     }
   }
-  db.ref(`fabrica_v5/sections/${targetSecId}/items`).push({...item,fecha_etapa:Date.now()});
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  moveItemUndoable(secId,itemId,targetSecId,{...item,fecha_etapa:Date.now()});
   logActivity('Movió ítem',`${item.code} → ${sectionsData[targetSecId].title}`);
   showToast('Ítem movido');
 }
 
 function deleteItem(secId,itemId){
   if(!confirm('¿Eliminar?'))return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  const item=sectionsData[secId]?.items?.[itemId];
+  deleteItemUndoable(secId,itemId);
+  logActivity('Eliminó ítem',item?.code||item?.name||'');
   showToast('Eliminado');
 }
 

@@ -1713,7 +1713,7 @@ const SEC_TALLER = 'muestra_en_taller';
 // Secciones de corte que ya están en s3 o más adelante en el flujo: una vez ahí, el aviso
 // de "falta completar Ancho/Control de piezas" ya no aporta (esa validación es solo para
 // entrar a "Cortes próximos a sacar").
-const POST_S3_SECS = ['s3','s3b','s4','s5','sLT','sFIN'];
+const POST_S3_SECS = ['s3','s3b','s4','s5','sLT','s6','sFIN'];
 const SEC_DISENO = 'muestra_diseno';
 const SEC_CANCEL = 'muestra_cancelada';
 
@@ -1788,6 +1788,7 @@ const INITIAL_SECTIONS = {
     i8:{code:'Corte 97',name:'1163 · Pantalon Pinzas Clasico',done:false,avios:{a1:{nombre:'Botón Yarda a tono',proveedor:'Walter Botonera Union',fecha_pedido:'18/6/2026',recibido:false},a2:{nombre:'Cierre 14cm',proveedor:'Walter Botonera Union',fecha_pedido:'18/6/2026',recibido:false}}},
   }},
   sLT:{title:'Cortes listo para taller',color:'green',order:6.5,items:{}},
+  s6:{title:'Pendiente recibir avío — corte en taller',color:'danger',order:6.8,items:{}},
   sFIN:{title:'Cortes Finalizados',color:'purple',order:7,items:{}},
 };
 
@@ -3751,6 +3752,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const avios=Object.entries(item.avios||{});
   let aviosHtml='';
   if(avios.length){
+    const canCosto=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='nahuel';
     aviosHtml='<div class="avios-normal">'+avios.map(([avioId,avio])=>{
       const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
       const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
@@ -3760,9 +3762,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
       const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
         (!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
           :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`):'';
+      const costoLine=`<div style="font-size:10px;color:var(--text3);margin-left:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span>Cantidad: <strong style="color:var(--text2)">${avio.cantidad||'—'}</strong></span>
+        <span>Precio: <strong style="color:var(--text2)">${avio.precio||'—'}</strong></span>
+        ${canCosto?`<button class="avio-btn" onclick="editAvioCantidadPrompt('${secId}','${itemId}','${avioId}')">✏️ Cantidad</button>
+        <button class="avio-btn" onclick="editAvioPrecioPrompt('${secId}','${itemId}','${avioId}')">✏️ Precio</button>`:''}
+      </div>`;
       return `<div class="avio-row-n"><div class="avio-dot" style="background:${dot}"></div>
         <span style="font-size:11px;color:var(--text2)">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
-        ${badge}${btns}</div>`;
+        ${badge}${btns}</div>${costoLine}`;
     }).join('')+'</div>';
   }
 
@@ -3782,8 +3790,14 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canEditRollosFuera = secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel'||currentUser==='emir');
   const rollosHtml = buildRollosHtml(item,secId,itemId,canEditRollosFuera);
   const realesHtml = buildRealesHtml(item,secId,itemId);
-  const fechaSalidaHtml = secId==='sFIN'&&item.fecha_salida_taller
+  const fechaSalidaHtml = (secId==='sFIN'||secId==='s6')&&item.fecha_salida_taller
     ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></div>` : '';
+  // Banner grande y persistente: si quedan avíos sin recibir, se ve fuerte en CUALQUIER
+  // etapa (incluido ya en taller / Cortes Finalizados) — no se pierde entre la lista.
+  const aviosSinRecibir=avios.filter(([,a])=>!a.recibido);
+  const avioPendienteBannerHtml = aviosSinRecibir.length
+    ? `<div style="font-size:12px;font-weight:600;color:var(--danger);background:var(--danger-bg);border-radius:6px;padding:6px 8px;margin:4px 0">⚠️ Avío pendiente${(secId==='sFIN'||secId==='s6')?' (colocar al volver del taller)':''}: ${aviosSinRecibir.map(([,a])=>a.nombre).join(', ')}</div>`
+    : '';
   const fichaHtml = `<div style="display:flex;align-items:center;gap:8px;margin:4px 0 2px;flex-wrap:wrap">
       <div class="c-check checked-auto ${item.ficha_link?'checked':''}" title="Se tilda solo cuando hay ficha cargada">${item.ficha_link?'✓':''}</div>
       ${item.ficha_link
@@ -3792,7 +3806,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       ${canFicha?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
     </div>`;
   const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}</div>` : '';
-  const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
+  const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&secId!=='s6'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const avioPendiente=(secId==='s4'||secId==='s5');
   const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
@@ -3894,7 +3908,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           if(!faltantes.length) return '';
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${faltantes.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
         })()}
-        ${(secId==='sLT'||secId==='sFIN'||secId==='s4'||secId==='s5')?buildTallerCorteHtml(secId,itemId,item):''}
+        ${(secId==='sLT'||secId==='sFIN'||secId==='s4'||secId==='s5'||secId==='s6')?buildTallerCorteHtml(secId,itemId,item):''}
         ${numeroCorteHtml}
         ${sinConfirmarHtml}
         ${capasHtml}
@@ -3903,6 +3917,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${flujoCorteHtml}
         ${fechaCorteHtml}
         ${fechaSalidaHtml}
+        ${avioPendienteBannerHtml}
         ${notaHtml}
         ${pedidoSinAvioHtml}
         ${aviosHtml}
@@ -4296,6 +4311,7 @@ const SEC_DEFAULTS_CORTE={
   s4:{title:'Corte pendiente avío no pedido para sacar a taller',color:'danger',order:5},
   s5:{title:'Cortes pendiente avío para sacar a taller',color:'warn',order:6},
   sLT:{title:'Cortes listo para taller',color:'green',order:6.5},
+  s6:{title:'Pendiente recibir avío — corte en taller',color:'danger',order:6.8},
   sFIN:{title:'Cortes Finalizados',color:'purple',order:7},
 };
 
@@ -4338,33 +4354,36 @@ function marcarCorteRealizado(secId,itemId){
 }
 
 function checkCorteListoParaTaller(secId,itemId,avios){
-  if(secId!=='s4'&&secId!=='s5'&&secId!=='s3b') return;
+  if(secId!=='s4'&&secId!=='s5'&&secId!=='s3b'&&secId!=='s6') return;
   const item=sectionsData[secId]?.items?.[itemId];
   if(!item) return;
   const avList=Object.values(avios||{});
   if(avList.length===0 || !avList.every(a=>a.recibido)) return;
-  ensureSeccionCorte('sLT');
-  setTimeout(()=>{
-    db.ref(`fabrica_v5/sections/sLT/items`).push({...item,avios});
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-    logActivity('Corte listo para taller',item.code);
-    showToast(`🎉 ${item.code} listo para taller`);
-  },400);
-}
-
-function checkCorteVuelveABloqueado(secId,itemId,avios){
-  if(secId!=='sLT') return;
-  const item=sectionsData[secId]?.items?.[itemId];
-  if(!item) return;
-  const avList=Object.values(avios||{});
-  if(avList.length===0 || avList.every(a=>a.recibido)) return; // sigue sin necesitar nada, se queda
-  const targetSec=avList.some(a=>a.fecha_pedido)?'s5':'s4';
+  // Antes de sacarlo a taller (s4/s5/s3b), el avío completo lo deja listo para taller.
+  // Si ya estaba en taller esperando el avío (s6), el avío completo cierra el ciclo directo.
+  const targetSec = secId==='s6' ? 'sFIN' : 'sLT';
   ensureSeccionCorte(targetSec);
   setTimeout(()=>{
     db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios});
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-    logActivity('Corte vuelve a bloqueado',item.code);
-    showToast(`⚠️ ${item.code} volvió a bloqueado — falta avío`);
+    logActivity(targetSec==='sFIN'?'Avío completo — corte finalizado':'Corte listo para taller',item.code);
+    showToast(targetSec==='sFIN'?`🎉 ${item.code} — avío completo, corte finalizado`:`🎉 ${item.code} listo para taller`);
+  },400);
+}
+
+function checkCorteVuelveABloqueado(secId,itemId,avios){
+  if(secId!=='sLT'&&secId!=='sFIN') return;
+  const item=sectionsData[secId]?.items?.[itemId];
+  if(!item) return;
+  const avList=Object.values(avios||{});
+  if(avList.length===0 || avList.every(a=>a.recibido)) return; // sigue sin necesitar nada, se queda
+  const targetSec = secId==='sFIN' ? 's6' : (avList.some(a=>a.fecha_pedido)?'s5':'s4');
+  ensureSeccionCorte(targetSec);
+  setTimeout(()=>{
+    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios});
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Corte vuelve a pendiente avío',item.code);
+    showToast(`⚠️ ${item.code} volvió a pendiente — falta avío`);
   },400);
 }
 
@@ -4372,13 +4391,16 @@ function sacarATaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.taller_corte){ showToast('Asigná un taller antes de sacarlo'); return; }
   if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
+  const avList=Object.values(item.avios||{});
+  const avioPendiente = avList.length>0 && !avList.every(a=>a.recibido);
+  const targetSec = avioPendiente ? 's6' : 'sFIN';
   const newItem={...item, fecha_salida_taller:Date.now()};
   delete newItem.pedido_sin_avio;
-  ensureSeccionCorte('sFIN');
-  db.ref(`fabrica_v5/sections/sFIN/items`).push(newItem);
+  ensureSeccionCorte(targetSec);
+  db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Corte sacado a taller',`${item.code} → ${item.taller_corte}`);
-  showToast(`📦 ${item.code} salió a ${item.taller_corte}`);
+  logActivity('Corte sacado a taller',`${item.code} → ${item.taller_corte}${avioPendiente?' (avío pendiente)':''}`);
+  showToast(avioPendiente?`📦 ${item.code} salió a ${item.taller_corte} — el avío queda pendiente`:`📦 ${item.code} salió a ${item.taller_corte}`);
 }
 
 // Cuando el avío todavía está pendiente (s4/s5), Emir/Peque no pueden sacar el corte
@@ -4608,6 +4630,27 @@ function desmarcarRecibido(secId,itemId,avioId){
   showToast('↩ Avío desmarcado');
   const aviosAct={...item.avios,[avioId]:{...avio,recibido:false}};
   checkCorteVuelveABloqueado(secId,itemId,aviosAct);
+}
+
+// Cantidad y precio por avío — para costeo (ej: "1 metro", "3 unidades" / "$4.500").
+function editAvioCantidadPrompt(secId,itemId,avioId){
+  const item=sectionsData[secId].items[itemId];
+  const avio=item.avios[avioId];
+  const val=prompt('Cantidad que lleva (ej: 1 metro, 3 broches):',avio.cantidad||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/cantidad`).set(val.trim());
+  logActivity('Editó cantidad de avío',`${avio.nombre} — ${item.code}`);
+  showToast('✓ Cantidad guardada');
+}
+
+function editAvioPrecioPrompt(secId,itemId,avioId){
+  const item=sectionsData[secId].items[itemId];
+  const avio=item.avios[avioId];
+  const val=prompt('Precio del avío (ej: $4.500):',avio.precio||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/precio`).set(val.trim());
+  logActivity('Editó precio de avío',`${avio.nombre} — ${item.code}`);
+  showToast('✓ Precio guardado');
 }
 
 function checkListaParaTaller(secId,itemId,ficha,llevaAvios,avios){

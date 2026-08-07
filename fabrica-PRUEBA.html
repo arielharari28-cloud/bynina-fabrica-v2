@@ -761,6 +761,13 @@ async function irAEstampado(secId,itemId){
       const fid=db.ref('fabrica_v5/estampados').push().key;
       fotos[fid]={color:r.color,estampaColor:'',cant};
     });
+    const estampas={};
+    const eid=db.ref('fabrica_v5/estampados').push().key;
+    estampas[eid]={
+      articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||'(sin nombre)'),
+      estado:'dibujo',
+      img:item.foto||''
+    };
     const newRef=db.ref('fabrica_v5/estampados').push();
     estId=newRef.key;
     await newRef.set({
@@ -768,7 +775,7 @@ async function irAEstampado(secId,itemId){
       tela:item.tela_nombre||item.tela||'',
       coloresImg:'',
       fotos,
-      estampas:{},
+      estampas,
       fecha_creado:Date.now(),
       link_secId:secId,
       link_itemId:itemId
@@ -4500,6 +4507,16 @@ async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item){
     const fid=db.ref('fabrica_v5/estampados').push().key;
     fotos[fid]={color:r.color,estampaColor:'',cant};
   });
+  // Se crea directo la primera estampa con el artículo y la foto del producto como punto de
+  // partida (Diseño la reemplaza por el arte real de la estampa si hace falta) — así arranca
+  // directo a armar dibujo/plancha en vez de tener que crear la estampa a mano primero.
+  const estampas={};
+  const eid=db.ref('fabrica_v5/estampados').push().key;
+  estampas[eid]={
+    articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||'(sin nombre)'),
+    estado:'dibujo',
+    img:item.foto||''
+  };
   const newRef=db.ref('fabrica_v5/estampados').push();
   const estId=newRef.key;
   await newRef.set({
@@ -4507,7 +4524,7 @@ async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item){
     tela:item.tela_nombre||item.tela||'',
     coloresImg:'',
     fotos,
-    estampas:{},
+    estampas,
     fecha_creado:Date.now(),
     link_secId:secId,
     link_itemId:itemId

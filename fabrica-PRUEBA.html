@@ -3721,6 +3721,7 @@ function buildItem(secId,itemId,item,sec){
               ?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
               :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
           const btns=canCheck?`
+            ${(!rec&&!hasDate)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}
             ${!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`:
               `<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`}`:'' ;
           return `<div class="avio-item">
@@ -3792,8 +3793,8 @@ function buildItem(secId,itemId,item,sec){
         :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
       const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
-        (!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
-          :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`):'';
+        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
+          :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`)):'';
       return `<div class="avio-row-n">
         <div class="avio-dot" style="background:${dot}"></div>
         <span style="font-size:11px;color:var(--text2)">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
@@ -3911,9 +3912,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
           const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Entregado</span>`
             :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
             :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-          const btns=canCheck?(!rec
+          const btns=canCheck?`${(!rec&&!hasDate)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${!rec
             ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`
-            :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`):'';
+            :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`}`:'';
           return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
             <span class="avio-name">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
             ${badge}${btns}</div>`;
@@ -4436,8 +4437,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
         :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
       const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
-        (!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
-          :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`):'';
+        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
+          :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`)):'';
       const costoLine=`<div style="font-size:10px;color:var(--text3);margin-left:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span>Cantidad: <strong style="color:var(--text2)">${avio.cantidad||'—'}</strong></span>
         <span>Precio: <strong style="color:var(--text2)">${avio.precio||'—'}</strong></span>
@@ -5484,6 +5485,15 @@ function setLlevaAvios(secId,itemId,val){
   logActivity(`Lleva avíos: ${val?'Sí':'No'}`,item.code);
   showToast(val?'Lleva avíos: Sí':'Sin avíos requeridos');
   if(!val) checkListaParaTaller(secId,itemId,item.ficha||false,val,item.avios);
+}
+
+function marcarAvioPedidoHoy(secId,itemId,avioId){
+  const item=sectionsData[secId].items[itemId];
+  const avio=item.avios[avioId];
+  const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_pedido`).set(hoy);
+  logActivity('Avío pedido',`${avio.nombre} — ${item.code} (${hoy})`);
+  showToast(`📅 Pedido hoy (${hoy})`);
 }
 
 function marcarRecibido(secId,itemId,avioId){

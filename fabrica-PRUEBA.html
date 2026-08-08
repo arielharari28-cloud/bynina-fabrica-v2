@@ -1939,7 +1939,7 @@ function getProximaAccion(sec,item,secId){
     }
     return 'Falta pasar a Muestra Lista';
   }
-  if(tipo==='muestra_lista') return 'Falta elegir taller y enviar';
+  if(tipo==='muestra_lista') return item.taller_elegido?`Falta marcar enviado · Taller: ${item.taller_elegido}`:'Falta elegir taller y enviar';
   if(tipo==='muestra_en_taller') return 'Esperando que el taller entregue';
   if(tipo==='muestra_diseno'){
     const fotos=Object.keys(item.fotos_prueba||{});

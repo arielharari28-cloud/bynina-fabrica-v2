@@ -1955,6 +1955,8 @@ function getProximaAccion(sec,item,secId){
   }
   if(secId==='s4') return 'Falta pedir el avío';
   if(secId==='s5') return 'Esperando que llegue el avío pedido';
+  if(secId==='s3b') return 'Esperando que llegue el avío (antes de salir a taller)';
+  if(secId==='s6') return 'Esperando que llegue el avío pedido (la prenda ya está en el taller)';
   if(secId==='sLT'||secId==='sFIN') return 'Falta que el taller lo entregue';
   if(!tipo) return 'Falta armar la tizada';
   return null;

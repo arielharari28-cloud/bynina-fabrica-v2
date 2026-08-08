@@ -2643,6 +2643,18 @@ function editTallePrompt(secId,itemId){
   showToast('✓ Talle guardado');
 }
 
+function editTelaPendPrompt(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const val=prompt('Tela de la muestra:',item.tela_nombre||'');
+  if(val===null) return;
+  const trimmed=val.trim();
+  const updates={tela_nombre:trimmed};
+  updates.tela_set_by = trimmed ? (USER_DISPLAY[currentUser]||currentUser) : null;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
+  logActivity('Editó tela',trimmed||'(vacío)');
+  showToast('✓ Tela guardada');
+}
+
 function editNotasPrompt(secId,itemId){
   openNotasModal(secId,itemId);
 }
@@ -3839,7 +3851,13 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
+            <span class="modelista-label">Tela:</span>
+            ${item.tela_nombre
+              ? `<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>${item.tela_proveedor?` <span style="font-size:10px;color:var(--text3)">· ${item.tela_proveedor}</span>`:''}${item.tela_set_by?` <span style="font-size:10px;color:var(--text3)">(cargado por ${item.tela_set_by})</span>`:''}`
+              : `<span style="font-size:12px;color:var(--warn-text);font-style:italic">⚠️ Sin tela</span>`}
+            ${canCheck?`<button class="btn-sm" onclick="editTelaPendPrompt('${secId}','${itemId}')">${item.tela_nombre?'✏️ Editar':'+ Tela'}</button>`:''}
+          </div>
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
           <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">

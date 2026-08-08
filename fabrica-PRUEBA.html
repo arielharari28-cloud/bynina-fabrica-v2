@@ -4507,7 +4507,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       sacarTallerHtml=item.pedido_sin_avio
         ? `<button class="btn-advance" ${puedeSacarTaller?'':'disabled'} title="${checklistTitle}" onclick="autorizarSacarSinAvio('${secId}','${itemId}')">✅ Autorizar y sacar a taller</button>
            <button class="btn-sm" onclick="rechazarSinAvio('${secId}','${itemId}')">✖ Rechazar pedido</button>`
-        : `<button class="btn-advance" ${puedeSacarTaller?'':'disabled'} title="${checklistTitle}" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`;
+        : `<span class="c-label" style="font-size:11px;color:var(--text3);flex:0">Esperando que Peque pida autorización para sacar sin avío</span>`;
     } else {
       sacarTallerHtml=item.pedido_sin_avio
         ? `<span class="c-label" style="font-size:11px;color:var(--warn-text);flex:0">🔔 Esperando autorización de Ariel/Stef</span>`
@@ -5254,10 +5254,15 @@ function toggleChecklistTaller(secId,itemId,campo){
 function sacarATaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.taller_corte){ showToast('Asigná un taller antes de sacarlo'); return; }
-  const faltaAvios=(item.avios&&Object.keys(item.avios).length&&item.lleva_avios!==false)&&!item.taller_avios_entregados;
-  if(!item.taller_muestra_entregada||!item.taller_ficha_entregada||!item.taller_ninox_salida||faltaAvios){
-    showToast('Falta completar el checklist antes de sacar a taller');
-    return;
+  // El checklist (Muestra/Ficha/Ninox/Avíos entregados) es específico de "Listas para taller"
+  // (sLT) — en s4/s5 esos checkboxes ni siquiera se muestran, así que no corresponde exigirlos
+  // ahí; el único requisito en s4/s5 es la autorización de Ariel/Stef para saltear el avío.
+  if(secId==='sLT'){
+    const faltaAvios=(item.avios&&Object.keys(item.avios).length&&item.lleva_avios!==false)&&!item.taller_avios_entregados;
+    if(!item.taller_muestra_entregada||!item.taller_ficha_entregada||!item.taller_ninox_salida||faltaAvios){
+      showToast('Falta completar el checklist antes de sacar a taller');
+      return;
+    }
   }
   if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
   const avList=Object.values(item.avios||{});

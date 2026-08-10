@@ -3153,7 +3153,8 @@ function marcarAprobada(secId,itemId){
   const fotos=Object.keys(item.fotos_prueba||{});
   if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
   if(!confirm(`¿Aprobar ${item.code} y pasarla a Producción/Corte?`)) return;
-  const newItem={...item, fecha_aprobada:Date.now()};
+  // Si no lo aprueba Ariel/Stef directamente, el corte queda en cola esperando su confirmación
+  const newItem={...item, fecha_aprobada:Date.now(), sin_confirmar:!(currentUser==='ariel'||currentUser==='stef')};
   delete newItem.estado;
   // Asegurar metadata de la sección destino por si no existía aún en Firebase
   if(!sectionsData['s3']||!sectionsData['s3'].title){
@@ -3190,10 +3191,12 @@ function marcarCorregirSinMuestra(secId,itemId){
   const tocaFicha=confirm('¿También hay que modificar la Ficha Técnica?\n\nAceptar = sí, hay que corregir la ficha.\nCancelar = no, solo se corrige el molde.');
   if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar directo a Producción/Corte?`)) return;
   const notaCorreccion=`🔧 Corrección sin nueva muestra${tocaFicha?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
+  // Si no lo confirma Ariel/Stef directamente, el corte queda en cola esperando su confirmación
   const newItem={...item,
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
     fecha_aprobada:Date.now(),
-    fecha_etapa:Date.now()};
+    fecha_etapa:Date.now(),
+    sin_confirmar:!(currentUser==='ariel'||currentUser==='stef')};
   delete newItem.estado;
   delete newItem.modificaciones;
   if(!sectionsData['s3']||!sectionsData['s3'].title){
@@ -5705,7 +5708,10 @@ function moveItem(secId,itemId,targetSecId){
       return;
     }
   }
-  moveItemUndoable(secId,itemId,targetSecId,{...item,fecha_etapa:Date.now()});
+  // Si el corte entra a "Cortes próximos a sacar" y no lo mueve Ariel/Stef, queda en cola
+  // esperando su confirmación (en vez de darse por confirmado automáticamente).
+  const extra=(targetSecId==='s3'&&!(currentUser==='ariel'||currentUser==='stef'))?{sin_confirmar:true}:{};
+  moveItemUndoable(secId,itemId,targetSecId,{...item,fecha_etapa:Date.now(),...extra});
   logActivity('Movió ítem',`${item.code} → ${sectionsData[targetSecId].title}`);
   showToast('Ítem movido');
 }

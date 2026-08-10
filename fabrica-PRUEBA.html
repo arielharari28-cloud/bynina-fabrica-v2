@@ -5048,13 +5048,25 @@ function saveOrdenCorte(){
     talles.forEach(t=>{ cant[t]=capas*(parseInt(curvaValores[t])||0); });
     capasObj[row.id]={color:row.color||'',capas,cant};
   });
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
-  const grupo=gruposCorteData[corteKey]||{};
-  const grupoUpdates={};
-  grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/capas`]=capasGrupoObj;
-  grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=true;
-  if(!grupo.fecha_paso_orden) grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
-  db.ref().update(grupoUpdates);
+  if(secId==='s3'){
+    // Pre-corte: el N° de corte todavía puede compartirse entre varios artículos (misma tela
+    // física sin cortar todavía), así que las capas/colores viven en el nodo compartido
+    // fabrica_v5/grupos_corte — se consolidan ahí hasta que se marca "Corte realizado".
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
+    const grupo=gruposCorteData[corteKey]||{};
+    const grupoUpdates={};
+    grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/capas`]=capasGrupoObj;
+    grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=true;
+    if(!grupo.fecha_paso_orden) grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
+    db.ref().update(grupoUpdates);
+  } else {
+    // Ya cortado (o corte viejo cargado directo en una etapa posterior, ej. Finalizados sin
+    // haber pasado nunca por el nodo compartido): acá las capas ya son individuales de este
+    // ítem — "Marcar cortado" las congela en item.capas y borra el nodo grupos_corte, así que
+    // escribir en grupos_corte acá crearía un nodo huérfano que nadie vuelve a leer. Se guarda
+    // directo en el ítem, que es de donde la tarjeta lee (buildCapasHtml -> item.capas).
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles,capas:capasObj});
+  }
   const totalGeneral=Object.values(capasObj).reduce((s,r)=>s+Object.values(r.cant).reduce((a,b)=>a+b,0),0);
   logActivity('Orden de corte',`Corte ${item.numero_corte}: ${Object.keys(capasObj).length} color(es), ${totalGeneral} prendas (${item.code})`);
   // Definir acá si va a estampado DTF es el momento ideal (recién se cargaron los colores/capas).

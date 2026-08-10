@@ -775,6 +775,23 @@ async function irAEstampado(secId,itemId){
   if(!item) return;
   let estId=item.estampado_id;
   if(!estId || !estampadosData[estId]){
+    // Si otro artículo del mismo N° de corte ya tiene un estampado creado, nos sumamos a esa
+    // misma tarjeta en vez de crear una nueva (no duplicar "Corte 126" x2 en Estampas).
+    const hermanoConEstampado=otrosDelMismoCorte(secId,itemId,item).find(([,it])=>it.estampado_id&&estampadosData[it.estampado_id]);
+    if(hermanoConEstampado){
+      estId=hermanoConEstampado[1].estampado_id;
+      const eid=db.ref('fabrica_v5/estampados').push().key;
+      await db.ref(`fabrica_v5/estampados/${estId}/estampas/${eid}`).set({
+        articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||'(sin nombre)'),
+        estado:'dibujo',
+        img:item.foto||''
+      });
+      await db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+        estampado_dtf:true, estampado_id:estId, estampado_dtf_fecha:Date.now()
+      });
+      logActivity('Se sumó al estampado del corte compartido',`${item.code||item.name} → Corte ${item.numero_corte}`);
+      showToast('🎨 Sumado al corte compartido en Estampas');
+    } else {
     const filas=Object.values(item.capas||{}).filter(r=>r.color);
     const fotos={};
     filas.forEach(r=>{
@@ -806,6 +823,7 @@ async function irAEstampado(secId,itemId){
     });
     logActivity('Creó corte en Estampas',item.code||item.name);
     showToast('🎨 Corte creado en Estampas');
+    }
   } else if(!item.estampado_dtf){
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/estampado_dtf`).set(true);
   }
@@ -853,10 +871,16 @@ function delEstCorte(estId){
   const e=estampadosData[estId]; if(!e) return;
   if(!confirm(`¿Borrar el corte ${e.numero} de Estampas?`)) return;
   db.ref(`fabrica_v5/estampados/${estId}`).remove();
-  // Si venía vinculado a una tarjeta de fabrica, le sacamos la marca "En Estampas" para que no quede colgada.
-  if(e.link_secId&&e.link_itemId){
-    db.ref(`fabrica_v5/sections/${e.link_secId}/items/${e.link_itemId}`).update({estampado_dtf:false,estampado_id:null});
-  }
+  // Si venía vinculado a una o más tarjetas de fabrica (un corte compartido puede tener varios
+  // artículos apuntando al mismo estampado), les sacamos la marca "En Estampas" a TODOS para
+  // que no quede ninguna colgada apuntando a un corte que ya no existe.
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,it])=>{
+      if(it.estampado_id===estId){
+        db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({estampado_dtf:false,estampado_id:null});
+      }
+    });
+  });
 }
 
 // --- CRUD estampa individual (foto + artículo + estado) ---
@@ -1870,7 +1894,7 @@ function getResponsable(sec,item,secId){
     if(item.sin_confirmar) return 'Ariel';
     const avios=Object.values(item.avios||{});
     if(avios.length && !avios.every(a=>a.recibido)) return 'Peque';
-    if(!item.orden_corte_cargada) return 'Ariel';
+    if(!ordenCargadaGrupo(item)) return 'Ariel';
     return 'Cortador';
   }
   if(secId==='s4') return 'Peque';
@@ -1950,7 +1974,7 @@ function getProximaAccion(sec,item,secId){
     if(item.sin_confirmar) return 'Esperando confirmación (Ariel)';
     const avios=Object.values(item.avios||{});
     if(avios.length&&!avios.every(a=>a.recibido)) return 'Esperando que lleguen los avíos';
-    if(!item.orden_corte_cargada) return 'Falta cargar orden de corte (Ariel)';
+    if(!ordenCargadaGrupo(item)) return 'Falta cargar orden de corte (Ariel)';
     return 'Listo para que el cortador lo saque';
   }
   if(secId==='s4') return 'Falta pedir el avío';
@@ -2054,6 +2078,21 @@ const INITIAL_SECTIONS = {
 };
 
 let currentUser=null, sectionsData={}, actividadData={};
+// Datos compartidos por N° de corte (varios artículos que se cortan juntos comparten
+// orden de corte / rollos / encimado, así no hay que cargar las capas más de una vez).
+let gruposCorteData={};
+// Sanitiza el N° de corte para usarlo como key de Firebase (no admite . # $ [ ] /)
+function corteKeyFrom(numeroCorte){
+  if(!numeroCorte) return null;
+  const k=numeroCorte.trim().replace(/[.#$\[\]\/]/g,'_');
+  return k||null;
+}
+function grupoCorteOf(item){
+  const key=corteKeyFrom(item&&item.numero_corte);
+  return key?(gruposCorteData[key]||null):null;
+}
+function ordenCargadaGrupo(item){ const g=grupoCorteOf(item); return g?!!g.orden_corte_cargada:false; }
+function encimadoTerminadoGrupo(item){ const g=grupoCorteOf(item); return g?!!g.encimado_terminado:false; }
 let editCtx={secId:null,itemId:null,newAvioCount:0};
 
 // El colapsado/expandido de cada sección es preferencia de cada persona en su propio
@@ -2119,6 +2158,7 @@ function doLogin(user){
     backfillFechasIngreso();
     backfillPasosNuevoDesarrollo();
     backfillPasosCorte();
+    backfillGruposCorte();
     backfillBaseAprobadaTizada();
     backfillAvioPendienteEnTaller();
     backfillFotoDriveOkPendiente();
@@ -2232,10 +2272,49 @@ function backfillPasosCorte(){
   const updates={};
   Object.entries(sec.items||{}).forEach(([itemId,item])=>{
     if(!item.sin_confirmar&&!item.fecha_paso_confirmado) updates[`fabrica_v5/sections/s3/items/${itemId}/fecha_paso_confirmado`]=ahora;
-    if(item.orden_corte_cargada&&!item.fecha_paso_orden) updates[`fabrica_v5/sections/s3/items/${itemId}/fecha_paso_orden`]=ahora;
-    if(item.encimado_terminado&&!item.fecha_paso_encimado) updates[`fabrica_v5/sections/s3/items/${itemId}/fecha_paso_encimado`]=ahora;
   });
   if(Object.keys(updates).length) db.ref().update(updates);
+}
+// Migración única: cortes cargados con el sistema viejo (capas/rollos/encimado guardados en el
+// propio ítem) pasan a vivir en fabrica_v5/grupos_corte/{N° de corte}, compartido entre artículos
+// del mismo corte. Si dos ítems del mismo N° de corte tenían datos viejos distintos, se toma el
+// del primero que aparezca (después de la migración ya queda todo unificado).
+let gruposCorteMigradoDone=false;
+function backfillGruposCorte(){
+  if(gruposCorteMigradoDone) return;
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  const sec=sectionsData['s3'];
+  if(!sec||!sec.items) return;
+  const updates={};
+  let algoQuedoSinMigrar=false;
+  Object.entries(sec.items).forEach(([itemId,item])=>{
+    const key=corteKeyFrom(item.numero_corte);
+    if(!key) return;
+    if(gruposCorteData[key]) return; // ya existe el nodo del grupo, nada que migrar
+    const tieneLegacy=item.orden_corte_cargada||item.capas||item.rollos||item.encimado_terminado;
+    if(!tieneLegacy) return;
+    const nodo={};
+    if(item.orden_corte_cargada) nodo.orden_corte_cargada=true;
+    if(item.capas){
+      // Versión vieja tenía "cant" calculado con la curva del propio ítem; para el nodo
+      // compartido nos quedamos solo con color+capas (lo que realmente se comparte).
+      const lean={};
+      Object.entries(item.capas).forEach(([rid,r])=>{ lean[rid]={color:r.color||'',capas:r.capas||0}; });
+      nodo.capas=lean;
+    }
+    if(item.rollos) nodo.rollos=item.rollos;
+    if(item.encimado_terminado) nodo.encimado_terminado=true;
+    if(item.fecha_paso_orden) nodo.fecha_paso_orden=item.fecha_paso_orden;
+    if(item.fecha_paso_encimado) nodo.fecha_paso_encimado=item.fecha_paso_encimado;
+    if(Object.keys(nodo).length){
+      updates[`fabrica_v5/grupos_corte/${key}`]=nodo;
+      algoQuedoSinMigrar=true;
+    }
+  });
+  if(Object.keys(updates).length) db.ref().update(updates);
+  // Solo lo marcamos hecho si no había nada pendiente, o si ya migramos lo que había — así si
+  // gruposCorteData todavía no había llegado (carrera entre listeners) se reintenta en el próximo render.
+  if(!algoQuedoSinMigrar||Object.keys(updates).length) gruposCorteMigradoDone=true;
 }
 // Backfill único: todo lo que ya está en "Pendiente armar tizada" viene de una base aprobada
 // (así arranca ese flujo), pero los ítems viejos no tenían el flag base_aprobada tildado.
@@ -2306,12 +2385,18 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     backfillFechasIngreso();
     backfillPasosNuevoDesarrollo();
     backfillPasosCorte();
+    backfillGruposCorte();
     backfillBaseAprobadaTizada();
     backfillAvioPendienteEnTaller();
     backfillFotoDriveOkPendiente();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
+  });
+  db.ref('fabrica_v5/grupos_corte').on('value',snap=>{
+    gruposCorteData=snap.val()||{};
+    backfillGruposCorte();
+    renderSections('diseno');renderSections('fabrica');
   });
   db.ref('fabrica_v5/estampados').on('value',snap=>{
     estampadosData=snap.val()||{};
@@ -3350,11 +3435,12 @@ function buildDeudaTallerHtml(items){
 
 function buildPasosPanelCorteHtml(item){
   const now=Date.now();
+  const grupo=grupoCorteOf(item)||{};
   const pasos=[
     { label:'Confirmar corte', resp:'Ariel', start:item.fecha_etapa, end:item.fecha_paso_confirmado },
-    { label:'Cargar orden de corte', resp:'Ariel', start:item.fecha_paso_confirmado, end:item.fecha_paso_orden },
-    { label:'Encimado', resp:'Cortador', start:item.fecha_paso_orden, end:item.fecha_paso_encimado },
-    { label:'Marcar cortado', resp:'Cortador', start:item.fecha_paso_encimado, end:null }
+    { label:'Cargar orden de corte', resp:'Ariel', start:item.fecha_paso_confirmado, end:grupo.fecha_paso_orden },
+    { label:'Encimado', resp:'Cortador', start:grupo.fecha_paso_orden, end:grupo.fecha_paso_encimado },
+    { label:'Marcar cortado', resp:'Cortador', start:grupo.fecha_paso_encimado, end:null }
   ];
   let activaEncontrada=false;
   const filas=pasos.map(p=>{
@@ -3449,7 +3535,7 @@ function umbralAtraso(sec,item,secId){
     if(item.sin_confirmar) return 5;       // Ariel: confirmar
     const avios=Object.values(item.avios||{});
     if(avios.length&&!avios.every(a=>a.recibido)) return 3; // Peque: avíos
-    if(!item.orden_corte_cargada) return 3; // Ariel: cargar orden de corte
+    if(!ordenCargadaGrupo(item)) return 3; // Ariel: cargar orden de corte
     return 3;                              // Cortador: encimar/cortar
   }
   if(!tipo) return 1; // secciones custom (ej. "Pendiente armar tizada") — Peque
@@ -4471,14 +4557,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
     ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">✂️ Cortado: <strong>${item.fecha_corte}</strong></div>` : '';
   const numeroCorteHtml = item.numero_corte
     ? `<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong></div>` : '';
-  // Capas/colores y rollos son de después del corte (s3 en adelante): en etapas previas
-  // como "Pendiente armar tizada" todavía no existe esa info, no corresponde pedirla ahí.
+  // Capas/colores y rollos: en "Cortes próximos a sacar" (s3) esta info ahora vive en el panel
+  // compartido del corte (flujoCorteHtml) — este panel viejo por ítem solo corresponde a partir
+  // de que el corte ya se hizo (post-s3), para no duplicar/mostrar datos huérfanos del ítem.
   const canEditCapasFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
-  const capasHtml = buildCapasHtml(item,secId,itemId,canEditCapasFuera);
+  const capasHtml = secId==='s3' ? '' : buildCapasHtml(item,secId,itemId,canEditCapasFuera);
   // Emir carga rollos incluso fuera de s3 (ej. cortes que ya pasaron a Cortes Finalizados).
   const canEditRollosFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel'||currentUser==='emir');
-  const rollosHtml = buildRollosHtml(item,secId,itemId,canEditRollosFuera);
-  const realesHtml = buildRealesHtml(item,secId,itemId);
+  const rollosHtml = secId==='s3' ? '' : buildRollosHtml(item,secId,itemId,canEditRollosFuera);
+  const realesHtml = secId==='s3' ? '' : buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = (secId==='sFIN'||secId==='s6')&&item.fecha_salida_taller
     ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></div>` : '';
   // Banner grande y persistente: si quedan avíos sin recibir, se ve fuerte en CUALQUIER
@@ -4526,7 +4613,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
-  const listoParaCortar = secId!=='s3' || (!!item.encimado_terminado && !item.sin_confirmar);
+  const listoParaCortar = secId!=='s3' || (encimadoTerminadoGrupo(item) && !item.sin_confirmar);
   const canConfirmarCorte = secId==='s3'&&(currentUser==='ariel'||currentUser==='stef');
   const sinConfirmarHtml = secId==='s3' ? (item.sin_confirmar
     ? `<div class="cortada-row" style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:4px 0">
@@ -4674,13 +4761,27 @@ function buildItem(secId,itemId,item,sec,idx,total){
   </div>`;
 }
 
-// FLUJO PRE-CORTE: Tiza -> Orden de corte -> Encimado -> (recién ahí) Marcar cortado
+// Devuelve los demás ítems de la misma sección que comparten N° de corte (excluye el propio).
+function otrosDelMismoCorte(secId,itemId,item){
+  const key=corteKeyFrom(item.numero_corte);
+  if(!key) return [];
+  const sec=sectionsData[secId];
+  if(!sec||!sec.items) return [];
+  return Object.entries(sec.items).filter(([id,it])=>id!==itemId&&corteKeyFrom(it.numero_corte)===key);
+}
+
+// FLUJO PRE-CORTE: Orden de corte -> Rollos -> Encimado -> (recién ahí) Marcar cortado.
+// Estos 4 pasos se comparten entre todos los artículos con el mismo N° de corte (misma tiza/tela
+// física), así que se cargan/confirman una sola vez y valen para todo el grupo.
 function buildFlujoPreCorte(secId,itemId,item,canCortar){
-  // Nota: se saca el paso de "¿Tiza hecha?" — un ítem solo llega a "Cortes próximos a sacar"
-  // una vez que la tiza ya está hecha, así que preguntarlo acá era redundante. El flujo
-  // arranca directo en Orden de corte.
-  const ordenCargada=!!item.orden_corte_cargada;
-  const encimadoTerm=!!item.encimado_terminado;
+  const corteKey=corteKeyFrom(item.numero_corte);
+  const grupo=corteKey?(gruposCorteData[corteKey]||{}):{};
+  const compartidos=otrosDelMismoCorte(secId,itemId,item);
+  const avisoGrupo=compartidos.length
+    ? `<div style="font-size:11px;color:var(--text2);padding:0 2px 4px">🔗 Corte compartido con ${compartidos.length} artículo${compartidos.length!==1?'s':''} más: <strong>${compartidos.map(([,it])=>it.code||it.name||'(sin código)').join(', ')}</strong> — la orden de corte, rollos y encimado se cargan una sola vez para todo el grupo.</div>`
+    : '';
+  const ordenCargada=!!grupo.orden_corte_cargada;
+  const encimadoTerm=!!grupo.encimado_terminado;
   // Emir puede cargar rollos y marcar encimado/cortado, pero no cargar/editar la Orden de Corte en sí.
   const canRollosEncimado=canCortar||currentUser==='emir';
 
@@ -4697,21 +4798,21 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
 
   // Orden de corte todavía no cargada.
   if(!ordenCargada){
-    return `<div class="cortada-panel" style="margin:8px 0 4px">${ordenRow}</div>`;
+    return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${ordenRow}</div>`;
   }
 
-  const rollosCount=Object.values(item.rollos||{}).filter(r=>r&&(r.color||r.kgmts||r.capas)).length;
+  const rollosCount=Object.values(grupo.rollos||{}).filter(r=>r&&(r.color||r.kgmts||r.capas)).length;
   const rollosRow = `<div class="cortada-row">
       <span class="c-label">📦 Rollos utilizados: <strong>${rollosCount?rollosCount+' cargado'+(rollosCount!==1?'s':''):'sin cargar'}</strong></span>
       ${canRollosEncimado?`<button class="btn-sm" onclick="openRollosModal('${secId}','${itemId}')">${rollosCount?'✏️ Editar rollos':'+ Cargar rollos'}</button>`:''}
     </div>`;
 
   // El encimado no se puede marcar terminado hasta que las capas cargadas en rollos alcancen
-  // las capas requeridas de CADA color de la orden de corte.
+  // las capas requeridas de CADA color de la orden de corte (a nivel del corte/grupo).
   const requeridoPorColor={};
-  Object.values(item.capas||{}).forEach(r=>{ if(r.color) requeridoPorColor[r.color]=(requeridoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
+  Object.values(grupo.capas||{}).forEach(r=>{ if(r.color) requeridoPorColor[r.color]=(requeridoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
   const cargadoPorColor={};
-  Object.values(item.rollos||{}).forEach(r=>{ if(r&&r.color) cargadoPorColor[r.color]=(cargadoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
+  Object.values(grupo.rollos||{}).forEach(r=>{ if(r&&r.color) cargadoPorColor[r.color]=(cargadoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
   const coloresOrden=Object.keys(requeridoPorColor);
   const faltantesRollos=coloresOrden.filter(c=>(cargadoPorColor[c]||0)<requeridoPorColor[c]);
   const rollosCompletos=coloresOrden.length>0&&faltantesRollos.length===0;
@@ -4730,7 +4831,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       </div>`;
 
   // Orden de corte cargada, encimado pendiente o recién terminado (acá ya puede aparecer Marcar cortado).
-  return `<div class="cortada-panel" style="margin:8px 0 4px">${ordenRow}${rollosRow}${encimadoRow}</div>`;
+  return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${ordenRow}${rollosRow}${encimadoRow}</div>`;
 }
 
 function setTizaHecha(secId,itemId,val){
@@ -4744,11 +4845,15 @@ function setTizaHecha(secId,itemId,val){
 
 function setOrdenCorteCargada(secId,itemId,val){
   const item=sectionsData[secId].items[itemId];
-  const updates={orden_corte_cargada:val};
-  if(!val) updates.encimado_terminado=false;
-  if(val&&!item.fecha_paso_orden) updates.fecha_paso_orden=Date.now();
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
-  logActivity('Orden de corte',`${item.code}: ${val?'cargada':'deshecho'}`);
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(!corteKey) return;
+  const grupo=gruposCorteData[corteKey]||{};
+  const updates={};
+  updates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=val;
+  if(!val) updates[`fabrica_v5/grupos_corte/${corteKey}/encimado_terminado`]=false;
+  if(val&&!grupo.fecha_paso_orden) updates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
+  db.ref().update(updates);
+  logActivity('Orden de corte',`Corte ${item.numero_corte}: ${val?'cargada':'deshecho'}`);
   showToast(val?'📋 Orden de corte cargada':'↩ Orden de corte deshecha');
 }
 
@@ -4756,6 +4861,11 @@ function setOrdenCorteCargada(secId,itemId,val){
 let ordenCtx={};
 function openOrdenCorteModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(!item.numero_corte||!item.numero_corte.trim()){
+    showToast('⏳ Cargá el N° de corte antes de armar la orden de corte');
+    openEditModal(secId,itemId);
+    return;
+  }
   const talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
   const curvaValores=item.curva_valores||{};
   if(!talles.length||!Object.keys(curvaValores).length){
@@ -4764,9 +4874,13 @@ function openOrdenCorteModal(secId,itemId){
     }
     return;
   }
-  ordenCtx={secId,itemId,talles,curvaValores};
-  // Precargar colores/capas ya guardados (si se está reeditando)
-  const filasExistentes=Object.entries(item.capas||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
+  const corteKey=corteKeyFrom(item.numero_corte);
+  ordenCtx={secId,itemId,talles,curvaValores,corteKey};
+  // Precargar colores/capas ya guardados — se comparten por N° de corte, así que si otro
+  // artículo del mismo corte ya cargó colores/capas, arrancamos con eso (una sola carga por corte).
+  const grupo=gruposCorteData[corteKey];
+  const capasGrupo=grupo?grupo.capas:(item.capas||null);
+  const filasExistentes=Object.entries(capasGrupo||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
   ordenCtx.colores=filasExistentes.length?filasExistentes:[];
   // Artículos/estampas de este corte (si va a DTF) — arranca con 1 fila usando el artículo y
   // la foto del producto como base; se pueden agregar más filas si el corte se divide en varias
@@ -4919,25 +5033,30 @@ function renderOrdenCorteModal(){
 }
 function saveOrdenCorte(){
   ordenCorteSyncCapasFromDOM();
-  const{secId,itemId,talles,curvaValores,colores}=ordenCtx;
+  const{secId,itemId,talles,curvaValores,colores,corteKey}=ordenCtx;
   const item=sectionsData[secId].items[itemId];
+  // Capas por color: se guardan a nivel del corte (compartidas por todos los artículos con el
+  // mismo N° de corte). La cantidad por talle sí depende de la curva propia de cada artículo,
+  // así que "cant" se calcula al vuelo para mostrar (acá, con la curva del ítem que abrió el modal).
+  const capasGrupoObj={};
   const capasObj={};
   colores.forEach(row=>{
     if(!row.color&&!row.capas) return;
     const capas=parseInt(row.capas)||0;
+    capasGrupoObj[row.id]={color:row.color||'',capas};
     const cant={};
     talles.forEach(t=>{ cant[t]=capas*(parseInt(curvaValores[t])||0); });
     capasObj[row.id]={color:row.color||'',capas,cant};
   });
-  const updates={
-    capas_talles:talles,
-    capas:capasObj,
-    orden_corte_cargada:true
-  };
-  if(!item.fecha_paso_orden) updates.fecha_paso_orden=Date.now();
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
+  const grupo=gruposCorteData[corteKey]||{};
+  const grupoUpdates={};
+  grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/capas`]=capasGrupoObj;
+  grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=true;
+  if(!grupo.fecha_paso_orden) grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
+  db.ref().update(grupoUpdates);
   const totalGeneral=Object.values(capasObj).reduce((s,r)=>s+Object.values(r.cant).reduce((a,b)=>a+b,0),0);
-  logActivity('Orden de corte',`${item.code}: ${Object.keys(capasObj).length} color(es), ${totalGeneral} prendas`);
+  logActivity('Orden de corte',`Corte ${item.numero_corte}: ${Object.keys(capasObj).length} color(es), ${totalGeneral} prendas (${item.code})`);
   // Definir acá si va a estampado DTF es el momento ideal (recién se cargaron los colores/capas).
   // Se puede cambiar de opinión después con el botón/insignia que queda en la card, pero no es lo ideal.
   if(ordenCtx.dtf&&!item.estampado_dtf){
@@ -4950,6 +5069,28 @@ function saveOrdenCorte(){
   showToast('📋 Orden de corte guardada');
 }
 async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item,articulos){
+  // Si otro artículo del mismo N° de corte ya tiene un estampado creado, no duplicamos la
+  // tarjeta en Estampas — nos sumamos a la misma, agregando este artículo a sus diseños.
+  const hermanoConEstampado=otrosDelMismoCorte(secId,itemId,item).find(([,it])=>it.estampado_id&&estampadosData[it.estampado_id]);
+  if(hermanoConEstampado){
+    const estId=hermanoConEstampado[1].estampado_id;
+    const lista=(articulos&&articulos.length)?articulos:[{articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||''),img:item.foto||''}];
+    const updates={};
+    lista.forEach(a=>{
+      const eid=db.ref('fabrica_v5/estampados').push().key;
+      updates[`fabrica_v5/estampados/${estId}/estampas/${eid}`]={
+        articulo:(a.articulo||'').trim()||(item.code?`${item.code} — ${item.name||''}`:(item.name||'(sin nombre)')),
+        estado:'dibujo',
+        img:a.img||''
+      };
+    });
+    updates[`fabrica_v5/sections/${secId}/items/${itemId}/estampado_dtf`]=true;
+    updates[`fabrica_v5/sections/${secId}/items/${itemId}/estampado_id`]=estId;
+    updates[`fabrica_v5/sections/${secId}/items/${itemId}/estampado_dtf_fecha`]=Date.now();
+    await db.ref().update(updates);
+    logActivity('Se sumó al estampado del corte compartido',`${item.code||item.name} → Corte ${item.numero_corte}`);
+    return;
+  }
   const filas=Object.values(capasObj||{}).filter(r=>r.color);
   const fotos={};
   filas.forEach(r=>{
@@ -4996,17 +5137,23 @@ let rollosCtx={};
 function sanitizeStr(s){ return String(s).replace(/[^a-zA-Z0-9]/g,'_'); }
 function openRollosModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const coloresDisponibles=[...new Set(Object.values(item.capas||{}).map(r=>r.color).filter(Boolean))];
+  // En "Cortes próximos a sacar" los rollos se comparten por N° de corte (misma tela física
+  // para todos los artículos del grupo); en las etapas posteriores ya son por ítem individual.
+  const corteKey=secId==='s3'?corteKeyFrom(item.numero_corte):null;
+  const grupo=corteKey?(gruposCorteData[corteKey]||{}):null;
+  const capasFuente=corteKey?(grupo.capas||{}):(item.capas||{});
+  const rollosFuente=corteKey?(grupo.rollos||{}):(item.rollos||{});
+  const coloresDisponibles=[...new Set(Object.values(capasFuente).map(r=>r.color).filter(Boolean))];
   const requeridoPorColor={};
-  Object.values(item.capas||{}).forEach(r=>{ if(r.color) requeridoPorColor[r.color]=(requeridoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
+  Object.values(capasFuente).forEach(r=>{ if(r.color) requeridoPorColor[r.color]=(requeridoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
   rollosCtx={
-    secId,itemId,
+    secId,itemId,corteKey,
     coloresDisponibles,
     requeridoPorColor,
     largo:parseFloat(item.largo_capa)||0,
     peso:parseFloat(item.peso_metro)||0
   };
-  const filasExistentes=Object.entries(item.rollos||{}).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||''}));
+  const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||''}));
   rollosCtx.rows=filasExistentes;
   renderRollosModal();
   document.getElementById('modal-rollos').classList.remove('hidden');
@@ -5105,15 +5252,20 @@ function renderRollosModal(){
   `;
 }
 function saveRollos(){
-  const{secId,itemId,rows}=rollosCtx;
+  const{secId,itemId,rows,corteKey}=rollosCtx;
   const item=sectionsData[secId].items[itemId];
   const rollosObj={};
   rows.forEach(row=>{
     if(!row.color&&!row.kgmts&&!row.capas) return;
     rollosObj[row.id]={color:row.color||'',kgmts:row.kgmts!==''?parseFloat(row.kgmts)||0:'',capas:row.capas!==''?parseInt(row.capas)||0:'',nota:row.nota||''};
   });
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/rollos`).set(rollosObj);
-  logActivity('Rollos utilizados',`${item.code}: ${Object.keys(rollosObj).length} rollo(s)`);
+  if(corteKey){
+    db.ref(`fabrica_v5/grupos_corte/${corteKey}/rollos`).set(rollosObj);
+    logActivity('Rollos utilizados',`Corte ${item.numero_corte}: ${Object.keys(rollosObj).length} rollo(s)`);
+  } else {
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/rollos`).set(rollosObj);
+    logActivity('Rollos utilizados',`${item.code}: ${Object.keys(rollosObj).length} rollo(s)`);
+  }
   document.getElementById('modal-rollos').classList.add('hidden');
   showToast('📦 Rollos guardados');
 }
@@ -5123,10 +5275,14 @@ document.getElementById('save-modal-rollos').onclick=saveRollos;
 
 function setEncimadoTerminado(secId,itemId,val){
   const item=sectionsData[secId].items[itemId];
-  const updates={encimado_terminado:val};
-  if(val&&!item.fecha_paso_encimado) updates.fecha_paso_encimado=Date.now();
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
-  logActivity('Encimado',`${item.code}: ${val?'terminado':'deshecho'}`);
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(!corteKey) return;
+  const grupo=gruposCorteData[corteKey]||{};
+  const updates={};
+  updates[`fabrica_v5/grupos_corte/${corteKey}/encimado_terminado`]=val;
+  if(val&&!grupo.fecha_paso_encimado) updates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_encimado`]=Date.now();
+  db.ref().update(updates);
+  logActivity('Encimado',`Corte ${item.numero_corte}: ${val?'terminado':'deshecho'}`);
   showToast(val?'🧷 Encimado terminado — ya se puede marcar cortado':'↩ Encimado deshecho');
 }
 
@@ -5159,36 +5315,64 @@ function ensureSeccionCorte(id){
   }
 }
 
+// Marca el corte como realizado. Si el N° de corte lo comparten varios artículos, se pide la
+// fecha una sola vez y se mueven TODOS juntos, cada uno a la sección que le corresponda según
+// sus propios avíos (uno puede ir directo a taller y otro quedar esperando un avío pendiente).
 function marcarCorteRealizado(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  const corteKey=corteKeyFrom(item.numero_corte);
+  const grupo=corteKey?(gruposCorteData[corteKey]||{}):{};
+  const miembros=corteKey?[[itemId,item],...otrosDelMismoCorte(secId,itemId,item)]:[[itemId,item]];
+
   const hoy=new Date();
   const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
-  const fecha=prompt('¿Qué fecha se cortó?',fechaDefault);
+  const fecha=prompt(miembros.length>1?`¿Qué fecha se cortó? (se aplica a los ${miembros.length} artículos de este corte)`:'¿Qué fecha se cortó?',fechaDefault);
   if(fecha===null) return;
-  const newItem={...item, fecha_corte:fecha.trim()||fechaDefault, done:true};
+  const fechaFinal=fecha.trim()||fechaDefault;
 
-  // Ruteo automático según estado de avíos: sin avíos o avíos ya recibidos → listo para taller.
-  // Avíos pendientes de pedir → bloqueado sin pedir. Avíos pedidos pero no recibidos → bloqueado esperando entrega.
-  const avList=Object.values(item.avios||{});
-  let targetSec,toastMsg;
-  if(avList.length===0 || avList.every(a=>a.recibido)){
-    targetSec='sLT';
-    toastMsg=`🎉 ${item.code} cortado y listo para taller`;
-  } else if(avList.some(a=>a.fecha_pedido)){
-    targetSec='s5';
-    toastMsg=`✂️ ${item.code} cortado — esperando que llegue el avío pedido`;
-  } else {
-    targetSec='s4';
-    toastMsg=`✂️ ${item.code} cortado — falta pedir avío`;
-  }
-
-  // Asegurar metadata de la sección destino (por si no existía aún en Firebase)
-  ensureSeccionCorte(targetSec);
-  db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  const targetTitle=sectionsData[targetSec]?.title||SEC_DEFAULTS_CORTE[targetSec].title;
-  logActivity('Corte realizado',`${item.code} — ${fecha.trim()||fechaDefault} → ${targetTitle}`);
-  showToast(toastMsg);
+  const dbUpdates={};
+  const destinos=[];
+  miembros.forEach(([mId,mItem])=>{
+    // Congela las capas/rollos compartidos del corte en cada artículo — la cantidad por talle
+    // se calcula con la curva propia de CADA artículo (las curvas pueden diferir entre ellos).
+    const talles=Array.isArray(mItem.capas_talles)?mItem.capas_talles:[];
+    const curvaValores=mItem.curva_valores||{};
+    const capasFuente=(grupo.capas)||mItem.capas||{};
+    const capasCongeladas={};
+    Object.entries(capasFuente).forEach(([rid,r])=>{
+      const capas=parseInt(r.capas)||0;
+      const cant={};
+      talles.forEach(t=>{ cant[t]=capas*(parseInt(curvaValores[t])||0); });
+      capasCongeladas[rid]={color:r.color||'',capas,cant};
+    });
+    const newItem={...mItem,
+      fecha_corte:fechaFinal, done:true,
+      capas:capasCongeladas,
+      rollos:grupo.rollos||mItem.rollos||{},
+      orden_corte_cargada:true,
+      encimado_terminado:true,
+      fecha_paso_orden:grupo.fecha_paso_orden||mItem.fecha_paso_orden||Date.now(),
+      fecha_paso_encimado:grupo.fecha_paso_encimado||mItem.fecha_paso_encimado||Date.now()
+    };
+    // Ruteo automático según estado de avíos: sin avíos o avíos ya recibidos → listo para taller.
+    // Avíos pendientes de pedir → bloqueado sin pedir. Avíos pedidos pero no recibidos → esperando entrega.
+    const avList=Object.values(mItem.avios||{});
+    let targetSec;
+    if(avList.length===0 || avList.every(a=>a.recibido)) targetSec='sLT';
+    else if(avList.some(a=>a.fecha_pedido)) targetSec='s5';
+    else targetSec='s4';
+    ensureSeccionCorte(targetSec);
+    db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
+    dbUpdates[`fabrica_v5/sections/${secId}/items/${mId}`]=null;
+    const targetTitle=sectionsData[targetSec]?.title||SEC_DEFAULTS_CORTE[targetSec].title;
+    destinos.push(`${mItem.code||mItem.name||'(sin código)'} → ${targetTitle}`);
+  });
+  if(corteKey) dbUpdates[`fabrica_v5/grupos_corte/${corteKey}`]=null; // libera el nodo compartido, ya está congelado en cada ítem
+  db.ref().update(dbUpdates);
+  logActivity('Corte realizado',`Corte ${item.numero_corte||item.code} — ${fechaFinal} (${miembros.length} artículo${miembros.length!==1?'s':''}): ${destinos.join(' · ')}`);
+  showToast(miembros.length>1
+    ? `✂️ Corte ${item.numero_corte}: ${miembros.length} artículos cortados y repartidos`
+    : `🎉 ${destinos[0]}`);
 }
 
 // Autorización de Ariel/Stef para que Emir saque un corte a taller sin esperar un avío puntual

@@ -1090,8 +1090,22 @@ function delEstColor(estId,fotoId){
 function resyncColoresEstampado(estId){
   const e=estampadosData[estId];
   if(!e||!e.link_secId||!e.link_itemId){ showToast('Este corte de Estampas no está vinculado a un ítem de fabrica'); return; }
-  const item=sectionsData[e.link_secId]&&sectionsData[e.link_secId].items[e.link_itemId];
-  if(!item){ showToast('No encontré el ítem de fabrica vinculado'); return; }
+  let item=sectionsData[e.link_secId]&&sectionsData[e.link_secId].items[e.link_itemId];
+  let itemSecId=e.link_secId, itemId=e.link_itemId;
+  if(!item){
+    // El link guardado quedó viejo (el ítem cambió de sección y le tocó un ID nuevo). Antes de
+    // rendirnos, buscamos en todas las secciones un ítem con el mismo N° de corte y, si aparece,
+    // reparamos el link para que quede al día de nuevo.
+    const numeroBuscado=(e.numero||'').replace(/^Corte\s*/i,'').trim();
+    for(const [secId,sec] of Object.entries(sectionsData)){
+      const found=Object.entries(sec.items||{}).find(([,it])=>(it.numero_corte||'').trim()===numeroBuscado && numeroBuscado);
+      if(found){ itemSecId=secId; itemId=found[0]; item=found[1]; break; }
+    }
+    if(item){
+      db.ref(`fabrica_v5/estampados/${estId}`).update({link_secId:itemSecId,link_itemId:itemId});
+    }
+  }
+  if(!item){ showToast('No encontré el ítem de fabrica vinculado (puede que se haya borrado)'); return; }
   const filas=Object.values(item.capas||{}).filter(r=>r.color);
   if(!filas.length){ showToast('El corte todavía no tiene Orden de Corte cargada en fabrica'); return; }
   // Mapeo color(normalizado) -> [fotoId, fotoActual] de lo que YA está cargado en Estampas
@@ -2585,6 +2599,20 @@ function moveItemUndoable(fromSecId,fromItemId,toSecId,newItemData){
   const newRef=db.ref(`fabrica_v5/sections/${toSecId}/items`).push(newItemData);
   db.ref(`fabrica_v5/sections/${fromSecId}/items/${fromItemId}`).remove();
   pushUndo({tipo:'move',fromSecId,fromItemId,toSecId,toItemId:newRef.key,snapshot});
+  // Si este ítem es el que está "linkeado" desde Estampas (para traer capas/colores actualizados),
+  // actualizamos el link a su nueva ubicación acá mismo. Si no lo hiciéramos, al moverse de sección
+  // el link viejo quedaría apuntando a un ítem que ya no existe — y la próxima vez que alguien
+  // mande este corte a Estampas de nuevo, el sistema no reconocería que ya existía uno y crearía
+  // una tarjeta duplicada con los números desactualizados.
+  if(newItemData.estampado_id){
+    const estId=newItemData.estampado_id;
+    db.ref(`fabrica_v5/estampados/${estId}`).once('value').then(snap=>{
+      const e=snap.val();
+      if(e && e.link_secId===fromSecId && e.link_itemId===fromItemId){
+        db.ref(`fabrica_v5/estampados/${estId}`).update({link_secId:toSecId,link_itemId:newRef.key});
+      }
+    });
+  }
   return newRef;
 }
 function deleteItemUndoable(secId,itemId){
@@ -5743,14 +5771,28 @@ function saveCurva(){
   const valoresLimpio={};
   talles.forEach(t=>{ valoresLimpio[t]=parseInt(curvaCtx.valores[t])||0; });
   const display=talles.map(t=>`${t}:${valoresLimpio[t]}`).join(' · ');
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+  const updates={
     capas_talles:talles,
     curva_valores:valoresLimpio,
     curva:display
-  });
+  };
+  // "Capas por color" guarda un cálculo congelado (capas × curva) del momento en que se cargó
+  // — si la curva cambia después, hay que recalcular esos números acá mismo, si no quedan
+  // desactualizados en todos lados que los usan (Estampas, resumen del corte, etc.).
+  if(item.capas && Object.keys(item.capas).length){
+    const capasRecalc={};
+    Object.entries(item.capas).forEach(([rowId,row])=>{
+      const capas=parseInt(row.capas)||0;
+      const cant={};
+      talles.forEach(t=>{ cant[t]=capas*(valoresLimpio[t]||0); });
+      capasRecalc[rowId]={...row,cant};
+    });
+    updates.capas=capasRecalc;
+  }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   logActivity('Editó curva',`${item.code||item.name||''}: ${display||'(vacío)'}`);
   document.getElementById('modal-curva').classList.add('hidden');
-  showToast('✓ Curva guardada');
+  showToast('✓ Curva guardada (recalculó capas por color también)');
 }
 document.getElementById('close-modal-curva').onclick=()=>document.getElementById('modal-curva').classList.add('hidden');
 document.getElementById('cancel-modal-curva').onclick=()=>document.getElementById('modal-curva').classList.add('hidden');

@@ -6649,7 +6649,34 @@ function logiInit(){
     logiItemsData = snap.val() || {};
     logiRenderBoard();
     if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
+    logiBackfillCorteTaller();
   });
+}
+
+// Los ítems de Logística creados antes de guardar N° de corte/Taller no lo tienen.
+// Lo completamos buscando en el tablero un ítem con el mismo código.
+let logiBackfillIntentado = new Set();
+function logiBackfillCorteTaller(){
+  if(typeof sectionsData==='undefined' || !sectionsData) return;
+  const updates={};
+  Object.entries(logiItemsData).forEach(([id,it])=>{
+    if((it.numero_corte && it.taller) || logiBackfillIntentado.has(id)) return;
+    logiBackfillIntentado.add(id);
+    const codeNorm=(it.code||'').trim().toLowerCase();
+    if(!codeNorm) return;
+    let match=null;
+    for(const secId in sectionsData){
+      const items=sectionsData[secId].items||{};
+      for(const iid in items){
+        if((items[iid].code||'').trim().toLowerCase()===codeNorm){ match=items[iid]; break; }
+      }
+      if(match) break;
+    }
+    if(!match) return;
+    if(!it.numero_corte && match.numero_corte) updates[`fabrica_v5/logistica/items/${id}/numero_corte`]=match.numero_corte;
+    if(!it.taller && match.taller_corte) updates[`fabrica_v5/logistica/items/${id}/taller`]=match.taller_corte;
+  });
+  if(Object.keys(updates).length) db.ref().update(updates);
 }
 
 function logiRenderBoard(){

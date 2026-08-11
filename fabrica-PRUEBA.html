@@ -218,6 +218,52 @@
   .estampado-color-row{display:grid;grid-template-columns:1fr 1fr 70px auto;gap:6px;margin-bottom:6px;align-items:center}
   .estampado-color-row input{padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit}
 
+  /* ===== Pestaña Logística (conteo/control de calidad) ===== */
+  .logi-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:12px;display:flex;gap:12px;cursor:pointer}
+  .logi-card img{width:64px;height:64px;object-fit:cover;border-radius:10px;background:var(--surface2);flex-shrink:0}
+  .logi-card .logi-noimg{width:64px;height:64px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+  .logi-card .logi-info{flex:1;min-width:0}
+  .logi-card .logi-code{font-weight:800;font-size:15px}
+  .logi-card .logi-name{font-size:13px;color:var(--text2);margin-top:1px}
+  .logi-card .logi-fecha{font-size:11px;color:var(--text3);margin-top:4px}
+  .logi-card .logi-progress{margin-top:6px;font-size:11px;color:var(--accent);font-weight:700}
+  .logi-card.logi-cerrado{opacity:.6}
+  .logi-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
+  .logi-badge.logi-pend{background:#fbe4e1;color:#b0392f}
+  .logi-badge.logi-done{background:#e3f3e8;color:#2e7d4f}
+  .logi-section-title{font-size:13px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin:18px 0 8px}
+  .logi-detail-header{display:flex;gap:12px;align-items:center;margin-bottom:14px}
+  .logi-detail-header img{width:72px;height:72px;object-fit:cover;border-radius:12px;background:var(--surface2)}
+  .logi-detail-header .logi-noimg{width:72px;height:72px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:26px}
+  .logi-back-btn{background:none;border:none;color:var(--accent);font-size:14px;font-weight:700;cursor:pointer;padding:6px 0 12px;display:block}
+  .logi-row-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+  .logi-row-card.logi-done{border-color:#2e7d4f;background:#e3f3e8}
+  .logi-row-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .logi-row-title{font-weight:700;font-size:14px}
+  .logi-row-saldo{font-size:12px;font-weight:700;color:var(--text2)}
+  .logi-row-saldo.logi-zero{color:#2e7d4f}
+  .logi-row-saldo.logi-over{color:#b0392f}
+  .logi-row-btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .logi-cbtn{border:none;border-radius:10px;padding:10px 4px;font-size:12px;font-weight:700;cursor:pointer;text-align:center}
+  .logi-cbtn .logi-n{display:block;font-size:16px;margin-bottom:1px}
+  .logi-cbtn.logi-ok{background:#e3f3e8;color:#2e7d4f}
+  .logi-cbtn.logi-detalle{background:#fbf1d8;color:#b8860b}
+  .logi-cbtn.logi-fallado{background:#fbe4e1;color:#b0392f}
+  .logi-summary-bar{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 14px;display:flex;gap:10px;align-items:center;justify-content:space-between;margin-top:10px}
+  .logi-summary-bar .logi-totals{font-size:12px;color:var(--text2)}
+  .logi-close-btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer}
+  .logi-close-btn:disabled{background:var(--text3);cursor:not-allowed}
+  .logi-final-summary{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px;margin-top:12px}
+  .logi-final-summary .logi-line{display:flex;justify-content:space-between;font-size:13px;padding:4px 0}
+  .logi-modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;align-items:flex-end;justify-content:center}
+  .logi-modal-bg.logi-show{display:flex}
+  .logi-modal{background:var(--surface);width:100%;max-width:480px;border-radius:16px 16px 0 0;padding:18px}
+  .logi-modal textarea{width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px;font-family:inherit;min-height:70px}
+  .logi-modal .logi-mbtns{display:flex;gap:8px;margin-top:12px}
+  .logi-modal .logi-mbtns button{flex:1;padding:10px;border-radius:10px;border:none;font-weight:700;font-size:13px;cursor:pointer}
+  .logi-modal .logi-mbtns .logi-cancel{background:var(--surface2);color:var(--text2)}
+  .logi-modal .logi-mbtns .logi-save{background:var(--accent);color:#fff}
+
   /* ===== Pestaña Estampas DTF ===== */
   .est-stats-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
   .est-stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 16px;display:flex;flex-direction:column;min-width:90px}
@@ -386,7 +432,8 @@
     <button class="user-btn" id="btn-stef"><div class="user-avatar" style="background:#9d174d">S</div><div><div class="uname">Stefany</div><div class="urole">Diseño — acceso total</div></div></button>
     <button class="user-btn" id="btn-peque"><div class="user-avatar" style="background:#5b21b6">P</div><div><div class="uname">Peque</div><div class="urole">Fábrica — acciones registradas</div></div></button>
     <button class="user-btn" id="btn-emir"><div class="user-avatar" style="background:#b45309">E</div><div><div class="uname">Emir</div><div class="urole">Depósito — recepción de avíos</div></div></button>
-    <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">C</div><div><div class="uname">Cortador</div><div class="urole">Corte — pendientes y cortes realizados</div></div></button>
+    <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">N</div><div><div class="uname">Nahuel</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
+    <button class="user-btn" id="btn-noemi"><div class="user-avatar" style="background:#be185d">N</div><div><div class="uname">Noemí</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
   </div>
 </div>
 
@@ -417,6 +464,7 @@
       <button class="tab" id="tab-btn-galeria">Galería</button>
       <button class="tab" id="tab-btn-actividad">Actividad</button>
       <button class="tab" id="tab-btn-estampas">🎨 Estampas</button>
+      <button class="tab" id="tab-btn-logistica">📦 Logística</button>
     </div>
     <div id="tab-diseno">
       <div id="alert-banner"></div>
@@ -450,6 +498,38 @@
         <button class="btn-primary" onclick="openEstCorteModal()">+ Agregar corte</button>
       </div>
       <div class="est-board" id="estampas-board"><div class="loading">Cargando...</div></div>
+    </div>
+    <div id="tab-logistica" class="hidden">
+      <div id="logi-board-screen">
+        <div class="logi-section-title">🕓 Pendientes de conteo</div>
+        <div id="logi-pend-list"></div>
+        <div class="logi-section-title">✅ Cerrados recientes</div>
+        <div id="logi-done-list"></div>
+      </div>
+      <div id="logi-detail-screen" class="hidden">
+        <button class="logi-back-btn" onclick="logiCloseDetail()">← Volver al tablero</button>
+        <div class="logi-detail-header">
+          <div id="logi-detail-photo"></div>
+          <div>
+            <div style="font-weight:800;font-size:17px" id="logi-detail-code"></div>
+            <div style="font-size:13px;color:var(--text2)" id="logi-detail-name"></div>
+            <div style="font-size:11px;color:var(--text3)" id="logi-detail-fecha"></div>
+          </div>
+        </div>
+        <div id="logi-rows-container"></div>
+        <div id="logi-final-summary"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="logi-modal-bg" id="logi-nota-modal">
+  <div class="logi-modal">
+    <div style="font-weight:700;font-size:14px;margin-bottom:8px" id="logi-nota-modal-title">Motivo</div>
+    <textarea id="logi-nota-input" placeholder="Ej: costura descosida, mancha leve..."></textarea>
+    <div class="logi-mbtns">
+      <button class="logi-cancel" onclick="logiCerrarNotaModal()">Cancelar</button>
+      <button class="logi-save" onclick="logiConfirmarNota()">Guardar</button>
     </div>
   </div>
 </div>
@@ -665,7 +745,7 @@ db.ref('.info/connected').on('value', snap=>{
 // --- PIN por usuario ---
 // Arranca con estos valores por defecto; se guardan en Firebase la primera vez,
 // y desde ahí Ariel/Stef los pueden cambiar sin tocar código.
-let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', nahuel:'0633'};
+let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', nahuel:'0633', noemi:'0001'};
 let pinsReady = false;
 db.ref('fabrica_v5/pins').once('value',snap=>{
   if(snap.exists()){
@@ -2001,7 +2081,7 @@ const SEC_DISENO = 'muestra_diseno';
 const SEC_CANCEL = 'muestra_cancelada';
 
 // Nombre visible de cada login
-const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',nahuel:'Cortador'};
+const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',nahuel:'Nahuel',noemi:'Noemí'};
 
 // Lista de modelistas (editable: se puede agregar una nueva directo desde la ficha)
 let modelistasList = ['Peque','Adela','Guada','Paula'];
@@ -2126,6 +2206,7 @@ document.getElementById('btn-stef').onclick=()=>attemptLogin('stef');
 document.getElementById('btn-peque').onclick=()=>attemptLogin('peque');
 document.getElementById('btn-emir').onclick=()=>attemptLogin('emir');
 document.getElementById('btn-nahuel').onclick=()=>attemptLogin('nahuel');
+document.getElementById('btn-noemi').onclick=()=>attemptLogin('noemi');
 document.getElementById('user-chip').onclick=doLogout;
 
 function doLogin(user){
@@ -3053,7 +3134,30 @@ function toggleFotoDriveOk(secId,itemId){
   showToast(`✂️ ${item.code} pasó a Pendiente de corte`);
 }
 
-// --- CORTES FINALIZADOS → REVISIÓN FINAL ---
+// --- Calcula la grilla esperada talle/color en base a rollos + curva (capas reales cortadas) ---
+function calcularGrillaEsperada(item){
+  const talles=item.capas_talles||[];
+  const curva=item.curva_valores||{};
+  const rollos=Object.values(item.rollos||{}).filter(r=>r&&r.color&&r.capas);
+  const filas=[];
+  if(talles.length && Object.keys(curva).length && rollos.length){
+    const capasPorColor={};
+    rollos.forEach(r=>{ capasPorColor[r.color]=(capasPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
+    Object.keys(capasPorColor).forEach(color=>{
+      const capas=capasPorColor[color];
+      talles.forEach(talle=>{
+        const esperado=Math.round(capas*(parseFloat(curva[talle])||0));
+        if(esperado>0) filas.push({talle,color,esperado,ok:0,detalle:0,fallado:0});
+      });
+    });
+  } else if(item.color && item.talle){
+    // Corte simple sin tizada por curva (ej. base ya aprobada / carga manual)
+    filas.push({talle:item.talle,color:item.color,esperado:0,ok:0,detalle:0,fallado:0});
+  }
+  return filas;
+}
+
+// --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const revSecId=getSectionIdByTipo('revision_final');
@@ -3062,11 +3166,27 @@ function marcarEntregadoCorte(secId,itemId){
   const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const fecha=prompt('¿Qué fecha se entregó?',fechaDefault);
   if(fecha===null) return;
-  const newItem={...item,fecha_entregado:fecha.trim()||fechaDefault,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
+  const fechaFinal=fecha.trim()||fechaDefault;
+  const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${revSecId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Entregado a revisión',`${item.code}: ${fecha.trim()||fechaDefault}`);
+  logActivity('Entregado a revisión',`${item.code}: ${fechaFinal}`);
   showToast(`✅ ${item.code} pasó a Revisión Final`);
+
+  // --- Registro espejo en Logística (pendiente de conteo) ---
+  const filas=calcularGrillaEsperada(item);
+  const grillaObj={};
+  filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
+  const logisticaItem={
+    code:item.code||'',
+    name:item.name||'',
+    foto:item.foto||'',
+    fecha_entregado:fechaFinal,
+    fecha_creado:Date.now(),
+    estado:'pendiente_conteo',
+    grilla:grillaObj
+  };
+  db.ref('fabrica_v5/logistica/items').push(logisticaItem);
 }
 
 // --- REVISIÓN FINAL (llegó el corte del taller) ---
@@ -4611,7 +4731,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       ${(avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${item.taller_avios_entregados?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_avios_entregados')`:''}">${item.taller_avios_entregados?'✓':''}</div><span class="c-label ${item.taller_avios_entregados?'done':''}">Avíos entregados</span></div>`:''}
     </div>`:'';
   const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
-  const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
+  const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
   const listoParaCortar = secId!=='s3' || (encimadoTerminadoGrupo(item) && !item.sin_confirmar);
   const canConfirmarCorte = secId==='s3'&&(currentUser==='ariel'||currentUser==='stef');
@@ -6398,9 +6518,165 @@ function fmtTime(ts){
   return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
 }
 
+// ===== Pestaña Logística (conteo / control de calidad) =====
+let logiItemsData = {};
+let logiCurrentItemId = null;
+let logiInitDone = false;
+let logiNotaPendiente = null;
+
+function logiInit(){
+  if(logiInitDone) return;
+  logiInitDone = true;
+  db.ref('fabrica_v5/logistica/items').on('value', snap=>{
+    logiItemsData = snap.val() || {};
+    logiRenderBoard();
+    if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
+  });
+}
+
+function logiRenderBoard(){
+  const pend=[], done=[];
+  Object.entries(logiItemsData).forEach(([id,it])=>{
+    if(it.estado==='cerrado') done.push([id,it]); else pend.push([id,it]);
+  });
+  pend.sort((a,b)=>(a[1].fecha_creado||0)-(b[1].fecha_creado||0));
+  done.sort((a,b)=>(b[1].fecha_cerrado||0)-(a[1].fecha_cerrado||0));
+
+  const pendList=document.getElementById('logi-pend-list');
+  pendList.innerHTML = pend.length ? pend.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de conteo 🎉</div>';
+
+  const doneList=document.getElementById('logi-done-list');
+  const doneShow=done.slice(0,10);
+  doneList.innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : '<div class="empty">Todavía no se cerró ningún conteo</div>';
+}
+
+function logiProgresoTexto(it){
+  const filas=Object.values(it.grilla||{});
+  if(!filas.length) return '';
+  const esperadoTotal=filas.reduce((s,f)=>s+(f.esperado||0),0);
+  const contadasTotal=filas.reduce((s,f)=>s+(f.ok||0)+(f.detalle||0)+(f.fallado||0),0);
+  return esperadoTotal ? `${contadasTotal} / ${esperadoTotal} contadas` : `${contadasTotal} contadas`;
+}
+
+function logiCardHtml(id,it,cerrado){
+  const foto = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
+  return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
+    ${foto}
+    <div class="logi-info">
+      <div class="logi-code">${it.code||'(sin código)'}</div>
+      <div class="logi-name">${it.name||''}</div>
+      <div class="logi-fecha">Entregado: ${it.fecha_entregado||'—'}</div>
+      <div class="logi-progress">${cerrado?'<span class="logi-badge logi-done">Cerrado</span>':'<span class="logi-badge logi-pend">Pendiente</span> · '+logiProgresoTexto(it)}</div>
+    </div>
+  </div>`;
+}
+
+function logiOpenDetail(id){
+  logiCurrentItemId = id;
+  document.getElementById('logi-board-screen').classList.add('hidden');
+  document.getElementById('logi-detail-screen').classList.remove('hidden');
+  logiRenderDetail(id);
+}
+function logiCloseDetail(){
+  logiCurrentItemId = null;
+  document.getElementById('logi-detail-screen').classList.add('hidden');
+  document.getElementById('logi-board-screen').classList.remove('hidden');
+}
+
+function logiRenderDetail(id){
+  const it = logiItemsData[id];
+  if(!it){ logiCloseDetail(); return; }
+  document.getElementById('logi-detail-photo').innerHTML = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
+  document.getElementById('logi-detail-code').textContent = it.code||'(sin código)';
+  document.getElementById('logi-detail-name').textContent = it.name||'';
+  document.getElementById('logi-detail-fecha').textContent = 'Entregado: '+(it.fecha_entregado||'—');
+
+  const filas = Object.entries(it.grilla||{});
+  const cerrado = it.estado==='cerrado';
+
+  document.getElementById('logi-rows-container').innerHTML = filas.map(([key,f])=>{
+    const contadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
+    const saldo = (f.esperado||0) - contadas;
+    let saldoClass = ''; if(saldo===0 && f.esperado) saldoClass='logi-zero'; if(saldo<0) saldoClass='logi-over';
+    const saldoTxt = f.esperado ? `Saldo: ${saldo}` : `Contadas: ${contadas}`;
+    return `<div class="logi-row-card ${saldo===0&&f.esperado?'logi-done':''}">
+      <div class="logi-row-top">
+        <div class="logi-row-title">${f.talle} · ${f.color}${f.esperado?` <span style="color:var(--text3);font-weight:400">(esperado ${f.esperado})</span>`:''}</div>
+        <div class="logi-row-saldo ${saldoClass}">${saldoTxt}</div>
+      </div>
+      ${cerrado ? '' : `<div class="logi-row-btns">
+        <button class="logi-cbtn logi-ok" onclick="logiSumarConteo('${id}','${key}','ok')"><span class="logi-n">${f.ok||0}</span>OK</button>
+        <button class="logi-cbtn logi-detalle" onclick="logiSumarConteo('${id}','${key}','detalle')"><span class="logi-n">${f.detalle||0}</span>Detalle</button>
+        <button class="logi-cbtn logi-fallado" onclick="logiSumarConteo('${id}','${key}','fallado')"><span class="logi-n">${f.fallado||0}</span>Fallado</button>
+      </div>`}
+    </div>`;
+  }).join('');
+
+  const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
+  const totalOk = filas.reduce((s,[,f])=>s+(f.ok||0),0);
+  const totalDetalle = filas.reduce((s,[,f])=>s+(f.detalle||0),0);
+  const totalFallado = filas.reduce((s,[,f])=>s+(f.fallado||0),0);
+  const totalContadas = totalOk+totalDetalle+totalFallado;
+  const puedeCerrar = !cerrado && totalEsperado>0 && totalContadas>=totalEsperado;
+
+  let html = `<div class="logi-final-summary">
+    <div class="logi-line"><span>✅ OK (depósito)</span><strong>${totalOk}</strong></div>
+    <div class="logi-line"><span>🟡 Con detalle (local físico)</span><strong>${totalDetalle}</strong></div>
+    <div class="logi-line"><span>❌ Fallado (fuera de venta)</span><strong>${totalFallado}</strong></div>
+  </div>`;
+
+  if(cerrado){
+    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">✅ Conteo cerrado</div>`;
+  } else {
+    html += `<div class="logi-summary-bar">
+      <div class="logi-totals">${totalContadas} / ${totalEsperado||'—'} contadas</div>
+      <button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar conteo</button>
+    </div>`;
+  }
+  document.getElementById('logi-final-summary').innerHTML = html;
+}
+
+function logiSumarConteo(itemId,rowKey,tipo){
+  if(tipo==='ok'){
+    db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/ok`).transaction(v=>(v||0)+1);
+    db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/ok_set_by`).set(currentUser);
+    return;
+  }
+  logiNotaPendiente = {itemId,rowKey,tipo};
+  document.getElementById('logi-nota-modal-title').textContent = tipo==='detalle' ? 'Detalle (opcional)' : 'Motivo de la falla (opcional)';
+  document.getElementById('logi-nota-input').value='';
+  document.getElementById('logi-nota-modal').classList.add('logi-show');
+}
+
+function logiCerrarNotaModal(){
+  document.getElementById('logi-nota-modal').classList.remove('logi-show');
+  logiNotaPendiente = null;
+}
+
+function logiConfirmarNota(){
+  if(!logiNotaPendiente) return;
+  const {itemId,rowKey,tipo} = logiNotaPendiente;
+  const nota = document.getElementById('logi-nota-input').value.trim();
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}`).transaction(v=>(v||0)+1);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}_set_by`).set(currentUser);
+  if(nota){
+    db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/notas`).push({tipo,nota,por:currentUser,fecha:Date.now()});
+  }
+  document.getElementById('logi-nota-modal').classList.remove('logi-show');
+  logiNotaPendiente = null;
+}
+
+function logiCerrarConteo(itemId){
+  if(!confirm('¿Cerrar el conteo de este corte? Ya no se va a poder editar.')) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('cerrado');
+  db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_cerrado`).set(Date.now());
+  db.ref(`fabrica_v5/logistica/items/${itemId}/cerrado_por`).set(currentUser);
+  showToast('✅ Conteo cerrado');
+}
+
 // TABS
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-pendientes','tab-galeria','tab-actividad','tab-estampas'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -6432,6 +6708,11 @@ document.getElementById('tab-btn-estampas').onclick=function(){
   ocultarTabsMenosActiva('tab-estampas');
   this.classList.add('active');
   renderEstampadosTab();
+};
+document.getElementById('tab-btn-logistica').onclick=function(){
+  ocultarTabsMenosActiva('tab-logistica');
+  this.classList.add('active');
+  logiInit();
 };
 document.getElementById('close-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');
 document.getElementById('cancel-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');

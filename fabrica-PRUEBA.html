@@ -513,6 +513,7 @@
           <div>
             <div style="font-weight:800;font-size:17px" id="logi-detail-code"></div>
             <div style="font-size:13px;color:var(--text2)" id="logi-detail-name"></div>
+            <div style="font-size:12px;color:var(--accent);font-weight:600" id="logi-detail-corte"></div>
             <div style="font-size:11px;color:var(--text3)" id="logi-detail-fecha"></div>
           </div>
         </div>
@@ -1273,6 +1274,13 @@ function renderEstampadosTab(){
         </div>`;
     }
 
+    // Si el corte vinculado en fabrica todavía no pasó por "Marcar cortado", las cantidades acá
+    // son solo lo planeado en la ficha (curva x capas estimadas) — no lo que realmente salió.
+    // Avisamos para que en Diseño avancen solo con el dibujo y no den las cantidades por cerradas.
+    const itemLinkeado=c.link_secId&&c.link_itemId&&sectionsData[c.link_secId]&&sectionsData[c.link_secId].items[c.link_itemId];
+    const yaCortado=itemLinkeado?!!itemLinkeado.fecha_corte:null; // null = no lo pudimos determinar
+    const avisoNoCortado=(yaCortado===false)?`<div style="font-size:11px;font-weight:700;color:#b8860b;background:#fbf1d8;border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ Todavía no se cortó este corte — las cantidades son estimadas (de la ficha), no confirmadas. Avanzar solo con el dibujo, no cerrar cantidades por color todavía.</div>`:'';
+
     return `<div class="est-card" id="est-card-${c.id}">
       <div class="est-card-top">
         <div><div class="est-numero">Corte ${(c.numero||'').replace(/</g,'&lt;')}</div>${c.tela?`<div class="est-tela">${c.tela.replace(/</g,'&lt;')}</div>`:''}</div>
@@ -1281,6 +1289,7 @@ function renderEstampadosTab(){
           <button class="icon-btn" title="Borrar" onclick="delEstCorte('${c.id}')">✕</button>
         </div>
       </div>
+      ${avisoNoCortado}
       <div class="section-label">Estampas (${estampasEntries.length})</div>
       <div class="est-grid">${gridItems}${addEstBtn}</div>
       ${coloresHtml}
@@ -3227,6 +3236,8 @@ function marcarEntregadoCorte(secId,itemId){
     code:item.code||'',
     name:item.name||'',
     foto:item.foto||'',
+    numero_corte:item.numero_corte||'',
+    taller:item.taller_corte||'',
     fecha_entregado:fechaFinal,
     fecha_creado:Date.now(),
     estado:'pendiente_conteo',
@@ -6620,11 +6631,16 @@ function logiProgresoTexto(it){
 
 function logiCardHtml(id,it,cerrado){
   const foto = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
+  const corteTallerParts=[];
+  if(it.numero_corte) corteTallerParts.push(`N° corte: ${it.numero_corte}`);
+  if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
+  const corteTallerHtml=corteTallerParts.length?`<div class="logi-fecha" style="color:var(--accent);font-weight:600">${corteTallerParts.join(' · ')}</div>`:'';
   return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
     ${foto}
     <div class="logi-info">
       <div class="logi-code">${it.code||'(sin código)'}</div>
       <div class="logi-name">${it.name||''}</div>
+      ${corteTallerHtml}
       <div class="logi-fecha">Entregado: ${it.fecha_entregado||'—'}</div>
       <div class="logi-progress">${cerrado?'<span class="logi-badge logi-done">Cerrado</span>':'<span class="logi-badge logi-pend">Pendiente</span> · '+logiProgresoTexto(it)}</div>
     </div>
@@ -6649,6 +6665,10 @@ function logiRenderDetail(id){
   document.getElementById('logi-detail-photo').innerHTML = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
   document.getElementById('logi-detail-code').textContent = it.code||'(sin código)';
   document.getElementById('logi-detail-name').textContent = it.name||'';
+  const corteTallerParts=[];
+  if(it.numero_corte) corteTallerParts.push(`N° de corte: ${it.numero_corte}`);
+  if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
+  document.getElementById('logi-detail-corte').textContent = corteTallerParts.length ? corteTallerParts.join(' · ') : '';
   document.getElementById('logi-detail-fecha').textContent = 'Entregado: '+(it.fecha_entregado||'—');
 
   const filas = Object.entries(it.grilla||{});

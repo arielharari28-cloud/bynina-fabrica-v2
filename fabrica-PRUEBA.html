@@ -1094,19 +1094,37 @@ function resyncColoresEstampado(estId){
   if(!item){ showToast('No encontré el ítem de fabrica vinculado'); return; }
   const filas=Object.values(item.capas||{}).filter(r=>r.color);
   if(!filas.length){ showToast('El corte todavía no tiene Orden de Corte cargada en fabrica'); return; }
-  const yaCargados=new Set(Object.values(e.fotos||{}).map(f=>(f.color||'').trim().toLowerCase()));
-  const updates={};
-  let agregados=0;
-  filas.forEach(r=>{
-    if(yaCargados.has((r.color||'').trim().toLowerCase())) return;
-    const cant=Object.values(r.cant||{}).reduce((a,b)=>a+(parseInt(b)||0),0);
-    const fid=db.ref('fabrica_v5/estampados').push().key;
-    updates[`fabrica_v5/estampados/${estId}/fotos/${fid}`]={color:r.color,estampaColor:'',cant};
-    agregados++;
+  // Mapeo color(normalizado) -> [fotoId, fotoActual] de lo que YA está cargado en Estampas
+  const fotoIdPorColor={};
+  Object.entries(e.fotos||{}).forEach(([fid,f])=>{
+    const key=(f.color||'').trim().toLowerCase();
+    if(key) fotoIdPorColor[key]=fid;
   });
-  if(!agregados){ showToast('Ya están todos los colores del corte cargados acá'); return; }
+  const updates={};
+  let agregados=0, actualizados=0;
+  filas.forEach(r=>{
+    const key=(r.color||'').trim().toLowerCase();
+    const cant=Object.values(r.cant||{}).reduce((a,b)=>a+(parseInt(b)||0),0);
+    const fidExistente=fotoIdPorColor[key];
+    if(fidExistente){
+      // Ya está cargado este color: actualizamos la cantidad si cambió
+      const actual=(e.fotos[fidExistente]||{}).cant;
+      if(parseInt(actual)!==cant){
+        updates[`fabrica_v5/estampados/${estId}/fotos/${fidExistente}/cant`]=cant;
+        actualizados++;
+      }
+    } else {
+      const fid=db.ref('fabrica_v5/estampados').push().key;
+      updates[`fabrica_v5/estampados/${estId}/fotos/${fid}`]={color:r.color,estampaColor:'',cant};
+      agregados++;
+    }
+  });
+  if(!agregados && !actualizados){ showToast('Ya está todo al día, no había cambios'); return; }
   db.ref().update(updates);
-  showToast(`🔄 Se agregaron ${agregados} color${agregados!==1?'es':''} desde Orden de Corte`);
+  const partes=[];
+  if(agregados) partes.push(`${agregados} color${agregados!==1?'es':''} nuevo${agregados!==1?'s':''}`);
+  if(actualizados) partes.push(`${actualizados} cantidad${actualizados!==1?'es':''} actualizada${actualizados!==1?'s':''}`);
+  showToast(`🔄 ${partes.join(' · ')}`);
 }
 
 // --- Foto compartida de "todos los colores juntos" ---

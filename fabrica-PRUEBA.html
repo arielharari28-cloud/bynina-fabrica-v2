@@ -1058,6 +1058,12 @@ function delEstEstampa(estId,estampaId){
 // Reparto por color a mano: abre un campo editable por cada color del corte, precargado con
 // lo que le tocaría automático a esta estampa. Si lo dejás igual, sigue siendo automático
 // (se recalcula solo si cambian las cantidades del corte); si lo cambiás, queda fijo para ese color.
+function toggleEstNoRepartir(estId,val){
+  db.ref(`fabrica_v5/estampados/${estId}/no_repartir`).set(!!val);
+  logActivity(val?'Activó "no repartir" (total completo por estampa)':'Desactivó "no repartir"',estampadosData[estId]?.numero||'');
+  showToast(val?'✓ Ahora cada estampa lleva el total completo':'✓ Vuelve a repartirse entre las estampas');
+}
+
 let repartirCtx=null;
 function openEstRepartirModal(estId,estampaId){
   const c=estampadosData[estId];
@@ -1069,9 +1075,13 @@ function openEstRepartirModal(estId,estampaId){
   const autoVals={};
   coloresArr.forEach(([fid,f])=>{
     const q=f.cant||0;
-    const base=nEst?Math.floor(q/nEst):0;
-    const resto=nEst?q%nEst:0;
-    autoVals[fid]=base+(idx<resto?1:0);
+    if(c.no_repartir){
+      autoVals[fid]=q;
+    } else {
+      const base=nEst?Math.floor(q/nEst):0;
+      const resto=nEst?q%nEst:0;
+      autoVals[fid]=base+(idx<resto?1:0);
+    }
   });
   repartirCtx={estId,estampaId,coloresArr,autoVals};
   document.getElementById('est-repartir-articulo').textContent=e.articulo||'(sin nombre)';
@@ -1267,9 +1277,15 @@ function renderEstampadosTab(){
     const autoSplits={};
     coloresArr.forEach(([fid,f])=>{
       const q=f.cant||0;
-      const base=nEst?Math.floor(q/nEst):0;
-      const resto=nEst?q%nEst:0;
-      autoSplits[fid]=estampasEntries.map((_,i)=>base+(i<resto?1:0));
+      if(c.no_repartir){
+        // Cada estampa lleva el total completo del color (la tizada trae los artículos juntos,
+        // no se reparte la misma tela entre ellos).
+        autoSplits[fid]=estampasEntries.map(()=>q);
+      } else {
+        const base=nEst?Math.floor(q/nEst):0;
+        const resto=nEst?q%nEst:0;
+        autoSplits[fid]=estampasEntries.map((_,i)=>base+(i<resto?1:0));
+      }
     });
     const gridItems=estampasEntries.map(([eid,e],i)=>{
       const s=estLabel(e.estado);
@@ -1338,7 +1354,13 @@ function renderEstampadosTab(){
         </div>
       </div>
       ${avisoNoCortado}
-      <div class="section-label">Estampas (${estampasEntries.length})</div>
+      <div class="section-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span>Estampas (${estampasEntries.length})</span>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:400;color:var(--text2);cursor:pointer" title="Activá esto si la tizada trae los dos (o más) artículos juntos en el mismo molde: cada capa produce un juego completo por artículo, no se reparte la misma tela entre ellos.">
+          <input type="checkbox" ${c.no_repartir?'checked':''} onchange="toggleEstNoRepartir('${c.id}',this.checked)">
+          Cada estampa lleva el total completo (no repartir)
+        </label>
+      </div>
       <div class="est-grid">${gridItems}${addEstBtn}</div>
       ${coloresHtml}
     </div>`;

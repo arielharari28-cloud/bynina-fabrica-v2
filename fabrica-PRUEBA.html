@@ -263,6 +263,24 @@
   .logi-modal .logi-mbtns button{flex:1;padding:10px;border-radius:10px;border:none;font-weight:700;font-size:13px;cursor:pointer}
   .logi-modal .logi-mbtns .logi-cancel{background:var(--surface2);color:var(--text2)}
   .logi-modal .logi-mbtns .logi-save{background:var(--accent);color:#fff}
+  .logi-chip{display:inline-flex;align-items:center;gap:4px;background:var(--accent-bg);color:var(--accent);border-radius:16px;padding:4px 10px;font-size:12px;font-weight:600}
+  .logi-chip button{border:none;background:none;color:var(--accent);cursor:pointer;font-size:12px;padding:0;line-height:1}
+  .logi-gen-table{border-collapse:collapse;width:100%;font-size:12px}
+  .logi-gen-table th,.logi-gen-table td{border:1px solid var(--border);padding:4px 6px;text-align:center}
+  .logi-gen-table th{background:var(--surface2);font-size:11px;color:var(--text2)}
+  .logi-gen-table td:first-child,.logi-gen-table th:first-child{text-align:left;font-weight:700;white-space:nowrap}
+  .logi-gen-table input{width:52px;padding:4px;border:1px solid var(--border);border-radius:6px;text-align:center;font-size:12px}
+  .logi-count-table{border-collapse:collapse;width:100%;font-size:12px;min-width:600px}
+  .logi-count-table th,.logi-count-table td{border:1px solid var(--border);padding:6px 8px;text-align:center}
+  .logi-count-table th{background:var(--surface2);font-size:10px;color:var(--text2);text-transform:uppercase}
+  .logi-count-table td:first-child,.logi-count-table td:nth-child(2){text-align:left;font-weight:700}
+  .logi-count-table input{width:48px;padding:4px;border:1px solid var(--border);border-radius:6px;text-align:center;font-size:13px;font-weight:700}
+  .logi-count-table input.logi-in-ok{color:#2e7d4f;border-color:#2e7d4f}
+  .logi-count-table input.logi-in-detalle{color:#b8860b;border-color:#b8860b}
+  .logi-count-table input.logi-in-fallado{color:#b0392f;border-color:#b0392f}
+  .logi-count-table tr.logi-row-complete{background:#e3f3e8}
+  .logi-note-btn{border:none;background:none;color:var(--text3);cursor:pointer;font-size:12px}
+  .logi-note-btn.has-note{color:#b8860b}
 
   /* ===== Pestaña Estampas DTF ===== */
   .est-stats-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
@@ -531,6 +549,35 @@
     <div class="logi-mbtns">
       <button class="logi-cancel" onclick="logiCerrarNotaModal()">Cancelar</button>
       <button class="logi-save" onclick="logiConfirmarNota()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="logi-modal-bg" id="logi-grid-modal">
+  <div class="logi-modal" style="max-height:90vh;overflow-y:auto">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px">Cargar talles y colores esperados</div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Colores</div>
+    <div id="logi-grid-colores-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <input type="text" id="logi-grid-color-input" placeholder="Escribí un color y Enter" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();logiGridAddColor();}">
+      <button class="btn-sm" onclick="logiGridAddColor()">+ Agregar</button>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:4px">Talles</div>
+    <div id="logi-grid-talles-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <input type="text" id="logi-grid-talle-input" placeholder="Escribí un talle y Enter" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px" onkeydown="if(event.key==='Enter'){event.preventDefault();logiGridAddTalle();}">
+      <button class="btn-sm" onclick="logiGridAddTalle()">+ Agregar</button>
+    </div>
+
+    <button class="logi-close-btn" style="width:100%;margin-bottom:12px" onclick="logiGridGenerar()">⚙️ Generar grilla</button>
+
+    <div id="logi-grid-table-wrap" style="overflow-x:auto"></div>
+
+    <div class="logi-mbtns" style="margin-top:14px">
+      <button class="logi-cancel" onclick="logiCerrarGridModal()">Cancelar</button>
+      <button class="logi-save" onclick="logiConfirmarGrid()">Confirmar</button>
     </div>
   </div>
 </div>
@@ -6673,36 +6720,52 @@ function logiRenderDetail(id){
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';
+  const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel');
 
-  document.getElementById('logi-rows-container').innerHTML = filas.map(([key,f])=>{
-    const contadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
-    const saldo = (f.esperado||0) - contadas;
-    let saldoClass = ''; if(saldo===0 && f.esperado) saldoClass='logi-zero'; if(saldo<0) saldoClass='logi-over';
-    const saldoTxt = f.esperado ? `Saldo: ${saldo}` : `Contadas: ${contadas}`;
-    return `<div class="logi-row-card ${saldo===0&&f.esperado?'logi-done':''}">
-      <div class="logi-row-top">
-        <div class="logi-row-title">${f.talle} · ${f.color}${f.esperado?` <span style="color:var(--text3);font-weight:400">(esperado ${f.esperado})</span>`:''}</div>
-        <div class="logi-row-saldo ${saldoClass}">${saldoTxt}</div>
-      </div>
-      ${cerrado ? '' : `<div class="logi-row-btns">
-        <button class="logi-cbtn logi-ok" onclick="logiSumarConteo('${id}','${key}','ok')"><span class="logi-n">${f.ok||0}</span>OK</button>
-        <button class="logi-cbtn logi-detalle" onclick="logiSumarConteo('${id}','${key}','detalle')"><span class="logi-n">${f.detalle||0}</span>Detalle</button>
-        <button class="logi-cbtn logi-fallado" onclick="logiSumarConteo('${id}','${key}','fallado')"><span class="logi-n">${f.fallado||0}</span>Fallado</button>
-      </div>`}
-    </div>`;
-  }).join('');
-
-  const canAgregarFila = !cerrado && (currentUser==='emir' || currentUser==='ariel');
-  if(canAgregarFila){
-    document.getElementById('logi-rows-container').innerHTML += `
-      <button class="btn-sm" style="margin-top:4px" onclick="logiAgregarFilaManual('${id}')">+ Agregar talle/color</button>`;
+  let rowsHtml='';
+  if(!filas.length){
+    rowsHtml = cerrado
+      ? '<div class="empty">Este corte se cerró sin talles/colores cargados.</div>'
+      : (canEditarGrilla
+          ? '<div class="empty">Este corte no tiene talle/color cargado. Cargalo con el botón de abajo.</div>'
+          : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo cargue.</div>');
+  } else {
+    // Ordenamos por color y después por talle, para que la tabla se lea agrupada.
+    filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || (a[1].talle||'').localeCompare(b[1].talle||''));
+    const body = filas.map(([key,f])=>{
+      const contadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
+      const saldo = (f.esperado||0) - contadas;
+      const completo = f.esperado>0 && saldo===0;
+      const tieneNotaDetalle = f.notas && Object.values(f.notas).some(n=>n.tipo==='detalle');
+      const tieneNotaFallado = f.notas && Object.values(f.notas).some(n=>n.tipo==='fallado');
+      const inputAttr = cerrado ? 'disabled' : '';
+      return `<tr class="${completo?'logi-row-complete':''}">
+        <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
+        <td>${(f.talle||'—').replace(/</g,'&lt;')}</td>
+        <td>${f.esperado||'—'}</td>
+        <td>${contadas}</td>
+        <td><input type="number" min="0" class="logi-in-ok" value="${f.ok||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','ok',this.value)"></td>
+        <td>
+          <input type="number" min="0" class="logi-in-detalle" value="${f.detalle||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','detalle',this.value)">
+          ${cerrado?'':`<button class="logi-note-btn ${tieneNotaDetalle?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','detalle')">📝</button>`}
+        </td>
+        <td>
+          <input type="number" min="0" class="logi-in-fallado" value="${f.fallado||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','fallado',this.value)">
+          ${cerrado?'':`<button class="logi-note-btn ${tieneNotaFallado?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','fallado')">📝</button>`}
+        </td>
+        <td style="font-weight:700;color:${saldo<0?'#b0392f':(saldo===0&&f.esperado?'#2e7d4f':'var(--text2)')}">${f.esperado?saldo:'—'}</td>
+        ${canEditarGrilla?`<td><button class="logi-note-btn" title="Borrar fila" onclick="logiBorrarFila('${id}','${key}')">🗑️</button></td>`:''}
+      </tr>`;
+    }).join('');
+    rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table">
+      <thead><tr>
+        <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>OK</th><th>Detalle</th><th>Fallado</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>`;
   }
-  if(!filas.length && !cerrado){
-    document.getElementById('logi-rows-container').innerHTML = (canAgregarFila
-      ? '<div class="empty">Este corte no tiene talle/color cargado. Sumalo manualmente con el botón de abajo.</div>'
-      : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo sume.</div>')
-      + (canAgregarFila ? `<button class="btn-sm" style="margin-top:8px" onclick="logiAgregarFilaManual('${id}')">+ Agregar talle/color</button>` : '');
-  }
+  document.getElementById('logi-rows-container').innerHTML = rowsHtml +
+    (canEditarGrilla ? `<button class="btn-sm" style="margin-top:10px" onclick="logiOpenGridModal('${id}')">${filas.length?'+ Cargar más talles/colores':'+ Cargar talles/colores'}</button>` : '');
 
   const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
   const totalOk = filas.reduce((s,[,f])=>s+(f.ok||0),0);
@@ -6728,28 +6791,20 @@ function logiRenderDetail(id){
   document.getElementById('logi-final-summary').innerHTML = html;
 }
 
-function logiAgregarFilaManual(itemId){
-  if(!(currentUser==='emir' || currentUser==='ariel')){ showToast('Solo Emir o Ariel pueden agregar talle/color'); return; }
-  const talle = prompt('Talle (ej: S, M, L, XL, Único):');
-  if(talle===null || !talle.trim()) return;
-  const color = prompt('Color:');
-  if(color===null || !color.trim()) return;
-  const espStr = prompt('Cantidad esperada (dejalo vacío si no la sabés):','');
-  if(espStr===null) return;
-  const esperado = parseInt(espStr)||0;
-  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla`).push({
-    talle:talle.trim(), color:color.trim(), esperado, ok:0, detalle:0, fallado:0,
-    agregado_manual:true, agregado_por:currentUser
-  });
-  showToast('✓ Fila agregada');
+// Edición directa: escribe el valor tal cual (no suma de a uno), así se puede corregir un error
+// de tipeo sin tener que resetear todo.
+function logiSetConteo(itemId,rowKey,tipo,valor){
+  const n = Math.max(0, parseInt(valor)||0);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}`).set(n);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}_set_by`).set(currentUser);
 }
 
-function logiSumarConteo(itemId,rowKey,tipo){
-  if(tipo==='ok'){
-    db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/ok`).transaction(v=>(v||0)+1);
-    db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/ok_set_by`).set(currentUser);
-    return;
-  }
+function logiBorrarFila(itemId,rowKey){
+  if(!confirm('¿Borrar esta fila de talle/color? Se pierde lo contado en ella.')) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}`).remove();
+}
+
+function logiEditarNota(itemId,rowKey,tipo){
   logiNotaPendiente = {itemId,rowKey,tipo};
   document.getElementById('logi-nota-modal-title').textContent = tipo==='detalle' ? 'Detalle (opcional)' : 'Motivo de la falla (opcional)';
   document.getElementById('logi-nota-input').value='';
@@ -6765,8 +6820,6 @@ function logiConfirmarNota(){
   if(!logiNotaPendiente) return;
   const {itemId,rowKey,tipo} = logiNotaPendiente;
   const nota = document.getElementById('logi-nota-input').value.trim();
-  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}`).transaction(v=>(v||0)+1);
-  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}_set_by`).set(currentUser);
   if(nota){
     db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/notas`).push({tipo,nota,por:currentUser,fecha:Date.now()});
   }
@@ -6780,6 +6833,92 @@ function logiCerrarConteo(itemId){
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_cerrado`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/cerrado_por`).set(currentUser);
   showToast('✅ Conteo cerrado');
+}
+
+// ===== Carga masiva de talles/colores esperados (grilla tipo matriz) =====
+let logiGridCtx={itemId:null,colores:[],talles:[]};
+
+function logiOpenGridModal(itemId){
+  if(!(currentUser==='emir' || currentUser==='ariel')){ showToast('Solo Emir o Ariel pueden cargar talles/colores'); return; }
+  logiGridCtx={itemId,colores:[],talles:[]};
+  document.getElementById('logi-grid-color-input').value='';
+  document.getElementById('logi-grid-talle-input').value='';
+  document.getElementById('logi-grid-table-wrap').innerHTML='';
+  logiGridRenderChips();
+  document.getElementById('logi-grid-modal').classList.add('logi-show');
+}
+function logiCerrarGridModal(){
+  document.getElementById('logi-grid-modal').classList.remove('logi-show');
+}
+function logiGridRenderChips(){
+  document.getElementById('logi-grid-colores-chips').innerHTML = logiGridCtx.colores.map((c,i)=>
+    `<span class="logi-chip">${c.replace(/</g,'&lt;')}<button onclick="logiGridCtx.colores.splice(${i},1);logiGridRenderChips()">✕</button></span>`
+  ).join('') || '<span style="font-size:12px;color:var(--text3)">Sin colores todavía</span>';
+  document.getElementById('logi-grid-talles-chips').innerHTML = logiGridCtx.talles.map((t,i)=>
+    `<span class="logi-chip">${t.replace(/</g,'&lt;')}<button onclick="logiGridCtx.talles.splice(${i},1);logiGridRenderChips()">✕</button></span>`
+  ).join('') || '<span style="font-size:12px;color:var(--text3)">Sin talles todavía</span>';
+}
+function logiGridAddColor(){
+  const inp=document.getElementById('logi-grid-color-input');
+  const val=inp.value.trim();
+  if(val && !logiGridCtx.colores.includes(val)) logiGridCtx.colores.push(val);
+  inp.value='';
+  logiGridRenderChips();
+}
+function logiGridAddTalle(){
+  const inp=document.getElementById('logi-grid-talle-input');
+  const val=inp.value.trim();
+  if(val && !logiGridCtx.talles.includes(val)) logiGridCtx.talles.push(val);
+  inp.value='';
+  logiGridRenderChips();
+}
+function logiGridGenerar(){
+  const {colores,talles}=logiGridCtx;
+  const wrap=document.getElementById('logi-grid-table-wrap');
+  if(!colores.length || !talles.length){
+    wrap.innerHTML='<div style="font-size:12px;color:var(--text3);font-style:italic">Cargá al menos un color y un talle antes de generar.</div>';
+    return;
+  }
+  const headerCols=talles.map(t=>`<th>${t.replace(/</g,'&lt;')}</th>`).join('');
+  const rows=colores.map(c=>{
+    const cells=talles.map(t=>`<td><input type="number" min="0" value="0" data-color="${c.replace(/"/g,'&quot;')}" data-talle="${t.replace(/"/g,'&quot;')}"></td>`).join('');
+    return `<tr><td>${c.replace(/</g,'&lt;')}</td>${cells}</tr>`;
+  }).join('');
+  wrap.innerHTML=`<table class="logi-gen-table"><thead><tr><th></th>${headerCols}</tr></thead><tbody>${rows}</tbody></table>`;
+}
+function logiGridConfirmar(){
+  const wrap=document.getElementById('logi-grid-table-wrap');
+  const inputs=wrap.querySelectorAll('input');
+  if(!inputs.length){ showToast('Generá la grilla antes de confirmar'); return; }
+  const itemId=logiGridCtx.itemId;
+  const it=logiItemsData[itemId]||{};
+  const existentes={};
+  Object.entries(it.grilla||{}).forEach(([key,f])=>{
+    existentes[`${(f.color||'').trim().toLowerCase()}__${(f.talle||'').trim().toLowerCase()}`]=key;
+  });
+  const updates={};
+  let filasNuevas=0, filasActualizadas=0;
+  inputs.forEach(inp=>{
+    const esperado=parseInt(inp.value)||0;
+    if(!esperado) return; // combinaciones en 0 se ignoran, no aplican a este corte
+    const color=inp.dataset.color, talle=inp.dataset.talle;
+    const mapKey=`${color.trim().toLowerCase()}__${talle.trim().toLowerCase()}`;
+    if(existentes[mapKey]){
+      updates[`fabrica_v5/logistica/items/${itemId}/grilla/${existentes[mapKey]}/esperado`]=esperado;
+      filasActualizadas++;
+    } else {
+      const fid=db.ref(`fabrica_v5/logistica/items/${itemId}/grilla`).push().key;
+      updates[`fabrica_v5/logistica/items/${itemId}/grilla/${fid}`]={talle,color,esperado,ok:0,detalle:0,fallado:0,agregado_manual:true,agregado_por:currentUser};
+      filasNuevas++;
+    }
+  });
+  if(!filasNuevas && !filasActualizadas){ showToast('No cargaste ninguna cantidad mayor a 0'); return; }
+  db.ref().update(updates);
+  const partes=[];
+  if(filasNuevas) partes.push(`${filasNuevas} nueva${filasNuevas!==1?'s':''}`);
+  if(filasActualizadas) partes.push(`${filasActualizadas} actualizada${filasActualizadas!==1?'s':''}`);
+  showToast(`✓ Grilla cargada (${partes.join(' · ')})`);
+  logiCerrarGridModal();
 }
 
 // TABS

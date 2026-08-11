@@ -4793,7 +4793,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${baseHtml}
         ${fichaHtml}
         <div class="specs-line">
-          ${secId!=='sFIN'?`<span class="spec-chip">
+          <span class="spec-chip">
             <span class="c-check checked-auto ${item.curva?'checked':''}" title="Se tilda solo cuando hay curva cargada">${item.curva?'✓':''}</span>
             <span class="spec-label">Curva:</span>
             ${item.curva?`<span class="spec-val">${item.curva}</span>`:`<span class="spec-empty">Sin cargar</span>`}
@@ -4816,7 +4816,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <span class="spec-label" title="Largo de capa">Largo cap.:</span>
             ${item.largo_capa?`<span class="spec-val">${item.largo_capa}</span>`:`<span class="spec-empty">Sin cargar</span>`}
             ${canFicha?`<button class="btn-sm" onclick="editLargoCapaPrompt('${secId}','${itemId}')">${item.largo_capa?'✏️':'+ Largo de capa'}</button>`:''}
-          </span>`:''}`:''}
+          </span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check checked-auto ${item.control_piezas_link?'checked':''}" title="Se tilda solo cuando hay link de control de piezas cargado">${item.control_piezas_link?'✓':''}</div>

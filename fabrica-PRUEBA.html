@@ -6612,12 +6612,24 @@ function logiRenderDetail(id){
     </div>`;
   }).join('');
 
+  const canAgregarFila = !cerrado && (currentUser==='emir' || currentUser==='ariel');
+  if(canAgregarFila){
+    document.getElementById('logi-rows-container').innerHTML += `
+      <button class="btn-sm" style="margin-top:4px" onclick="logiAgregarFilaManual('${id}')">+ Agregar talle/color</button>`;
+  }
+  if(!filas.length && !cerrado){
+    document.getElementById('logi-rows-container').innerHTML = (canAgregarFila
+      ? '<div class="empty">Este corte no tiene talle/color cargado. Sumalo manualmente con el botón de abajo.</div>'
+      : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo sume.</div>')
+      + (canAgregarFila ? `<button class="btn-sm" style="margin-top:8px" onclick="logiAgregarFilaManual('${id}')">+ Agregar talle/color</button>` : '');
+  }
+
   const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
   const totalOk = filas.reduce((s,[,f])=>s+(f.ok||0),0);
   const totalDetalle = filas.reduce((s,[,f])=>s+(f.detalle||0),0);
   const totalFallado = filas.reduce((s,[,f])=>s+(f.fallado||0),0);
   const totalContadas = totalOk+totalDetalle+totalFallado;
-  const puedeCerrar = !cerrado && totalEsperado>0 && totalContadas>=totalEsperado;
+  const puedeCerrar = !cerrado && filas.length>0 && (totalEsperado>0 ? totalContadas>=totalEsperado : totalContadas>0);
 
   let html = `<div class="logi-final-summary">
     <div class="logi-line"><span>✅ OK (depósito)</span><strong>${totalOk}</strong></div>
@@ -6634,6 +6646,22 @@ function logiRenderDetail(id){
     </div>`;
   }
   document.getElementById('logi-final-summary').innerHTML = html;
+}
+
+function logiAgregarFilaManual(itemId){
+  if(!(currentUser==='emir' || currentUser==='ariel')){ showToast('Solo Emir o Ariel pueden agregar talle/color'); return; }
+  const talle = prompt('Talle (ej: S, M, L, XL, Único):');
+  if(talle===null || !talle.trim()) return;
+  const color = prompt('Color:');
+  if(color===null || !color.trim()) return;
+  const espStr = prompt('Cantidad esperada (dejalo vacío si no la sabés):','');
+  if(espStr===null) return;
+  const esperado = parseInt(espStr)||0;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla`).push({
+    talle:talle.trim(), color:color.trim(), esperado, ok:0, detalle:0, fallado:0,
+    agregado_manual:true, agregado_por:currentUser
+  });
+  showToast('✓ Fila agregada');
 }
 
 function logiSumarConteo(itemId,rowKey,tipo){

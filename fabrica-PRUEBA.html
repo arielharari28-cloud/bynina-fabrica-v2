@@ -276,6 +276,7 @@
   .logi-count-table td:first-child,.logi-count-table td:nth-child(2){text-align:left;font-weight:700}
   .logi-count-table input{width:48px;padding:4px;border:1px solid var(--border);border-radius:6px;text-align:center;font-size:13px;font-weight:700}
   .logi-count-table input.logi-in-ok{color:#2e7d4f;border-color:#2e7d4f}
+  .logi-count-table input.logi-in-contado{color:#1a5276;border-color:#1a5276;background:#eaf2f8}
   .logi-count-table input.logi-in-detalle{color:#b8860b;border-color:#b8860b}
   .logi-count-table input.logi-in-fallado{color:#b0392f;border-color:#b0392f}
   .logi-count-table tr.logi-row-complete{background:#e3f3e8}
@@ -6699,8 +6700,8 @@ function logiProgresoTexto(it){
   const filas=Object.values(it.grilla||{});
   if(!filas.length) return '';
   const esperadoTotal=filas.reduce((s,f)=>s+(f.esperado||0),0);
-  const contadasTotal=filas.reduce((s,f)=>s+(f.ok||0)+(f.detalle||0)+(f.fallado||0),0);
-  return esperadoTotal ? `${contadasTotal} / ${esperadoTotal} contadas` : `${contadasTotal} contadas`;
+  const contadoTotal=filas.reduce((s,f)=>s+(f.contado||0),0);
+  return esperadoTotal ? `${contadoTotal} / ${esperadoTotal} contadas` : `${contadoTotal} contadas`;
 }
 
 function logiCardHtml(id,it,cerrado){
@@ -6760,9 +6761,11 @@ function logiRenderDetail(id){
     // Ordenamos por color y después por talle, para que la tabla se lea agrupada.
     filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || (a[1].talle||'').localeCompare(b[1].talle||''));
     const body = filas.map(([key,f])=>{
-      const contadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
-      const saldo = (f.esperado||0) - contadas;
-      const completo = f.esperado>0 && saldo===0;
+      const clasificadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
+      const contado = f.contado||0;
+      const porControlar = contado - clasificadas;
+      const saldo = (f.esperado||0) - contado;
+      const completo = f.esperado>0 && saldo===0 && porControlar===0;
       const tieneNotaDetalle = f.notas && Object.values(f.notas).some(n=>n.tipo==='detalle');
       const tieneNotaFallado = f.notas && Object.values(f.notas).some(n=>n.tipo==='fallado');
       const inputAttr = cerrado ? 'disabled' : '';
@@ -6770,7 +6773,8 @@ function logiRenderDetail(id){
         <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
         <td>${(f.talle||'—').replace(/</g,'&lt;')}</td>
         <td>${f.esperado||'—'}</td>
-        <td>${contadas}</td>
+        <td><input type="number" min="0" class="logi-in-contado" value="${contado}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','contado',this.value)"></td>
+        <td style="font-weight:700;color:${porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
         <td><input type="number" min="0" class="logi-in-ok" value="${f.ok||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','ok',this.value)"></td>
         <td>
           <input type="number" min="0" class="logi-in-detalle" value="${f.detalle||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','detalle',this.value)">
@@ -6786,7 +6790,7 @@ function logiRenderDetail(id){
     }).join('');
     rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table">
       <thead><tr>
-        <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>OK</th><th>Detalle</th><th>Fallado</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
+        <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>Por controlar</th><th>OK</th><th>Detalle</th><th>Fallado</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
       </tr></thead>
       <tbody>${body}</tbody>
     </table></div>`;
@@ -6795,13 +6799,16 @@ function logiRenderDetail(id){
     (canEditarGrilla ? `<button class="btn-sm" style="margin-top:10px" onclick="logiOpenGridModal('${id}')">${filas.length?'+ Cargar más talles/colores':'+ Cargar talles/colores'}</button>` : '');
 
   const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
+  const totalContado = filas.reduce((s,[,f])=>s+(f.contado||0),0);
   const totalOk = filas.reduce((s,[,f])=>s+(f.ok||0),0);
   const totalDetalle = filas.reduce((s,[,f])=>s+(f.detalle||0),0);
   const totalFallado = filas.reduce((s,[,f])=>s+(f.fallado||0),0);
-  const totalContadas = totalOk+totalDetalle+totalFallado;
-  const puedeCerrar = !cerrado && filas.length>0 && (totalEsperado>0 ? totalContadas>=totalEsperado : totalContadas>0);
+  const totalClasificadas = totalOk+totalDetalle+totalFallado;
+  const totalPorControlar = totalContado - totalClasificadas;
+  const puedeCerrar = !cerrado && filas.length>0 && totalContado>0 && totalPorControlar===0;
 
   let html = `<div class="logi-final-summary">
+    <div class="logi-line"><span>🔢 Contado</span><strong>${totalContado}</strong></div>
     <div class="logi-line"><span>✅ OK (depósito)</span><strong>${totalOk}</strong></div>
     <div class="logi-line"><span>🟡 Con detalle (local físico)</span><strong>${totalDetalle}</strong></div>
     <div class="logi-line"><span>❌ Fallado (fuera de venta)</span><strong>${totalFallado}</strong></div>
@@ -6810,8 +6817,9 @@ function logiRenderDetail(id){
   if(cerrado){
     html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">✅ Conteo cerrado</div>`;
   } else {
-    html += `<div class="logi-summary-bar">
-      <div class="logi-totals">${totalContadas} / ${totalEsperado||'—'} contadas</div>
+    const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>` : '';
+    html += avisoControl + `<div class="logi-summary-bar">
+      <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
       <button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar conteo</button>
     </div>`;
   }

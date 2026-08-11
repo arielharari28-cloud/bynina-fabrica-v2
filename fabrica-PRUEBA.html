@@ -4780,8 +4780,14 @@ function buildItem(secId,itemId,item,sec,idx,total){
     : `<div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>`;
   const fechaCorteHtml = secId!=='s3'&&item.fecha_corte
     ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">✂️ Cortado: <strong>${item.fecha_corte}</strong></div>` : '';
-  const numeroCorteHtml = item.numero_corte
-    ? `<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong></div>` : '';
+  const numeroCorteHtml = esArmarTizada && canFicha
+    ? `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+        <span style="font-size:13px;color:var(--text)">🔢 N° de corte:</span>
+        ${item.numero_corte?`<strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin asignar</span>`}
+        <button class="btn-sm" onclick="editNumeroCortePrompt('${secId}','${itemId}')">${item.numero_corte?'✏️ Editar':'+ Asignar N° de corte'}</button>
+      </div>`
+    : (item.numero_corte
+      ? `<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong></div>` : '');
   // Capas/colores y rollos: en "Cortes próximos a sacar" (s3) esta info ahora vive en el panel
   // compartido del corte (flujoCorteHtml) — este panel viejo por ítem solo corresponde a partir
   // de que el corte ya se hizo (post-s3), para no duplicar/mostrar datos huérfanos del ítem.
@@ -5856,6 +5862,15 @@ function saveCurva(){
 document.getElementById('close-modal-curva').onclick=()=>document.getElementById('modal-curva').classList.add('hidden');
 document.getElementById('cancel-modal-curva').onclick=()=>document.getElementById('modal-curva').classList.add('hidden');
 document.getElementById('save-modal-curva').onclick=saveCurva;
+
+function editNumeroCortePrompt(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const val=prompt('N° de corte:',item.numero_corte||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/numero_corte`).set(val.trim());
+  logActivity('Editó N° de corte',`${item.code||item.name||''}: ${val.trim()||'(vacío)'}`);
+  showToast('✓ N° de corte guardado');
+}
 
 function editAnchoPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];

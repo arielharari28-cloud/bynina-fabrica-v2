@@ -3567,6 +3567,33 @@ function stefCompletoNuevoDesarrollo(item){
 function pequeCompletoNuevoDesarrollo(item){
   return !!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
 }
+// Fecha en que arrancó el reloj de la tarea que hoy le toca al responsable ACTUAL —
+// no la fecha en que el ítem entró a la sección. En "Nuevos Desarrollos" el responsable
+// va cambiando de mano varias veces (Stef → Peque → Ariel/Stef → Peque de nuevo), y usar
+// siempre item.fecha_etapa hace que en Pendientes se vean días acumulados de etapas
+// anteriores que ya se resolvieron, marcando cosas como atrasadas cuando en realidad
+// el responsable actual recién la recibió.
+function fechaInicioResponsableActual(sec,item,secId){
+  const tipo=sec.tipo||'';
+  if(tipo==='muestra_prep'){
+    const stefCompleta=stefCompletoNuevoDesarrollo(item);
+    const pequeCompleta=pequeCompletoNuevoDesarrollo(item);
+    const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompleta?item.fecha_ingreso:null);
+    const fechaPasoPeque=item.fecha_paso_peque||(pequeCompleta?fechaPasoIngreso:null);
+    if(!stefCompleta) return item.fecha_ingreso;
+    if(item.ficha_estado==='modificar') return item.ficha_mod_fecha||fechaPasoPeque||fechaPasoIngreso;
+    if(!pequeCompleta) return fechaPasoIngreso;
+    const controlDone=!!(item.control_ariel||item.control_stef);
+    if(item.ficha_estado==='modificada'&&!controlDone) return item.ficha_resuelta_fecha||fechaPasoPeque;
+    if(!controlDone) return fechaPasoPeque;
+    if(item.base_aprobada) return item.fecha_paso_control||fechaPasoPeque;
+    if(!item.modelista) return item.fecha_paso_control||fechaPasoPeque;
+    if(item.modelista==='Adela'&&!item.tela_entregada) return item.fecha_paso_control||fechaPasoPeque;
+    return item.fecha_paso_modelista||item.fecha_paso_control||fechaPasoPeque;
+  }
+  return item.fecha_etapa;
+}
+
 function checkPasosNuevoDesarrollo(secId,itemId,patch){
   const sec=sectionsData[secId]; if(!sec||sec.tipo!=='muestra_prep') return;
   const item=sec.items[itemId]; if(!item) return;
@@ -3717,8 +3744,11 @@ function buildPasosPanelHtml(item,secId,itemId){
   // se queda pegado en "Pendiente" aunque los datos ya estén completos.
   const stefCompletaLive=stefCompletoNuevoDesarrollo(item);
   const pequeCompletaLive=pequeCompletoNuevoDesarrollo(item);
-  const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompletaLive?(item.fecha_ingreso||now):null);
-  const fechaPasoPeque=item.fecha_paso_peque||(pequeCompletaLive?(fechaPasoIngreso||now):null);
+  // Importante: el fallback de cada paso tiene que ser "ahora" (el momento en que lo vemos
+  // completo por primera vez), NUNCA la fecha del paso anterior — si no, el conteo de días
+  // del paso siguiente arranca desde una fecha vieja aunque recién se acabó de completar.
+  const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompletaLive?now:null);
+  const fechaPasoPeque=item.fecha_paso_peque||(pequeCompletaLive?now:null);
   if(secId&&itemId){
     const key=secId+'/'+itemId;
     if(!pasosAutoFixed.has(key)){
@@ -3731,15 +3761,24 @@ function buildPasosPanelHtml(item,secId,itemId){
       }
     }
   }
+  // Paso "Control de ficha": si se pidió una modificación, la responsabilidad pasa a Peque
+  // (tiene que corregir la ficha) en vez de quedar en Ariel/Stef. Una vez que Peque la corrige,
+  // vuelve a Ariel/Stef para el re-control.
+  const fichaModPendiente=item.ficha_estado==='modificar';
+  const fichaControlDone=!!(item.control_ariel||item.control_stef);
+  const fichaCorregidaEsperando=item.ficha_estado==='modificada'&&!fichaControlDone;
+  const pasoControlFicha=fichaModPendiente
+    ? { label:'Modificar ficha (pedido)', resp:'Peque', start:item.ficha_mod_fecha||fechaPasoPeque, end:null }
+    : { label:'Control de ficha', resp:'Ariel / Stef', start:fichaCorregidaEsperando?(item.ficha_resuelta_fecha||fechaPasoPeque):fechaPasoPeque, end:item.fecha_paso_control };
   const pasos=item.base_aprobada?[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
     { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
-    { label:'Control de ficha', resp:'Ariel / Stef', start:fechaPasoPeque, end:item.fecha_paso_control },
+    pasoControlFicha,
     { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_control, end:null }
   ]:[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
     { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
-    { label:'Control de ficha', resp:'Ariel / Stef', start:fechaPasoPeque, end:item.fecha_paso_control },
+    pasoControlFicha,
     { label:'Elegir modelista', resp:'Peque', start:item.fecha_paso_control, end:item.fecha_paso_modelista },
     { label:'Enviar a moldería', resp:'Peque', start:item.fecha_paso_modelista, end:null }
   ];
@@ -4726,6 +4765,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div class="item-actions">
             ${(necesitaMuestra===true&&!resuelta&&canEdit)?`<button class="btn-advance" onclick="enviarMejoraANuevosDesarrollos('${secId}','${itemId}')">📤 Mandar a Nuevos Desarrollos</button>`:''}
             ${(!resuelta&&canEdit)?`<button class="btn-sm" onclick="toggleMejoraResuelta('${secId}','${itemId}')">✅ Marcar resuelta</button>`:''}
+            ${(resuelta&&canEdit)?`<button class="btn-approve" onclick="marcarProductoPerfecto('${secId}','${itemId}')">✅ Pasar a Producto Perfecto</button>`:''}
             ${(resuelta&&canEdit)?`<button class="btn-sm" onclick="toggleMejoraResuelta('${secId}','${itemId}')">↩ Reabrir</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
@@ -6597,7 +6637,7 @@ function renderPendientes(){
       if(filtroMarca&&(item.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
-      const dias=diasEntre(item.fecha_etapa);
+      const dias=diasEntre(fechaInicioResponsableActual(sec,item,secId));
       const umbral=umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
       if(!grupos[resp]) grupos[resp]=[];

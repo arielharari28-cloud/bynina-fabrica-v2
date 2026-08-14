@@ -3019,7 +3019,15 @@ function coloresParaTela(telaNombre,telaProveedor){
       if(tp&&itProv!==tp) return;
       if(it.color&&it.color.trim()) set.add(it.color.trim());
       if(it.color_muestra&&it.color_muestra.trim()) set.add(it.color_muestra.trim());
+      Object.values(it.capas||{}).forEach(c=>{ if(c&&c.color&&c.color.trim()) set.add(c.color.trim()); });
+      Object.values(it.rollos||{}).forEach(r=>{ if(r&&r.color&&r.color.trim()) set.add(r.color.trim()); });
     });
+  });
+  // Cortes en curso (grupos_corte) — los colores ya cargados ahí todavía no están "congelados"
+  // en ningún ítem, así que si no los sumamos acá quedan afuera hasta que se marque cortado.
+  Object.values(gruposCorteData||{}).forEach(g=>{
+    Object.values((g&&g.capas)||{}).forEach(c=>{ if(c&&c.color&&c.color.trim()) set.add(c.color.trim()); });
+    Object.values((g&&g.rollos)||{}).forEach(r=>{ if(r&&r.color&&r.color.trim()) set.add(r.color.trim()); });
   });
   return [...set].sort();
 }
@@ -5402,6 +5410,9 @@ function openOrdenCorteModal(secId,itemId){
   }
   const corteKey=corteKeyFrom(item.numero_corte);
   ordenCtx={secId,itemId,talles,curvaValores,corteKey};
+  // Colores ya usados antes con esta misma tela (+ proveedor si está cargado) — para no
+  // tener que volver a tipear todo de cero cuando ya se usaron esos colores en otro corte.
+  ordenCtx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.tela_proveedor);
   // Precargar colores/capas ya guardados — se comparten por N° de corte, así que si otro
   // artículo del mismo corte ya cargó colores/capas, arrancamos con eso (una sola carga por corte).
   const grupo=gruposCorteData[corteKey];
@@ -5455,13 +5466,22 @@ async function ordenCorteUploadArticuloFoto(id,file){
     } else showToast('✗ Error al subir foto');
   }catch(e){ showToast('✗ Error al subir foto'); }
 }
+function ordenCorteAddColor(nombre){
+  const val=(nombre||'').trim();
+  if(!val) return;
+  if(ordenCtx.colores.some(c=>(c.color||'').trim().toLowerCase()===val.toLowerCase())) return;
+  ordenCtx.colores.push({id:'oc'+Date.now()+Math.random().toString(36).slice(2,5),color:val,capas:''});
+  renderOrdenCorteModal();
+}
 function ordenCorteAddColorFromInput(){
   const inp=document.getElementById('oc-color-input');
   const val=(inp.value||'').trim();
   if(!val) return;
-  ordenCtx.colores.push({id:'oc'+Date.now()+Math.random().toString(36).slice(2,5),color:val,capas:''});
+  ordenCorteAddColor(val);
   inp.value='';
-  renderOrdenCorteModal();
+}
+function ordenCorteAddTodosSugeridos(){
+  (ordenCtx.coloresSugeridos||[]).forEach(c=>ordenCorteAddColor(c));
 }
 function ordenCorteRemoveColor(id){
   ordenCtx.colores=ordenCtx.colores.filter(c=>c.id!==id);
@@ -5503,6 +5523,15 @@ function renderOrdenCorteModal(){
   const chipsHtml=colores.length
     ? colores.map(c=>`<span class="chip">${(c.color||'').replace(/</g,'&lt;')}<span class="chip-x" onclick="ordenCorteRemoveColor('${c.id}')">✕</span></span>`).join('')
     : '';
+  const yaAgregados=new Set(colores.map(c=>(c.color||'').trim().toLowerCase()));
+  const sugeridosDisponibles=(ordenCtx.coloresSugeridos||[]).filter(c=>!yaAgregados.has(c.trim().toLowerCase()));
+  const sugeridosHtml=sugeridosDisponibles.length?`<div style="margin-top:8px">
+    <div style="font-size:11px;color:var(--text2);margin-bottom:4px">🎨 Ya usados con esta tela — tocá para agregar:</div>
+    <div class="chip-box" style="background:var(--surface2);cursor:default">
+      ${sugeridosDisponibles.map(c=>`<span class="chip" style="cursor:pointer;background:var(--accent-bg);color:var(--accent)" onclick="ordenCorteAddColor('${c.replace(/'/g,"\\'")}')">+ ${c.replace(/</g,'&lt;')}</span>`).join('')}
+    </div>
+    ${sugeridosDisponibles.length>1?`<button class="btn-sm" style="margin-top:6px" onclick="ordenCorteAddTodosSugeridos()">+ Agregar los ${sugeridosDisponibles.length} de una</button>`:''}
+  </div>`:'';
   const curvaResumen=talles.map(t=>`${t}:${curvaValores[t]||0}`).join(' · ');
   const headerCols=talles.map(t=>`<th>${t}</th>`).join('');
   const bodyRows=colores.map(row=>{
@@ -5532,6 +5561,7 @@ function renderOrdenCorteModal(){
       <div class="oc-field-block">
         <label>Colores de esta tela</label>
         <div class="chip-box">${chipsHtml}<input type="text" id="oc-color-input" placeholder="Escribí un color y Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();ordenCorteAddColorFromInput();}"></div>
+        ${sugeridosHtml}
       </div>
       <div class="oc-field-block">
         <label>Talles y curva (definida en Ficha)</label>

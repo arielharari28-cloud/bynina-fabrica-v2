@@ -686,6 +686,24 @@
   </div>
 </div>
 
+<!-- Modal elegir color (sugiere colores ya usados para esa tela+proveedor) -->
+<div class="modal-overlay hidden" id="modal-color">
+  <div class="modal">
+    <div class="modal-header"><span class="modal-title">Color de la muestra</span><button class="modal-close" onclick="closeColorModal()">×</button></div>
+    <div class="modal-body">
+      <div class="field" id="color-modal-suggest-wrap">
+        <label id="color-modal-suggest-label">Colores ya usados con esta tela</label>
+        <select id="color-modal-select" onchange="onColorModalSelectChange()"></select>
+      </div>
+      <div class="field" id="color-modal-nuevo-wrap" style="display:none">
+        <label>Color nuevo</label>
+        <input type="text" id="color-modal-nuevo-input" placeholder="Ej: Negro">
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="closeColorModal()">Cancelar</button><button class="btn-primary" onclick="saveColorModal()">Guardar</button></div>
+  </div>
+</div>
+
 <!-- Modal agregar reposición directo -->
 <div class="modal-overlay hidden" id="modal-repo">
   <div class="modal">
@@ -1770,6 +1788,43 @@ function assignMarca(secId,itemId,nombre){
   showToast(`✓ Marca: ${nombre}`);
 }
 
+// Color obligatorio de la muestra en Nuevos Desarrollos (mismo patrón que Marca)
+function buildColorMuestraHtml(secId,itemId,item){
+  const opts=(coloresList||[]).map(n=>`<option value="${n}" ${item.color_muestra===n?'selected':''}>${n}</option>`).join('');
+  return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+    <span class="modelista-label">Color de la muestra:</span>
+    <select class="modelista-select" onchange="onColorMuestraChange('${secId}','${itemId}',this)">
+      <option value="" ${!item.color_muestra?'selected':''}>— Sin elegir —</option>
+      ${opts}
+      <option value="__nuevo__">+ Agregar nuevo…</option>
+    </select>
+  </div>`;
+}
+
+function onColorMuestraChange(secId,itemId,sel){
+  const item=sectionsData[secId].items[itemId];
+  if(sel.value==='__nuevo__'){
+    const nombre=prompt('Nombre del color nuevo:');
+    if(!nombre||!nombre.trim()){ sel.value=item.color_muestra||''; return; }
+    const limpio=nombre.trim();
+    if(!coloresList.includes(limpio)){
+      coloresList=[...coloresList,limpio];
+      db.ref('fabrica_v5/colores').set(coloresList);
+    }
+    assignColorMuestra(secId,itemId,limpio);
+  } else {
+    assignColorMuestra(secId,itemId,sel.value);
+  }
+}
+
+function assignColorMuestra(secId,itemId,nombre){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/color_muestra`).set(nombre||null);
+  checkPasosNuevoDesarrollo(secId,itemId,{color_muestra:nombre||null});
+  logActivity('Eligió color de muestra',`${item.code||item.name||''} → ${nombre||'sin asignar'}`);
+  showToast(`✓ Color de muestra: ${nombre}`);
+}
+
 // Categoría y Temporada: mismo patrón que Marca (lista editable compartida guardada en Firebase)
 function buildCategoriaHtml(secId,itemId,item){
   const opts=(categoriasList||[]).map(n=>`<option value="${n}" ${item.categoria===n?'selected':''}>${n}</option>`).join('');
@@ -2063,7 +2118,7 @@ function getResponsable(sec,item,secId){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Peque';
       return 'Peque';
     }
-    if(!item.modelista) return 'Peque';
+    if(!item.modelista) return 'Ariel y Stef';
     if(item.modelista==='Adela'&&!item.tela_entregada) return 'Peque';
     return 'Peque'; // modelista ya asignado: falta que Peque envíe a moldería
   }
@@ -2077,6 +2132,7 @@ function getResponsable(sec,item,secId){
   if(tipo==='muestra_lista') return 'Peque';
   if(tipo==='muestra_en_taller') return 'Peque';
   if(tipo==='revision_final') return 'Ariel y Stef';
+  if(tipo==='en_estampado_taller') return item.estampado_taller_entregado?null:'Emir';
   if(tipo==='producto_perfecto'||tipo==='muestra_cancelada') return null;
 
   // --- Flujo de cortes (s3, s4, s5, sLT, sFIN) y cualquier sección "normal" custom
@@ -2118,6 +2174,7 @@ function getProximaAccion(sec,item,secId){
       if(!item.marca) falta.push('marca');
       if(!item.categoria) falta.push('categoría');
       if(!item.temporada) falta.push('temporada');
+      if(!item.color_muestra) falta.push('color de la muestra');
       return `Falta cargar (Stef): ${falta.join(', ')}`;
     }
     if(item.ficha_estado==='modificar') return 'Falta corregir la ficha técnica pedida';
@@ -2132,7 +2189,7 @@ function getProximaAccion(sec,item,secId){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Falta elegir de qué base sale';
       return 'Falta enviar a Pendiente armar tizada (base ya aprobada, sin moldería)';
     }
-    if(!item.modelista) return 'Falta asignar modelista';
+    if(!item.modelista) return 'Falta asignar modelista (Ariel/Stef)';
     if(item.modelista==='Adela'&&!item.tela_entregada) return 'Falta tildar Tela separada';
     return `Falta enviar a moldería · Modelista: ${item.modelista}`;
   }
@@ -2190,6 +2247,7 @@ const SEC_TALLER = 'muestra_en_taller';
 const POST_S3_SECS = ['s3','s3b','s4','s5','sLT','s6','sFIN'];
 const SEC_DISENO = 'muestra_diseno';
 const SEC_CANCEL = 'muestra_cancelada';
+const SEC_ESTAMPADO_TALLER = 'fabrica_estampado_taller';
 
 // Nombre visible de cada login
 const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',nahuel:'Nahuel',noemi:'Noemí'};
@@ -2206,6 +2264,8 @@ let proveedoresList = [];
 // Categoría y temporada del producto (editable, mismo patrón que Marca/Tela)
 let categoriasList = ['Remera','Top','Buzo','Pantalón','Vestido','Body','Short','Campera'];
 let temporadasList = ['Verano 2026','Invierno 2026'];
+// Colores ya usados en muestras (editable, mismo patrón que Marca/Tela)
+let coloresList = [];
 let filtroMarca = '';
 let searchQuery = '';
 // Filtros y orden de la sección Cortes Finalizados
@@ -2265,6 +2325,7 @@ const INITIAL_SECTIONS = {
   }},
   sLT:{title:'Cortes listo para taller',color:'green',order:6.5,items:{}},
   s6:{title:'Pendiente recibir avío — corte en taller',color:'danger',order:6.8,items:{}},
+  [SEC_ESTAMPADO_TALLER]:{title:'Cortes — en taller de estampado (Plancha Nina)',color:'purple',order:6.9,tipo:'en_estampado_taller',items:{}},
   sFIN:{title:'Cortes Finalizados',color:'purple',order:7,items:{}},
 };
 
@@ -2398,6 +2459,7 @@ function startListening(){
           else if(t.trim()==='Mejora') db.ref(`fabrica_v5/sections/${id}/tipo`).set('mejora');
         });
         if(!data.sections[SEC_DISENO]) db.ref(`fabrica_v5/sections/${SEC_DISENO}`).set(INITIAL_SECTIONS[SEC_DISENO]);
+        if(!data.sections[SEC_ESTAMPADO_TALLER]) db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}`).set(INITIAL_SECTIONS[SEC_ESTAMPADO_TALLER]);
         if(!data.sections[SEC_CANCEL]) db.ref(`fabrica_v5/sections/${SEC_CANCEL}`).set(INITIAL_SECTIONS[SEC_CANCEL]);
         if(!data.sections[SEC_PREP]) db.ref(`fabrica_v5/sections/${SEC_PREP}`).set(INITIAL_SECTIONS[SEC_PREP]);
         else db.ref(`fabrica_v5/sections/${SEC_PREP}/title`).set(INITIAL_SECTIONS[SEC_PREP].title);
@@ -2641,6 +2703,11 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
   db.ref('fabrica_v5/proveedores').on('value',snap=>{
     const v=snap.val();
     if(v){ proveedoresList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
+    renderSections('diseno');renderSections('fabrica');
+  });
+  db.ref('fabrica_v5/colores').on('value',snap=>{
+    const v=snap.val();
+    if(v){ coloresList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
     renderSections('diseno');renderSections('fabrica');
   });
   db.ref('fabrica_v5/actividad').on('value',snap=>{
@@ -2912,16 +2979,74 @@ function editTelaProveedor(secId,itemId){
   showToast('✓ Proveedor guardado');
 }
 
-function editColorPrompt(secId,itemId){
+// Colores ya usados para una Tela (+ Proveedor si se pasa), buscando en todos los sectores —
+// así al elegir Tribecca en un corte nuevo aparecen los colores que ya se cargaron antes con esa tela.
+function coloresParaTela(telaNombre,telaProveedor){
+  const norm=s=>(s||'').trim().toLowerCase();
+  const tn=norm(telaNombre), tp=norm(telaProveedor);
+  const set=new Set();
+  Object.values(sectionsData||{}).forEach(sec=>{
+    Object.values((sec&&sec.items)||{}).forEach(it=>{
+      if(!it) return;
+      const itTela=norm(it.tela_nombre||it.tela);
+      const itProv=norm(it.tela_proveedor);
+      if(tn&&itTela!==tn) return;
+      if(tp&&itProv!==tp) return;
+      if(it.color&&it.color.trim()) set.add(it.color.trim());
+      if(it.color_muestra&&it.color_muestra.trim()) set.add(it.color_muestra.trim());
+    });
+  });
+  return [...set].sort();
+}
+
+let colorModalCtx=null;
+function openColorModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const val=prompt('Color de la muestra:',item.color||'');
-  if(val===null) return;
-  const trimmed=val.trim();
-  const updates={color:trimmed};
-  updates.color_set_by = trimmed ? (USER_DISPLAY[currentUser]||currentUser) : null;
+  const telaNombre=item.tela_nombre||item.tela||'';
+  const telaProveedor=item.tela_proveedor||'';
+  const sugeridos=coloresParaTela(telaNombre,telaProveedor);
+  colorModalCtx={secId,itemId};
+  const label=document.getElementById('color-modal-suggest-label');
+  label.textContent=telaNombre?`Colores ya usados con ${telaNombre}${telaProveedor?' · '+telaProveedor:''}`:'Colores ya usados';
+  const sel=document.getElementById('color-modal-select');
+  const opts=(sugeridos.length?sugeridos:coloresList).map(c=>`<option value="${c}" ${item.color===c?'selected':''}>${c}</option>`).join('');
+  sel.innerHTML=`<option value="">— Elegir —</option>${opts}<option value="__nuevo__">+ Color nuevo…</option>`;
+  if(!sugeridos.length&&!coloresList.length){ sel.value='__nuevo__'; }
+  document.getElementById('color-modal-nuevo-wrap').style.display=(sel.value==='__nuevo__')?'':'none';
+  document.getElementById('color-modal-nuevo-input').value=(sel.value==='__nuevo__')?(item.color||''):'';
+  document.getElementById('modal-color').classList.remove('hidden');
+}
+function onColorModalSelectChange(){
+  const sel=document.getElementById('color-modal-select');
+  document.getElementById('color-modal-nuevo-wrap').style.display=(sel.value==='__nuevo__')?'':'none';
+  if(sel.value==='__nuevo__') setTimeout(()=>document.getElementById('color-modal-nuevo-input').focus(),50);
+}
+function closeColorModal(){
+  document.getElementById('modal-color').classList.add('hidden');
+  colorModalCtx=null;
+}
+function saveColorModal(){
+  if(!colorModalCtx) return;
+  const {secId,itemId}=colorModalCtx;
+  const sel=document.getElementById('color-modal-select');
+  let color=sel.value;
+  if(color==='__nuevo__'){
+    color=(document.getElementById('color-modal-nuevo-input').value||'').trim();
+    if(color&&!coloresList.includes(color)){
+      coloresList=[...coloresList,color];
+      db.ref('fabrica_v5/colores').set(coloresList);
+    }
+  }
+  const updates={color:color||null};
+  updates.color_set_by = color ? (USER_DISPLAY[currentUser]||currentUser) : null;
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
-  logActivity('Editó color',trimmed||'(vacío)');
+  logActivity('Editó color',color||'(vacío)');
   showToast('✓ Color guardado');
+  closeColorModal();
+}
+
+function editColorPrompt(secId,itemId){
+  openColorModal(secId,itemId);
 }
 
 function editTallePrompt(secId,itemId){
@@ -3285,6 +3410,21 @@ function calcularGrillaEsperada(item){
 // --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  // Si el corte lleva estampado (Plancha Nina) y todavía no pasó por ahí, va primero
+  // al taller de estampado en vez de directo a Revisión Final.
+  if(item.estampado_dtf && !item.estampado_taller_entregado){
+    const hoy=new Date();
+    const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const fecha=prompt('¿Qué fecha se entregó (taller de costura)?',fechaDefault);
+    if(fecha===null) return;
+    const fechaFinal=fecha.trim()||fechaDefault;
+    const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_costura:Date.now(),fecha_etapa:Date.now()};
+    db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}/items`).push(newItem);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Entregado — pasa a taller de estampado',`${item.code}: ${fechaFinal}`);
+    showToast(`🎨 ${item.code} pasó a taller de estampado (Plancha Nina)`);
+    return;
+  }
   const revSecId=getSectionIdByTipo('revision_final');
   if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
   const hoy=new Date();
@@ -3314,6 +3454,18 @@ function marcarEntregadoCorte(secId,itemId){
     grilla:grillaObj
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
+}
+
+// --- TALLER DE ESTAMPADO (Plancha Nina) → recién ahí sigue a Revisión Final ---
+function marcarEntregadoEstampadoTaller(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const revSecId=getSectionIdByTipo('revision_final');
+  if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
+  const newItem={...item,estampado_taller_entregado:true,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
+  db.ref(`fabrica_v5/sections/${revSecId}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Estampado entregado por Plancha Nina — pasa a Revisión Final',item.code);
+  showToast(`✅ ${item.code} pasó a Revisión Final`);
 }
 
 // --- REVISIÓN FINAL (llegó el corte del taller) ---
@@ -3432,11 +3584,29 @@ function volverAMejora(secId,itemId){
 // --- ENTREGA DE TALLER → DISEÑO ---
 function marcarEntregada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(!confirm('¿Entregaste con ficha y muestra?')) return;
   const newItem={...item, fecha_entregada:Date.now(), fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${SEC_DISENO}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra entregada',item.code);
   showToast(`✅ ${item.code} pasó a Diseño / Probar muestra`);
+}
+
+// Cuando el taller no puede armar la muestra: vuelve a Moldería con el motivo cargado en Notas.
+function volverAMolderiaDesdeTaller(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const motivo=prompt('¿Por qué el taller no puede armar la muestra?');
+  if(motivo===null) return;
+  const texto=motivo.trim()?`El taller no pudo armar la muestra: ${motivo.trim()}`:'El taller no pudo armar la muestra';
+  const nid=db.ref('fabrica_v5/sections').push().key;
+  const notasLog={...(item.notas_log||{}),[nid]:{texto,autor:currentUser,fecha:Date.now()}};
+  const newItem={...item, notas_log:notasLog, fecha_etapa:Date.now()};
+  delete newItem.fecha_envio_taller;
+  delete newItem.tallerista;
+  db.ref(`fabrica_v5/sections/${SEC_MOLD}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Taller no pudo armar la muestra — volvió a Moldería',item.code);
+  showToast(`↩ ${item.code} volvió a Moldería`);
 }
 
 // --- DISEÑO / PROBAR MUESTRA ---
@@ -3562,7 +3732,7 @@ function diasEntreTs(a,b){
 // usado por el panel de pasos, los backfills y la pestaña Pendientes, para que todos
 // coincidan siempre (antes cada uno tenía su propia copia y se desincronizaban).
 function stefCompletoNuevoDesarrollo(item){
-  return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada;
+  return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada&&!!item.color_muestra;
 }
 function pequeCompletoNuevoDesarrollo(item){
   return !!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
@@ -3813,6 +3983,7 @@ function umbralAtraso(sec,item,secId){
   if(tipo==='muestra_pend') return 3;      // Cortador
   if(tipo==='muestra_diseno') return 5;    // Ariel y Stef
   if(tipo==='revision_final') return 5;    // Ariel y Stef
+  if(tipo==='en_estampado_taller') return 5; // Emir/Plancha Nina: entregar estampado
   if(secId==='s4') return 2;               // Peque: pedir avío
   if(secId==='s5') return 7;               // Peque: esperando que llegue el avío
   if(secId==='sLT') return 2;              // Emir: sacar a taller
@@ -3964,7 +4135,7 @@ function renderSections(board){
     const hBtns=currentUser==='ariel'&&!FIXED_SECS.includes(secId)?`
       <button onclick="editSecTitle('${secId}')" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:pointer;font-size:11px">✏️</button>
       <button onclick="deleteSec('${secId}')" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:pointer;font-size:11px">🗑</button>`:'';
-    const secOrderBtns=currentUser==='ariel'?`
+    const secOrderBtns=(currentUser==='ariel'||currentUser==='stef')?`
       <button title="Subir sección" ${secIdx===0?'disabled':''} onclick="moveSectionOrder('${secId}',-1)" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:${secIdx===0?'default':'pointer'};font-size:11px;opacity:${secIdx===0?'.4':'1'}">▲</button>
       <button title="Bajar sección" ${secIdx===entries.length-1?'disabled':''} onclick="moveSectionOrder('${secId}',1)" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:${secIdx===entries.length-1?'default':'pointer'};font-size:11px;opacity:${secIdx===entries.length-1?'.4':'1'}">▼</button>`:'';
     const canAdd=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel')&&secId===SEC_PEND;
@@ -4423,8 +4594,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <div class="en-taller-row"><span class="et-label">Enviada:</span><span class="et-val">${fmtFecha(item.fecha_envio_taller)}</span></div>
             <div class="en-taller-row"><span class="et-label">Días sin entregar:</span><span class="et-val" style="color:${diasColor};font-weight:700">${dias} día${dias!==1?'s':''}</span></div>
           </div>
+          ${canEdit?`<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Recordá: se entrega con <strong>ficha y muestra</strong></div>`:''}
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" onclick="marcarEntregada('${secId}','${itemId}')">✅ Entregada</button>`:''}
+            ${canEdit?`<button class="btn-advance" title="Entregar con ficha y muestra" onclick="marcarEntregada('${secId}','${itemId}')">✅ Entregada</button>`:''}
+            ${canEdit?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="volverAMolderiaDesdeTaller('${secId}','${itemId}')">↩ Taller no puede armarla</button>`:''}
             ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Avíos</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
@@ -4509,6 +4682,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canStef?buildMarcaHtml(secId,itemId,item):''}
           ${canStef?buildCategoriaHtml(secId,itemId,item):''}
           ${canStef?buildTemporadaHtml(secId,itemId,item):''}
+          ${canStef?buildColorMuestraHtml(secId,itemId,item):''}
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
             <span class="modelista-label">Link:</span>
@@ -4559,7 +4733,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
 
           ${item.base_aprobada
             ? `<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3);font-style:italic">No aplica — base ya aprobada</span></div>`
-            : (canPeque?buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha'):`<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3)">${item.modelista||'— Sin asignar —'}</span></div>`)}
+            : (canStef?buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha'):`<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3)">${item.modelista||'— Sin asignar —'}</span></div>`)}
 
           ${esAdela?`<div class="avio-item" style="padding-left:0;border-top:none">
             <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canPeque?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
@@ -4679,6 +4853,32 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canDesign?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarCorregirSinMuestra('${secId}','${itemId}')" title="Se corrige molde/ficha pero NO hace falta otra muestra">🔧 Corregir sin nueva muestra</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
+            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
+          </div>
+        </div>
+      </div>
+      ${buildDemoraPanelHtml(sec,item,secId)}
+    </div>`;
+  }
+
+  // --- TALLER DE ESTAMPADO (Plancha Nina): corte que llegó del taller de costura y va a estampar ---
+  if(tipo==='en_estampado_taller'){
+    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
+      <div class="item-with-photo" style="flex:2;min-width:280px">
+        ${buildPhotoHtml(secId,itemId,item,canEdit)}
+        <div class="item-body">
+          ${buildCodeHtml(secId,itemId,item,canEdit)}
+          ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
+          ${procesoInfoHtml(item,secId,itemId)}
+          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
+          ${buildNotasHtml(secId,itemId,item,canEdit)}
+          <div style="font-size:12px;color:var(--text2);margin-bottom:6px">🎨 En taller de estampado (Plancha Nina) — todavía no pasa a Revisión Final.</div>
+          ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Entregado por costura: <strong>${item.fecha_entregado}</strong></div>`:''}
+          <div class="item-actions">
+            ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoEstampadoTaller('${secId}','${itemId}')">✅ Estampado entregado → Revisión Final</button>`:''}
+            ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
         </div>
@@ -5040,7 +5240,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
-          ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → Revisión</button>`:''}
+          ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}

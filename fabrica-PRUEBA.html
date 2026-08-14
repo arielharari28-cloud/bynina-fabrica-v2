@@ -4683,7 +4683,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canStef?buildMarcaHtml(secId,itemId,item):''}
           ${canStef?buildCategoriaHtml(secId,itemId,item):''}
           ${canStef?buildTemporadaHtml(secId,itemId,item):''}
-          ${canStef?buildColorMuestraHtml(secId,itemId,item):''}
+          ${canStef?buildColorMuestraHtml(secId,itemId,item):(item.color_muestra?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Color de la muestra: <strong>${item.color_muestra}</strong></div>`:'')}
+          ${!item.color_muestra?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:6px">⚠️ Falta elegir el color de la muestra (Stef)</div>`:''}
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
             <span class="modelista-label">Link:</span>
@@ -6476,7 +6477,7 @@ function openEditModal(secId,itemId){
     <div class="field"><label>Código</label><input type="text" id="e-code" value="${item.code||''}"></div>
     <div class="field"><label>Nombre artículo</label><input type="text" id="e-name" value="${item.name||''}"></div>
     <div class="field"><label>Número de corte</label><input type="text" id="e-numcorte" value="${item.numero_corte||''}" placeholder="Ej: Corte 98"></div>
-    <div class="field"><label>Tela</label><input type="text" id="e-tela" value="${item.sub||''}" placeholder="Ej: Lacoste Friza Estampada"></div>
+    <div class="field"><label>Detalle de tela (variante — aparece debajo del nombre, NO es el campo "Tela" principal)</label><input type="text" id="e-tela" value="${item.sub||''}" placeholder="Ej: Lacoste Friza Estampada"></div>
     ${capasSectionHtml}
     <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-top:10px">Avíos</div>
     <div id="avios-edit">

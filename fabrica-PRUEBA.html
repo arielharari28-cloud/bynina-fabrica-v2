@@ -2414,6 +2414,7 @@ function doLogin(user){
     backfillPasosCorte();
     backfillGruposCorte();
     backfillBaseAprobadaTizada();
+    backfillIncompletosAPendienteTizada();
     backfillAvioPendienteEnTaller();
     backfillFotoDriveOkPendiente();
   },300);
@@ -2573,7 +2574,9 @@ function backfillGruposCorte(){
 }
 // Backfill único: todo lo que ya está en "Pendiente armar tizada" viene de una base aprobada
 // (así arranca ese flujo), pero los ítems viejos no tenían el flag base_aprobada tildado.
-let baseAprobadaTizadaBackfillDone=false;
+// DESACTIVADO: desde que las muestras nuevas (no solo las de base aprobada) también entran acá,
+// ya no vale asumir que TODO lo que hay en la sección es de base aprobada.
+let baseAprobadaTizadaBackfillDone=true;
 function backfillBaseAprobadaTizada(){
   if(baseAprobadaTizadaBackfillDone) return;
   if(!(currentUser==='ariel'||currentUser==='stef')) return;
@@ -2588,6 +2591,26 @@ function backfillBaseAprobadaTizada(){
     db.ref().update(updates);
     logActivity('Backfill: marcó base aprobada en todos los ítems de Pendiente armar tizada',`${Object.keys(updates).length} ítems`);
   }
+}
+
+// Backfill único: cortes que quedaron en "Cortes próximos a sacar" (s3) sin Ficha/Curva/Ancho/
+// Control de piezas completos (de cuando esos datos todavía no eran obligatorios para llegar
+// hasta acá) — se mudan a "Pendiente armar tizada" para que se completen ahí antes de tizar.
+let incompletosAPendienteTizadaDone=false;
+function backfillIncompletosAPendienteTizada(){
+  if(incompletosAPendienteTizadaDone) return;
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  const sec=sectionsData['s3'];
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  if(!sec||!sec.items||!destId||!sectionsData[destId]) return;
+  incompletosAPendienteTizadaDone=true;
+  Object.entries(sec.items).forEach(([itemId,item])=>{
+    const falta=!item.ficha_link||!item.curva||!item.ancho||!item.control_piezas_link;
+    if(!falta) return;
+    db.ref(`fabrica_v5/sections/${destId}/items`).push({...item,fecha_etapa:Date.now()});
+    db.ref(`fabrica_v5/sections/s3/items/${itemId}`).remove();
+    logActivity('Backfill: corte incompleto → Pendiente armar tizada',item.code||item.name||'');
+  });
 }
 
 // Migración única: cortes que ya estaban en "Cortes Finalizados" (sFIN) de antes de que
@@ -2642,6 +2665,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     backfillPasosCorte();
     backfillGruposCorte();
     backfillBaseAprobadaTizada();
+    backfillIncompletosAPendienteTizada();
     backfillAvioPendienteEnTaller();
     backfillFotoDriveOkPendiente();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
@@ -5176,7 +5200,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${item.ancho?`<span class="spec-val">${item.ancho}</span>`:`<span class="spec-empty">Sin cargar</span>`}
             ${canFicha?`<button class="btn-sm" onclick="editAnchoPrompt('${secId}','${itemId}')">${item.ancho?'✏️':'+ Ancho'}</button>`:''}
           </span>
-          ${secId==='s3'?`<span class="spec-chip">
+          ${(secId==='s3'||esArmarTizada)?`<span class="spec-chip">
             <span class="c-check checked-auto ${item.peso_metro?'checked':''}" title="Se tilda solo cuando hay peso x metro cargado">${item.peso_metro?'✓':''}</span>
             <span class="spec-label" title="Peso x metro">Peso x m:</span>
             ${item.peso_metro?`<span class="spec-val">${item.peso_metro}</span>`:`<span class="spec-empty">Sin cargar</span>`}
@@ -5187,7 +5211,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <span class="spec-label" title="Largo de capa">Largo cap.:</span>
             ${item.largo_capa?`<span class="spec-val">${item.largo_capa}</span>`:`<span class="spec-empty">Sin cargar</span>`}
             ${canFicha?`<button class="btn-sm" onclick="editLargoCapaPrompt('${secId}','${itemId}')">${item.largo_capa?'✏️':'+ Largo de capa'}</button>`:''}
-          </span>`:''}
+          </span>
+          ${(item.peso_metro&&item.largo_capa)?`<span class="spec-chip">
+            <span class="c-check checked-auto checked">✓</span>
+            <span class="spec-label" title="Peso x metro × Largo de capa">Peso capa:</span>
+            <span class="spec-val">${(parseFloat(item.peso_metro)*parseFloat(item.largo_capa)).toFixed(3)}</span>
+          </span>`:''}`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check checked-auto ${item.control_piezas_link?'checked':''}" title="Se tilda solo cuando hay link de control de piezas cargado">${item.control_piezas_link?'✓':''}</div>
@@ -5275,11 +5304,15 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const encimadoTerm=!!grupo.encimado_terminado;
   // Emir puede cargar rollos y marcar encimado/cortado, pero no cargar/editar la Orden de Corte en sí.
   const canRollosEncimado=canCortar||currentUser==='emir';
+  // No se puede cargar la orden de corte (=arrancar la tiza) sin tener Ficha, Curva, Ancho y
+  // Control de piezas cargados — esa info tiene que estar completa antes de tizar.
+  const faltanDatosTiza=!item.ficha_link||!item.curva||!item.ancho||!item.control_piezas_link;
 
   const ordenRow = !ordenCargada
     ? `<div class="cortada-row">
         <span class="c-label" style="font-weight:500;color:var(--warn-text)">⏳ Pendiente orden de corte</span>
-        ${canCortar?`<button class="btn-advance" onclick="openOrdenCorteModal('${secId}','${itemId}')">📋 Cargar orden de corte</button>`:''}
+        ${canCortar?`<button class="btn-advance" ${faltanDatosTiza?'disabled':''} title="${faltanDatosTiza?'Falta Ficha, Curva, Ancho y/o Control de piezas antes de cargar la orden de corte':''}" onclick="openOrdenCorteModal('${secId}','${itemId}')">📋 Cargar orden de corte</button>`:''}
+        ${(canCortar&&faltanDatosTiza)?`<div style="font-size:11px;color:var(--warn-text);width:100%;margin-top:2px">⚠️ Falta completar Ficha/Curva/Ancho/Control de piezas antes de tizar</div>`:''}
       </div>`
     : `<div class="cortada-row">
         <span class="c-label">📋 Orden de corte: <strong style="color:var(--green-text)">Cargada</strong></span>
@@ -5352,6 +5385,10 @@ function setOrdenCorteCargada(secId,itemId,val){
 let ordenCtx={};
 function openOrdenCorteModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(!item.ficha_link||!item.curva||!item.ancho||!item.control_piezas_link){
+    showToast('⏳ Falta completar Ficha, Curva, Ancho y/o Control de piezas antes de tizar');
+    return;
+  }
   if(!item.numero_corte||!item.numero_corte.trim()){
     showToast('⏳ Cargá el N° de corte antes de armar la orden de corte');
     openEditModal(secId,itemId);

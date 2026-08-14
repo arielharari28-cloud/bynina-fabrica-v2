@@ -1503,8 +1503,8 @@ function buildRollosHtml(item,secId,itemId,canEditRollos){
       ? `<div style="margin-top:4px"><button class="btn-sm" onclick="openRollosModal('${secId}','${itemId}')">+ Cargar rollos</button></div>`
       : '';
   }
-  const largo=parseFloat(item.largo_capa)||0, pesoM=parseFloat(item.peso_metro)||0;
-  const calc=r=>{ const capas=parseFloat(r.capas)||0; const usado=capas*largo*pesoM; const kgmts=parseFloat(r.kgmts)||0; return {usado,sobrante:kgmts-usado}; };
+  const largo=numAr(item.largo_capa), pesoM=numAr(item.peso_metro);
+  const calc=r=>{ const capas=numAr(r.capas); const usado=capas*largo*pesoM; const kgmts=numAr(r.kgmts); return {usado,sobrante:kgmts-usado}; };
   const bodyRows=rows.map(r=>{
     const{usado,sobrante}=calc(r);
     return `<tr>
@@ -5213,7 +5213,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${(item.peso_metro&&item.largo_capa)?`<span class="spec-chip">
             <span class="c-check checked-auto checked">✓</span>
             <span class="spec-label" title="Peso x metro × Largo de capa">Peso capa:</span>
-            <span class="spec-val">${(parseFloat(item.peso_metro)*parseFloat(item.largo_capa)).toFixed(3)}</span>
+            <span class="spec-val">${(numAr(item.peso_metro)*numAr(item.largo_capa)).toFixed(3)}</span>
           </span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
@@ -5688,8 +5688,8 @@ function openRollosModal(secId,itemId){
     secId,itemId,corteKey,
     coloresDisponibles,
     requeridoPorColor,
-    largo:parseFloat(item.largo_capa)||0,
-    peso:parseFloat(item.peso_metro)||0
+    largo:numAr(item.largo_capa),
+    peso:numAr(item.peso_metro)
   };
   const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||''}));
   rollosCtx.rows=filasExistentes;
@@ -5712,9 +5712,9 @@ function rollosUpdateField(rowId,field,val){
   rollosRefreshResumen();
 }
 function rollosCalc(row){
-  const capas=parseFloat(row.capas)||0;
+  const capas=numAr(row.capas);
   const usado=capas*rollosCtx.largo*rollosCtx.peso;
-  const kgmts=parseFloat(row.kgmts)||0;
+  const kgmts=numAr(row.kgmts);
   return{usado,sobrante:kgmts-usado};
 }
 function rollosRefreshRow(rowId){
@@ -6168,6 +6168,12 @@ function editNumeroCortePrompt(secId,itemId){
   showToast('✓ N° de corte guardado');
 }
 
+// Convierte "0,4" o "0.4" (coma o punto decimal, como escriba cada uno) a número JS válido.
+function numAr(v){
+  if(v==null||v==='') return 0;
+  return parseFloat(String(v).trim().replace(',','.'))||0;
+}
+
 function editAnchoPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const val=prompt('Ancho:',item.ancho||'');
@@ -6181,7 +6187,7 @@ function editPesoMetroPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const val=prompt('Peso x metro:',item.peso_metro||'');
   if(val===null) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/peso_metro`).set(val.trim());
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/peso_metro`).set(val.trim().replace(',','.'));
   logActivity('Editó peso x metro',`${item.code||item.name||''}: ${val.trim()||'(vacío)'}`);
   showToast('✓ Peso x metro guardado');
 }
@@ -6190,7 +6196,7 @@ function editLargoCapaPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const val=prompt('Largo de capa:',item.largo_capa||'');
   if(val===null) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/largo_capa`).set(val.trim());
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/largo_capa`).set(val.trim().replace(',','.'));
   logActivity('Editó largo de capa',`${item.code||item.name||''}: ${val.trim()||'(vacío)'}`);
   showToast('✓ Largo de capa guardado');
 }

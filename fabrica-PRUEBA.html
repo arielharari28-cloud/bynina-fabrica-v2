@@ -3347,6 +3347,7 @@ function toggleTelaEntregada(secId,itemId){
 function pasarAMolderia(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.code||!item.ficha_link||!item.modelista){ showToast('Falta código, link de ficha o modelista asignada'); return; }
+  if(!item.color_muestra){ showToast('Falta elegir el color de la muestra'); return; }
   if(item.modelista==='Adela'&&!item.tela_entregada){ showToast('Falta tildar Tela separada antes de mandarla a moldería'); return; }
   const newItem={...item,fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${SEC_MOLD}/items`).push(newItem);
@@ -3949,7 +3950,7 @@ function buildPasosPanelHtml(item,secId,itemId){
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
     { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
     pasoControlFicha,
-    { label:'Elegir modelista', resp:'Peque', start:item.fecha_paso_control, end:item.fecha_paso_modelista },
+    { label:'Elegir modelista', resp:'Ariel / Stef', start:item.fecha_paso_control, end:item.fecha_paso_modelista },
     { label:'Enviar a moldería', resp:'Peque', start:item.fecha_paso_modelista, end:null }
   ];
   let activaEncontrada=false;
@@ -4650,7 +4651,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone&&!!(item.base_ref_id||item.base_ref_manual);
     const puedeAvanzar=item.base_aprobada
       ? baseAprobadaCompleta
-      : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
+      : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.color_muestra&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     const canStef=(currentUser==='ariel'||currentUser==='stef');
     const canPeque=(currentUser==='ariel'||currentUser==='peque');
@@ -4743,7 +4744,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNotasHtml(secId,itemId,item,canEdit)}
 
           <div class="item-actions">
-            ${canPeque?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.modelista&&!fichaModPendiente?'Falta tildar Tela separada':'Falta código, link de ficha o modelista'))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
+            ${canPeque?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.color_muestra&&item.modelista&&!fichaModPendiente?'Falta tildar Tela separada':(!item.color_muestra?'Falta elegir el color de la muestra':'Falta código, link de ficha o modelista')))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>

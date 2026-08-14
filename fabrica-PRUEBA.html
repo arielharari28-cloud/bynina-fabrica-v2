@@ -3656,18 +3656,15 @@ function marcarAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const fotos=Object.keys(item.fotos_prueba||{});
   if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
-  if(!confirm(`¿Aprobar ${item.code} y pasarla a Producción/Corte?`)) return;
-  // Si no lo aprueba Ariel/Stef directamente, el corte queda en cola esperando su confirmación
-  const newItem={...item, fecha_aprobada:Date.now(), sin_confirmar:!(currentUser==='ariel'||currentUser==='stef')};
+  if(!confirm(`¿Aprobar ${item.code} y pasarla a Pendiente armar tizada?`)) return;
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
+  const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now()};
   delete newItem.estado;
-  // Asegurar metadata de la sección destino por si no existía aún en Firebase
-  if(!sectionsData['s3']||!sectionsData['s3'].title){
-    db.ref('fabrica_v5/sections/s3').update({title:'Cortes próximos a sacar',color:'accent',order:4,collapsed:false});
-  }
-  db.ref(`fabrica_v5/sections/s3/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Muestra aprobada',item.code);
-  showToast(`✅ ${item.code} aprobada → Producción/Corte`);
+  logActivity('Muestra aprobada — a Pendiente armar tizada',item.code);
+  showToast(`✅ ${item.code} aprobada → Pendiente armar tizada`);
 }
 
 function marcarRevision(secId,itemId){
@@ -3693,23 +3690,21 @@ function marcarCorregirSinMuestra(secId,itemId){
     return;
   }
   const tocaFicha=confirm('¿También hay que modificar la Ficha Técnica?\n\nAceptar = sí, hay que corregir la ficha.\nCancelar = no, solo se corrige el molde.');
-  if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar directo a Producción/Corte?`)) return;
+  if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a Pendiente armar tizada?`)) return;
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
   const notaCorreccion=`🔧 Corrección sin nueva muestra${tocaFicha?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
-  // Si no lo confirma Ariel/Stef directamente, el corte queda en cola esperando su confirmación
   const newItem={...item,
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
     fecha_aprobada:Date.now(),
     fecha_etapa:Date.now(),
-    sin_confirmar:!(currentUser==='ariel'||currentUser==='stef')};
+    ...(tocaFicha?{ficha_control_pendiente:true}:{})};
   delete newItem.estado;
   delete newItem.modificaciones;
-  if(!sectionsData['s3']||!sectionsData['s3'].title){
-    db.ref('fabrica_v5/sections/s3').update({title:'Cortes próximos a sacar',color:'accent',order:4,collapsed:false});
-  }
-  db.ref(`fabrica_v5/sections/s3/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Corrección sin nueva muestra',item.code);
-  showToast(`🔧 ${item.code} corregido → directo a Producción/Corte`);
+  showToast(`🔧 ${item.code} corregido → Pendiente armar tizada`);
 }
 
 function fmtFecha(timestamp){
@@ -5039,7 +5034,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
   const esArmarTizada = (sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
-  const baseHtml = esArmarTizada ? buildBaseTizadaHtml(secId,itemId,item,canFicha) : '';
+  const baseHtml = (esArmarTizada&&item.base_aprobada) ? buildBaseTizadaHtml(secId,itemId,item,canFicha) : '';
   const checkHtml = secId==='s3'
     ? '' // en s3 no hay checkbox, se usa botón Marcar cortado
     : `<div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>`;

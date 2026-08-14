@@ -299,6 +299,10 @@
   .est-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
   .est-numero{font-size:15px;font-weight:700}
   .est-tela{font-size:11px;color:var(--text2)}
+  .est-estado-pendiente-corte{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#fbeadb;color:#b8600b}
+  .est-estado-pendiente-taller{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#fdf3d0;color:#8a6d00}
+  .est-estado-en-taller{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#e3ddfb;color:#4b2fb3}
+  .est-estado-entregado{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#d9f2df;color:#177a3e}
   .section-label{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 6px}
   .est-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
   .est-card-inner{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface2)}
@@ -1031,6 +1035,22 @@ function delEstCorte(estId){
   });
 }
 
+// Reordenar manualmente las tarjetas de corte del tablero de Estampas (▲▼).
+function moveEstCorte(estId,dir){
+  const lista=Object.entries(estampadosData||{}).map(([id,e])=>({id,...e}));
+  const ordenOf=c=>(c.orden!==undefined?c.orden:-(c.fecha_creado||0));
+  lista.sort((a,b)=>ordenOf(a)-ordenOf(b));
+  const idx=lista.findIndex(c=>c.id===estId);
+  const swapIdx=idx+dir;
+  if(idx<0||swapIdx<0||swapIdx>=lista.length) return;
+  // Renumeramos todo en base al orden actual, así queda un campo "orden" limpio y consistente
+  // para todos (los que todavía no tenían orden asignado también quedan con uno).
+  const updates={};
+  [lista[idx],lista[swapIdx]]=[lista[swapIdx],lista[idx]];
+  lista.forEach((c,i)=>{ updates[`fabrica_v5/estampados/${c.id}/orden`]=i; });
+  db.ref().update(updates);
+}
+
 // --- CRUD estampa individual (foto + artículo + estado) ---
 function openEstEstampaModal(estId,estampaId){
   estCtx.estId=estId; estCtx.estampaId=estampaId||null;
@@ -1276,7 +1296,8 @@ function renderEstampadosTab(){
   if(estTelaFiltro!=='todas') visibles=visibles.filter(c=>(c.tela||'').trim()===estTelaFiltro);
   if(estSearch.trim()){ const q=estSearch.trim().toLowerCase(); visibles=visibles.filter(c=>String(c.numero||'').toLowerCase().includes(q)); }
   if(estFilter!=='todos') visibles=visibles.filter(c=>Object.values(c.estampas).some(x=>x.estado===estFilter));
-  visibles.sort((a,b)=>(b.fecha_creado||0)-(a.fecha_creado||0));
+  const ordenOf=c=>(c.orden!==undefined?c.orden:-(c.fecha_creado||0));
+  visibles.sort((a,b)=>ordenOf(a)-ordenOf(b));
 
   if(!visibles.length){
     const filtrando=estFilter!=='todos'||estTelaFiltro!=='todas'||estSearch.trim();
@@ -1363,11 +1384,18 @@ function renderEstampadosTab(){
     const itemLinkeado=c.link_secId&&c.link_itemId&&sectionsData[c.link_secId]&&sectionsData[c.link_secId].items[c.link_itemId];
     const yaCortado=itemLinkeado?!!itemLinkeado.fecha_corte:null; // null = no lo pudimos determinar
     const avisoNoCortado=(yaCortado===false)?`<div style="font-size:11px;font-weight:700;color:#b8860b;background:#fbf1d8;border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ Todavía no se cortó este corte — las cantidades son estimadas (de la ficha), no confirmadas. Avanzar solo con el dibujo, no cerrar cantidades por color todavía.</div>`:'';
+    const estadoCorte=estadoCorteVinculado(c.numero);
+    const estadoCorteHtml=estadoCorte?`<span class="chip est-estado-${estadoCorte.cls}" style="font-size:11px;font-weight:600">${estadoCorte.label}</span>`:'';
+    const idx=visibles.findIndex(x=>x.id===c.id);
+    const ordenBtns=(currentUser==='ariel'||currentUser==='stef')?`
+      <button class="icon-btn" title="Subir" ${idx===0?'disabled':''} onclick="moveEstCorte('${c.id}',-1)">▲</button>
+      <button class="icon-btn" title="Bajar" ${idx===visibles.length-1?'disabled':''} onclick="moveEstCorte('${c.id}',1)">▼</button>`:'';
 
     return `<div class="est-card" id="est-card-${c.id}">
       <div class="est-card-top">
-        <div><div class="est-numero">Corte ${(c.numero||'').replace(/</g,'&lt;')}</div>${c.tela?`<div class="est-tela">${c.tela.replace(/</g,'&lt;')}</div>`:''}</div>
+        <div><div class="est-numero">Corte ${(c.numero||'').replace(/</g,'&lt;')}</div>${c.tela?`<div class="est-tela">${c.tela.replace(/</g,'&lt;')}</div>`:''}${estadoCorteHtml}</div>
         <div>
+          ${ordenBtns}
           <button class="icon-btn" title="Editar" onclick="openEstCorteModal('${c.id}')">✏️</button>
           <button class="icon-btn" title="Borrar" onclick="delEstCorte('${c.id}')">✕</button>
         </div>
@@ -2339,6 +2367,24 @@ function corteKeyFrom(numeroCorte){
   if(!numeroCorte) return null;
   const k=numeroCorte.trim().replace(/[.#$\[\]\/]/g,'_');
   return k||null;
+}
+// Busca el corte (por N° de corte) en TODAS las secciones de fábrica — no confía en el
+// link_secId guardado en Estampas, que queda viejo apenas el corte avanza de sección.
+function estadoCorteVinculado(numero){
+  const key=corteKeyFrom(numero);
+  if(!key) return null;
+  for(const [secId,sec] of Object.entries(sectionsData||{})){
+    for(const [itemId,item] of Object.entries((sec&&sec.items)||{})){
+      if(corteKeyFrom(item.numero_corte)===key){
+        let label,cls;
+        if(!item.fecha_corte){ label='⏳ Pendiente corte'; cls='pendiente-corte'; }
+        else if(secId==='sFIN'||secId===SEC_ESTAMPADO_TALLER){ label='🧵 En taller'; cls='en-taller'; }
+        else { label='📦 Pendiente sacar a taller'; cls='pendiente-taller'; } // sLT/s4/s5/s6: ya cortado, esperando salir
+        return {secId,itemId,item,label,cls};
+      }
+    }
+  }
+  return {secId:null,itemId:null,item:null,label:'✅ Entregado',cls:'entregado'}; // ya no está en ningún tablero de corte
 }
 function grupoCorteOf(item){
   const key=corteKeyFrom(item&&item.numero_corte);

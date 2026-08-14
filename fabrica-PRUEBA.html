@@ -2470,7 +2470,7 @@ function startListening(){
           const oldSec=data.sections[oldSecId];
           if(oldSec && oldSec.items){
             Object.values(oldSec.items).forEach(oldItem=>{
-              const migrado={...oldItem};
+              const migrado={...oldItem,fecha_etapa:Date.now()};
               db.ref(`fabrica_v5/sections/${SEC_PREP}/items`).push(migrado);
             });
           }
@@ -2628,7 +2628,7 @@ function backfillAvioPendienteEnTaller(){
     const avList=Object.values(item.avios||{});
     const pendiente=avList.length>0 && !avList.every(a=>a.recibido);
     if(!pendiente) return;
-    db.ref(`fabrica_v5/sections/s6/items`).push(item);
+    db.ref(`fabrica_v5/sections/s6/items`).push({...item,fecha_etapa:Date.now()});
     db.ref(`fabrica_v5/sections/sFIN/items/${itemId}`).remove();
     logActivity('Migró a Pendiente recibir avío',item.code);
   });
@@ -5198,7 +5198,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${item.ancho?`<span class="spec-val">${item.ancho}</span>`:`<span class="spec-empty">Sin cargar</span>`}
             ${canFicha?`<button class="btn-sm" onclick="editAnchoPrompt('${secId}','${itemId}')">${item.ancho?'✏️':'+ Ancho'}</button>`:''}
           </span>
-          ${(secId==='s3'||esArmarTizada)?`<span class="spec-chip">
+          <span class="spec-chip">
             <span class="c-check checked-auto ${item.peso_metro?'checked':''}" title="Se tilda solo cuando hay peso x metro cargado">${item.peso_metro?'✓':''}</span>
             <span class="spec-label" title="Peso x metro">Peso x m:</span>
             ${item.peso_metro?`<span class="spec-val">${item.peso_metro}</span>`:`<span class="spec-empty">Sin cargar</span>`}
@@ -5214,7 +5214,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <span class="c-check checked-auto checked">✓</span>
             <span class="spec-label" title="Peso x metro × Largo de capa">Peso capa:</span>
             <span class="spec-val">${(parseFloat(item.peso_metro)*parseFloat(item.largo_capa)).toFixed(3)}</span>
-          </span>`:''}`:''}
+          </span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check checked-auto ${item.control_piezas_link?'checked':''}" title="Se tilda solo cuando hay link de control de piezas cargado">${item.control_piezas_link?'✓':''}</div>
@@ -5889,6 +5889,7 @@ function marcarCorteRealizado(secId,itemId){
       rollos:grupo.rollos||mItem.rollos||{},
       orden_corte_cargada:true,
       encimado_terminado:true,
+      fecha_etapa:Date.now(),
       fecha_paso_orden:grupo.fecha_paso_orden||mItem.fecha_paso_orden||Date.now(),
       fecha_paso_encimado:grupo.fecha_paso_encimado||mItem.fecha_paso_encimado||Date.now()
     };
@@ -5946,7 +5947,7 @@ function checkCorteListoParaTaller(secId,itemId,avios){
   const targetSec = secId==='s6' ? 'sFIN' : 'sLT';
   ensureSeccionCorte(targetSec);
   setTimeout(()=>{
-    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios});
+    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios,fecha_etapa:Date.now()});
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
     logActivity(targetSec==='sFIN'?'Avío completo — corte finalizado':'Corte listo para taller',item.code);
     showToast(targetSec==='sFIN'?`🎉 ${item.code} — avío completo, corte finalizado`:`🎉 ${item.code} listo para taller`);
@@ -5962,7 +5963,7 @@ function checkCorteVuelveABloqueado(secId,itemId,avios){
   const targetSec = secId==='sFIN' ? 's6' : (avList.some(a=>a.fecha_pedido)?'s5':'s4');
   ensureSeccionCorte(targetSec);
   setTimeout(()=>{
-    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios});
+    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios,fecha_etapa:Date.now()});
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
     logActivity('Corte vuelve a pendiente avío',item.code);
     showToast(`⚠️ ${item.code} volvió a pendiente — falta avío`);
@@ -5993,7 +5994,7 @@ function sacarATaller(secId,itemId){
   const avList=Object.values(item.avios||{});
   const avioPendiente = avList.length>0 && !avList.every(a=>a.recibido);
   const targetSec = avioPendiente ? 's6' : 'sFIN';
-  const newItem={...item, fecha_salida_taller:Date.now()};
+  const newItem={...item, fecha_salida_taller:Date.now(), fecha_etapa:Date.now()};
   delete newItem.pedido_sin_avio;
   ensureSeccionCorte(targetSec);
   db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
@@ -6026,7 +6027,7 @@ function rechazarSinAvio(secId,itemId){
 
 function deshacerCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const newItem={...item, done:false};
+  const newItem={...item, done:false, fecha_etapa:Date.now()};
   delete newItem.fecha_corte;
   if(!sectionsData['s3'] || !sectionsData['s3'].title){
     db.ref('fabrica_v5/sections/s3').update({title:'Cortes próximos a sacar',color:'accent',order:4,collapsed:false});

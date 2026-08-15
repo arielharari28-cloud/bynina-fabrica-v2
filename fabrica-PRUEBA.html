@@ -456,6 +456,7 @@
     <button class="user-btn" id="btn-stef"><div class="user-avatar" style="background:#9d174d">S</div><div><div class="uname">Stefany</div><div class="urole">Diseño — acceso total</div></div></button>
     <button class="user-btn" id="btn-peque"><div class="user-avatar" style="background:#5b21b6">P</div><div><div class="uname">Peque</div><div class="urole">Fábrica — acciones registradas</div></div></button>
     <button class="user-btn" id="btn-emir"><div class="user-avatar" style="background:#b45309">E</div><div><div class="uname">Emir</div><div class="urole">Depósito — recepción de avíos</div></div></button>
+    <button class="user-btn" id="btn-arimoron"><div class="user-avatar" style="background:#0e7490">AM</div><div><div class="uname">Ari Morón</div><div class="urole">Cortador — Fábrica y Pendientes</div></div></button>
     <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">N</div><div><div class="uname">Nahuel</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-noemi"><div class="user-avatar" style="background:#be185d">N</div><div><div class="uname">Noemí</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
   </div>
@@ -471,7 +472,7 @@
       <button class="notif-btn" id="global-search-btn" title="Buscar en toda la app">🔎</button>
       <button class="notif-btn" id="tab-order-btn" title="Ordenar pestañas a tu gusto">↕️</button>
       <button class="notif-btn hidden" id="accesos-btn" title="Ver qué pestañas ve cada usuario">👥</button>
-      <button class="notif-btn" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
+      <button class="notif-btn hidden" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
       <button class="notif-btn hidden" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
       <div class="user-chip" id="user-chip">— <span style="opacity:.4">salir</span></div>
     </div>
@@ -854,7 +855,7 @@ db.ref('.info/connected').on('value', snap=>{
 // --- PIN por usuario ---
 // Arranca con estos valores por defecto; se guardan en Firebase la primera vez,
 // y desde ahí Ariel/Stef los pueden cambiar sin tocar código.
-let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', nahuel:'0633', noemi:'0001'};
+let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', arimoron:'0634', nahuel:'0633', noemi:'0001'};
 let pinsReady = false;
 db.ref('fabrica_v5/pins').once('value',snap=>{
   if(snap.exists()){
@@ -2317,7 +2318,7 @@ const SEC_CANCEL = 'muestra_cancelada';
 const SEC_ESTAMPADO_TALLER = 'fabrica_estampado_taller';
 
 // Nombre visible de cada login
-const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',nahuel:'Nahuel',noemi:'Noemí'};
+const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí'};
 
 // Lista de modelistas (editable: se puede agregar una nueva directo desde la ficha)
 let modelistasList = ['Peque','Adela','Guada','Paula'];
@@ -2466,6 +2467,16 @@ function saveLocalCollapsed(){
   try{ localStorage.setItem('fabrica_collapsed_v1', JSON.stringify(localCollapsed)); }catch(e){}
 }
 
+// Colapsar/expandir cada corte individual en "Cortes próximos a sacar" (preferencia local del navegador).
+let corteItemCollapsed = {};
+try{ corteItemCollapsed = JSON.parse(localStorage.getItem('fabrica_corte_item_collapsed_v1')||'{}'); }catch(e){ corteItemCollapsed = {}; }
+function isCorteItemCollapsed(key){ return !!corteItemCollapsed[key]; }
+function toggleCorteItemCollapse(key){
+  corteItemCollapsed[key]=!corteItemCollapsed[key];
+  try{ localStorage.setItem('fabrica_corte_item_collapsed_v1', JSON.stringify(corteItemCollapsed)); }catch(e){}
+  renderSections('fabrica');
+}
+
 function showToast(msg){
   const t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
@@ -2477,6 +2488,7 @@ document.getElementById('btn-ariel').onclick=()=>attemptLogin('ariel');
 document.getElementById('btn-stef').onclick=()=>attemptLogin('stef');
 document.getElementById('btn-peque').onclick=()=>attemptLogin('peque');
 document.getElementById('btn-emir').onclick=()=>attemptLogin('emir');
+document.getElementById('btn-arimoron').onclick=()=>attemptLogin('arimoron');
 document.getElementById('btn-nahuel').onclick=()=>attemptLogin('nahuel');
 document.getElementById('btn-noemi').onclick=()=>attemptLogin('noemi');
 document.getElementById('user-chip').onclick=doLogout;
@@ -2490,22 +2502,16 @@ function doLogin(user){
     document.getElementById('notif-btn').classList.remove('hidden');
     document.getElementById('add-sec-btn-diseno').classList.remove('hidden');
     document.getElementById('add-sec-btn-fabrica').classList.remove('hidden');
+    document.getElementById('undo-btn').classList.remove('hidden');
   }
   if(user==='ariel'||user==='stef'){
     document.getElementById('backup-btn').classList.remove('hidden');
     document.getElementById('pins-btn').classList.remove('hidden');
     document.getElementById('colores-tela-btn').classList.remove('hidden');
     document.getElementById('accesos-btn').classList.remove('hidden');
-    document.getElementById('tab-btn-costeo').classList.remove('hidden');
   }
+  applyTabVisibility(user);
   applyTabOrder();
-  if(user==='nahuel'){
-    document.getElementById('stats-bar').classList.add('hidden');
-    document.querySelector('.tabs').classList.add('hidden');
-    // Cortador ve ambos tableros juntos, sin pestañas para elegir
-    document.getElementById('tab-diseno').classList.remove('hidden');
-    document.getElementById('tab-fabrica').classList.remove('hidden');
-  }
   startListening();
   // Los backfills de más abajo dependen de currentUser, pero el listener de fabrica_v5/sections
   // arranca antes del login (cuando currentUser todavía es null) — por eso nunca llegaban a
@@ -2903,6 +2909,7 @@ function deleteItemUndoable(secId,itemId){
   pushUndo({tipo:'delete',secId,itemId,snapshot});
 }
 function deshacerUltimaAccion(){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede deshacer'); return; }
   db.ref('fabrica_v5/undo_stack').once('value').then(snap=>{
     const val=snap.val();
     if(!val){ showToast('No hay nada para deshacer'); return; }
@@ -4251,9 +4258,6 @@ function renderSections(board){
   const containerId = board==='diseno' ? 'sections-container-diseno' : 'sections-container-fabrica';
   const c=document.getElementById(containerId);c.innerHTML='';
   let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===board).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
-  if(currentUser==='nahuel'){
-    entries=entries.filter(([secId])=>secId===SEC_PEND||secId==='s3'||secId==='s3b');
-  }
   entries.forEach(([secId,sec],secIdx)=>{
     const col=COLORS[sec.color]||COLORS.accent;
     let items=getSortedItems(sec);
@@ -4273,7 +4277,7 @@ function renderSections(board){
     const secOrderBtns=(currentUser==='ariel'||currentUser==='stef')?`
       <button title="Subir sección" ${secIdx===0?'disabled':''} onclick="moveSectionOrder('${secId}',-1)" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:${secIdx===0?'default':'pointer'};font-size:11px;opacity:${secIdx===0?'.4':'1'}">▲</button>
       <button title="Bajar sección" ${secIdx===entries.length-1?'disabled':''} onclick="moveSectionOrder('${secId}',1)" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:${secIdx===entries.length-1?'default':'pointer'};font-size:11px;opacity:${secIdx===entries.length-1?'.4':'1'}">▼</button>`:'';
-    const canAdd=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel')&&secId===SEC_PEND;
+    const canAdd=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron')&&secId===SEC_PEND;
     const canAddMold=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')&&secId===SEC_MOLD;
     const canAddPrep=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')&&secId===SEC_PREP;
     const addRow=(canAdd||canAddMold)?`<div class="sec-add"><input type="text" placeholder="Código de muestra..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
@@ -4523,7 +4527,7 @@ function buildMoveOptsForItem(secId,itemId){
 
 // Rerender buildItem con move correcto
 function buildItem(secId,itemId,item,sec,idx,total){
-  const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='nahuel'&&secId===SEC_PEND);
+  const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
   const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
   const tipo=sec.tipo||'';
   const moveOpts=buildMoveOptsForItem(secId,itemId);
@@ -5146,7 +5150,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const avios=Object.entries(item.avios||{});
   let aviosHtml='';
   if(avios.length){
-    const canCosto=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='nahuel';
+    const canCosto=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='arimoron';
     aviosHtml='<div class="avios-normal">'+avios.map(([avioId,avio])=>{
       const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
       const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
@@ -5169,9 +5173,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
   }
 
   const canToggle=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-  const canCortar=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
+  const canCortar=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const necesitaRollosParaSeguir=POST_S3_SECS.includes(secId)&&secId!=='s3'&&secId!=='sFIN'&&!Object.values(item.rollos||{}).some(r=>r&&(r.color||r.kgmts||r.capas));
-  const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='nahuel';
+  const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='arimoron';
   const canControlFichaCorreccion=(currentUser==='ariel'||currentUser==='stef');
   // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
@@ -5194,10 +5198,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // Capas/colores y rollos: en "Cortes próximos a sacar" (s3) esta info ahora vive en el panel
   // compartido del corte (flujoCorteHtml) — este panel viejo por ítem solo corresponde a partir
   // de que el corte ya se hizo (post-s3), para no duplicar/mostrar datos huérfanos del ítem.
-  const canEditCapasFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
+  const canEditCapasFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const capasHtml = secId==='s3' ? '' : buildCapasHtml(item,secId,itemId,canEditCapasFuera);
   // Emir carga rollos incluso fuera de s3 (ej. cortes que ya pasaron a Cortes Finalizados).
-  const canEditRollosFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel'||currentUser==='emir');
+  const canEditRollosFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron'||currentUser==='emir');
   const rollosHtml = secId==='s3' ? '' : buildRollosHtml(item,secId,itemId,canEditRollosFuera);
   const realesHtml = secId==='s3' ? '' : buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = (secId==='sFIN'||secId==='s6')&&item.fecha_salida_taller
@@ -5216,7 +5220,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       ${canFicha?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
     </div>`;
   const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}</div>` : '';
-  const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&secId!=='s6'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='nahuel');
+  const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&secId!=='s6'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const avioPendiente=(secId==='s4'||secId==='s5');
   const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
@@ -5263,6 +5267,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // N° de corte con otros, se muestra/edita el valor único del grupo (ver getPesoMetroEfectivo).
   const pesoMetroEf=getPesoMetroEfectivo(item);
   const largoCapaEf=getLargoCapaEfectivo(item);
+  // Colapsar/expandir por N° de corte, solo en "Cortes próximos a sacar" — ambos artículos de un
+  // mismo corte comparten la misma clave, así que se pliegan/despliegan juntos.
+  const corteColapseKey=(secId==='s3'&&item.numero_corte)?(corteKeyFrom(item.numero_corte)||itemId):null;
+  const corteColapsado=corteColapseKey?isCorteItemCollapsed(corteColapseKey):false;
   return `<div class="item ${item.done?'done':''}" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
     ${orderHtml}
     ${checkHtml}
@@ -5291,7 +5299,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
         ${buildNameHtml(secId,itemId,item,canEdit,true)}
         ${!item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
-        ${(POST_S3_SECS.includes(secId)&&item.numero_corte)?`<div style="display:inline-block;background:var(--accent);color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:4px 10px;margin:2px 0 6px;letter-spacing:.2px">✂️ Corte N° ${item.numero_corte}</div>`:''}
+        ${(POST_S3_SECS.includes(secId)&&item.numero_corte)?`<div style="display:flex;align-items:center;gap:6px;margin:2px 0 6px">
+            <div style="display:inline-block;background:var(--accent);color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:4px 10px;letter-spacing:.2px">✂️ Corte N° ${item.numero_corte}</div>
+            ${corteColapseKey?`<button class="btn-sm" onclick="toggleCorteItemCollapse('${corteColapseKey}')">${corteColapsado?'▸ Expandir':'▾ Colapsar'}</button>`:''}
+          </div>`:''}
+        <div class="${corteColapsado?'hidden':''}">
         ${procesoInfoHtml(item,secId,itemId)}
         ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
         ${(secId==='sFIN'||item.base_aprobada)?(canEdit?buildCategoriaHtml(secId,itemId,item):(item.categoria?`<div style="font-size:11px;color:var(--text2)">Categoría: <strong>${item.categoria}</strong></div>`:'')):''}
@@ -5386,6 +5398,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${aviosHtml}
         ${checklistPreTallerHtml}
         ${buildPasosExtraHtml(secId,itemId,item,canFicha)}
+        </div>
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
@@ -6915,8 +6928,24 @@ function renderColoresTelaLista(){
   cont.innerHTML=colores.map((c,i)=>`
     <div class="notif-item" style="display:flex;align-items:center;justify-content:space-between">
       <span style="font-size:13px">${c}</span>
-      <button class="btn-danger" style="padding:2px 8px;font-size:11px" onclick="removeColorDeTela(${i})">✕</button>
+      <div style="display:flex;gap:4px">
+        <button class="btn-sm" style="padding:2px 8px;font-size:11px" onclick="renameColorDeTela(${i})">✏️</button>
+        <button class="btn-danger" style="padding:2px 8px;font-size:11px" onclick="removeColorDeTela(${i})">✕</button>
+      </div>
     </div>`).join('');
+}
+function renameColorDeTela(idx){
+  const tela=document.getElementById('colores-tela-select').value;
+  const key=sanitizeStr(tela);
+  const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
+  const actual=colores[idx];
+  const nuevo=prompt('Nuevo nombre para el color:',actual);
+  if(nuevo===null) return;
+  const limpio=nuevo.trim();
+  if(!limpio||limpio===actual) return;
+  colores[idx]=limpio;
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+  showToast(`✓ "${actual}" ahora es "${limpio}"`);
 }
 function addColorATela(){
   const tela=document.getElementById('colores-tela-select').value;
@@ -6982,6 +7011,38 @@ function closeGlobalSearchAndGo(secId,itemId){
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
 const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'];
 const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-costeo':'💰 Costeo'};
+// Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
+// informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
+const TAB_VISIBILITY={
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
+  peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-actividad'],
+  emir:['tab-btn-fabrica','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
+  arimoron:['tab-btn-fabrica','tab-btn-pendientes'],
+  nahuel:['tab-btn-logistica'],
+  noemi:['tab-btn-logistica'],
+};
+function applyTabVisibility(user){
+  const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT;
+  TAB_ORDER_DEFAULT.forEach(id=>{
+    const btn=document.getElementById(id);
+    if(btn) btn.classList.toggle('hidden',!allowed.includes(id));
+  });
+  // "Diseño" es la pestaña activa por defecto en el HTML — si este usuario no la tiene,
+  // hay que activar la primera que sí tenga y disparar su carga inicial.
+  if(!allowed.includes('tab-btn-diseno')&&allowed.length){
+    const firstBtnId=allowed[0];
+    const contentId=firstBtnId.replace('tab-btn-','tab-');
+    ocultarTabsMenosActiva(contentId);
+    document.getElementById(firstBtnId).classList.add('active');
+    if(contentId==='tab-pendientes') renderPendientes();
+    else if(contentId==='tab-galeria') renderGaleria();
+    else if(contentId==='tab-actividad') renderActividad();
+    else if(contentId==='tab-estampas') renderEstampadosTab();
+    else if(contentId==='tab-logistica') logiInit();
+    else if(contentId==='tab-costeo'){ closeCosteoDetail(); renderCosteoTab(); }
+  }
+}
 function getTabOrder(){
   let saved=null;
   try{ saved=JSON.parse(localStorage.getItem('fabrica_tab_order_v1')||'null'); }catch(e){}
@@ -7048,14 +7109,7 @@ document.getElementById('tab-order-btn').onclick=()=>{
 };
 
 // ---- Accesos por usuario: referencia de qué pestañas ve cada rol (informativo, no editable) ----
-const ACCESOS_POR_USUARIO=[
-  {user:'Ariel / Stef',tabs:'Todas las pestañas (Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística, Costeo) + herramientas admin (PIN, backup, colores por tela)'},
-  {user:'Peque',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
-  {user:'Emir',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
-  {user:'Ari Morón',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
-  {user:'Nahuel',tabs:'Vista especial: Diseño y Fábrica juntos en una sola pantalla, sin pestañas para elegir (más Logística para conteo)'},
-  {user:'Noemí',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
-];
+// Se arma en vivo a partir de TAB_VISIBILITY, así nunca queda desactualizado si cambia el mapa de arriba.
 document.getElementById('accesos-btn').onclick=()=>{
   document.getElementById('notif-panel').classList.add('hidden');
   document.getElementById('pins-panel').classList.add('hidden');
@@ -7064,7 +7118,11 @@ document.getElementById('accesos-btn').onclick=()=>{
   const panel=document.getElementById('accesos-panel');
   panel.classList.toggle('hidden');
   if(!panel.classList.contains('hidden')){
-    document.getElementById('accesos-list').innerHTML=ACCESOS_POR_USUARIO.map(a=>`
+    const filas=Object.entries(TAB_VISIBILITY).map(([user,tabs])=>({
+      user:USER_DISPLAY[user]||user,
+      tabs:tabs.map(id=>TAB_LABELS[id]).join(', ')
+    }));
+    document.getElementById('accesos-list').innerHTML=filas.map(a=>`
       <div class="notif-item" style="flex-direction:column;align-items:flex-start;gap:2px">
         <span style="font-weight:700;font-size:13px">${a.user}</span>
         <span style="font-size:11px;color:var(--text2)">${a.tabs}</span>
@@ -7072,9 +7130,10 @@ document.getElementById('accesos-btn').onclick=()=>{
   }
 };
 
+
 function renderPinsPanel(){
   const el=document.getElementById('pins-list');
-  const users=['ariel','stef','peque','emir','nahuel'];
+  const users=['ariel','stef','peque','emir','arimoron','nahuel','noemi'];
   el.innerHTML=users.map(u=>`
     <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:12px;flex:1">${USER_DISPLAY[u]||u}</span>
@@ -7530,7 +7589,9 @@ function logiRenderDetail(id){
   </div>`;
 
   if(cerrado){
-    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">✅ Conteo cerrado</div>`;
+    const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');
+    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">✅ Conteo cerrado</div>` +
+      (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
     const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>` : '';
     html += avisoControl + `<div class="logi-summary-bar">
@@ -7583,6 +7644,15 @@ function logiCerrarConteo(itemId){
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_cerrado`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/cerrado_por`).set(currentUser);
   showToast('✅ Conteo cerrado');
+}
+
+function logiReabrirConteo(itemId){
+  if(!confirm('¿Reabrir este conteo para seguir cargando lo que falta?')) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('abierto');
+  db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_reabierto`).set(Date.now());
+  db.ref(`fabrica_v5/logistica/items/${itemId}/reabierto_por`).set(currentUser);
+  logActivity('Reabrió un conteo de Logística',itemId);
+  showToast('🔓 Conteo reabierto — ya podés seguir cargando');
 }
 
 // ===== Carga masiva de talles/colores esperados (grilla tipo matriz) =====
@@ -7674,15 +7744,25 @@ function logiGridConfirmar(){
 // TABS
 // ---- COSTEO: tablero automático que se alimenta al marcar cada corte como realizado ----
 function numAr2(v){ const n=parseFloat(String(v||'').replace(',','.')); return isNaN(n)?0:n; }
+const COSTEO_OTROS_CAMPOS=[
+  {key:'gastos_fabrica',label:'Gastos de Fábrica'},
+  {key:'costo_taller',label:'Costo de Taller'},
+  {key:'plancha_estampado',label:'Plancha / Estampado'},
+  {key:'etiqueta',label:'Etiqueta'},
+  {key:'carton',label:'Cartón'},
+  {key:'fletes',label:'Fletes'},
+  {key:'tizas_moldes_muestras',label:'Tizas / Moldes / Muestras (desarrollo)'},
+];
 function costeoTotales(entry){
   const kgTotal=Object.values(entry.rollos||{}).reduce((s,r)=>s+numAr2(r&&r.kgmts),0);
   const precioKg=numAr2(entry.precio_kg);
   const costoTela=precioKg?kgTotal*precioKg:0;
   const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
-  const costoTotal=costoTela+costoAvios;
+  const costoOtros=COSTEO_OTROS_CAMPOS.reduce((s,c)=>s+numAr2(entry[c.key]),0);
+  const costoTotal=costoTela+costoAvios+costoOtros;
   const piezas=entry.piezas_totales||0;
   const costoPrenda=piezas?costoTotal/piezas:0;
-  return{kgTotal,costoTela,costoAvios,costoTotal,piezas,costoPrenda};
+  return{kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda};
 }
 function renderCosteoTab(){
   const cont=document.getElementById('costeo-list');
@@ -7725,6 +7805,32 @@ function renderCosteoDetail(){
     <tr><td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td></tr>`).join('');
   const aviosRows=(e.avios||[]).map(a=>`
     <tr><td style="padding:3px 6px;font-size:12px">${a.nombre||'—'}${a.proveedor?` · ${a.proveedor}`:''}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${a.cantidad||'—'} × $${a.precio||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:right">$${(numAr2(a.cantidad)*numAr2(a.precio)).toFixed(2)}</td></tr>`).join('');
+  const articulos=e.articulos||[];
+  const kgArticulosHtml=articulos.length>1?(()=>{
+    const sumKg=articulos.reduce((s,a)=>s+numAr2(a.kg),0);
+    const dif=Math.abs(sumKg-t.kgTotal);
+    const filas=articulos.map((a,i)=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+        <span style="font-size:12px">${a.code||a.name||'(artículo '+(i+1)+')'}</span>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px">${a.kg?a.kg+' kg':'sin asignar'}</span>
+          ${canEdit?`<button class="btn-sm" onclick="editCosteoKgArticulo('${costeoDetailKey}',${i})">✏️</button>`:''}
+        </div>
+      </div>`).join('');
+    return `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">
+      <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos por artículo (este corte tiene ${articulos.length})</div>
+      ${filas}
+      ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma (${sumKg.toFixed(2)} kg) no coincide con el total cargado (${t.kgTotal.toFixed(2)} kg)</div>`:''}
+    </div>`;
+  })():'';
+  const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+      <span style="font-size:12px">${c.label}</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-weight:700;font-size:12px">${e[c.key]?'$'+e[c.key]:'—'}</span>
+        ${canEdit?`<button class="btn-sm" onclick="editCosteoOtroCampo('${costeoDetailKey}','${c.key}','${c.label}')">✏️</button>`:''}
+      </div>
+    </div>`).join('');
   cont.innerHTML=`
     <button class="btn-sm" onclick="closeCosteoDetail()">← Volver al tablero</button>
     <div style="font-weight:800;font-size:17px;margin-top:8px">✂️ Corte N° ${e.numero_corte||'—'}</div>
@@ -7739,11 +7845,17 @@ function renderCosteoDetail(){
         ${canEdit?`<button class="btn-sm" onclick="editCosteoPrecioKg('${costeoDetailKey}')">${e.precio_kg?'✏️ Editar':'+ Cargar precio'}</button>`:''}
       </div>
       <div style="font-size:12px;margin-top:2px">Costo tela: <strong>$${t.costoTela.toFixed(2)}</strong></div>
+      ${kgArticulosHtml}
     </div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">🧷 Avíos</div>
       <table style="width:100%;border-collapse:collapse">${aviosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin avíos</td></tr>'}</table>
       <div style="font-size:12px;margin-top:4px">Costo avíos: <strong>$${t.costoAvios.toFixed(2)}</strong></div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Otros gastos</div>
+      ${otrosGastosRows}
+      <div style="font-size:12px;margin-top:4px">Subtotal otros gastos: <strong>$${t.costoOtros.toFixed(2)}</strong></div>
     </div>
     <div style="background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:10px">
       <div style="font-size:14px;font-weight:800;color:var(--accent)">Costo total: $${t.costoTotal.toFixed(2)}</div>
@@ -7756,6 +7868,25 @@ function renderCosteoDetail(){
     </div>
     ${canEdit?`<button class="btn-danger" onclick="deleteCosteo('${costeoDetailKey}')">Eliminar del tablero de Costeo</button>`:''}
   `;
+}
+function editCosteoOtroCampo(key,campo,label){
+  const e=costeosData[key]||{};
+  const val=prompt(`${label}:`,e[campo]||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/${campo}`).set(val.trim().replace(',','.'));
+  logActivity(`Editó ${label} (Costeo)`,`Corte ${e.numero_corte}: $${val.trim()}`);
+  showToast(`✓ ${label} guardado`);
+}
+function editCosteoKgArticulo(key,idx){
+  const e=costeosData[key]||{};
+  const arts=[...(e.articulos||[])];
+  const art=arts[idx]||{};
+  const val=prompt(`Kilos para ${art.code||art.name||'este artículo'}:`,art.kg||'');
+  if(val===null) return;
+  arts[idx]={...art,kg:val.trim().replace(',','.')};
+  db.ref(`fabrica_v5/costeos/${key}/articulos`).set(arts);
+  logActivity('Editó kg por artículo (Costeo)',`Corte ${e.numero_corte} — ${art.code||art.name||''}: ${val.trim()} kg`);
+  showToast('✓ Kilos guardados');
 }
 function editCosteoPrecioKg(key){
   const e=costeosData[key]||{};

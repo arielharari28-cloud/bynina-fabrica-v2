@@ -467,6 +467,7 @@
     <div style="display:flex;align-items:center">
       <button class="notif-btn hidden" id="pins-btn" title="Cambiar PIN de usuarios">🔑</button>
       <button class="notif-btn hidden" id="backup-btn" title="Descargar backup de todos los datos">💾</button>
+      <button class="notif-btn" id="global-search-btn" title="Buscar en toda la app">🔎</button>
       <button class="notif-btn" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
       <button class="notif-btn hidden" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
       <div class="user-chip" id="user-chip">— <span style="opacity:.4">salir</span></div>
@@ -475,6 +476,11 @@
   <div class="notif-panel hidden" id="pins-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Cambiar PIN</span></div>
     <div class="notif-list" id="pins-list"></div>
+  </div>
+  <div class="notif-panel hidden" id="global-search-panel">
+    <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Buscar en toda la app</span></div>
+    <div style="padding:10px 14px 6px"><input type="text" class="search-input" id="global-search-input" placeholder="Código, nombre o N° de corte..." style="margin:0" oninput="onGlobalSearchInput(this.value)"></div>
+    <div class="notif-list" id="global-search-results"></div>
   </div>
   <div class="notif-panel hidden" id="notif-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Actividad de Peque</span><button class="mark-all-btn" id="mark-all-btn">Marcar todo leído</button></div>
@@ -1531,7 +1537,7 @@ function buildRollosHtml(item,secId,itemId,canEditRollos){
       ? `<div style="margin-top:4px"><button class="btn-sm" onclick="openRollosModal('${secId}','${itemId}')">+ Cargar rollos</button></div>`
       : '';
   }
-  const largo=numAr(item.largo_capa), pesoM=numAr(item.peso_metro);
+  const largo=numAr(getLargoCapaEfectivo(item)), pesoM=numAr(getPesoMetroEfectivo(item));
   const calc=r=>{ const capas=numAr(r.capas); const usado=capas*largo*pesoM; const kgmts=numAr(r.kgmts); return {usado,sobrante:kgmts-usado}; };
   const bodyRows=rows.map(r=>{
     const{usado,sobrante}=calc(r);
@@ -2392,6 +2398,19 @@ function grupoCorteOf(item){
 }
 function ordenCargadaGrupo(item){ const g=grupoCorteOf(item); return g?!!g.orden_corte_cargada:false; }
 function encimadoTerminadoGrupo(item){ const g=grupoCorteOf(item); return g?!!g.encimado_terminado:false; }
+// Mismo N° de corte = misma tiza física: largo de capa y peso x metro son propiedades de esa
+// tiza compartida, no de cada artículo. Si el grupo tiene el dato cargado, se usa ese (para todos
+// los artículos del corte); si no, cae al valor propio del ítem (compatibilidad con cortes viejos).
+function getLargoCapaEfectivo(item){
+  const g=grupoCorteOf(item);
+  if(g&&g.largo_capa!==undefined&&g.largo_capa!==null&&g.largo_capa!=='') return g.largo_capa;
+  return item.largo_capa;
+}
+function getPesoMetroEfectivo(item){
+  const g=grupoCorteOf(item);
+  if(g&&g.peso_metro!==undefined&&g.peso_metro!==null&&g.peso_metro!=='') return g.peso_metro;
+  return item.peso_metro;
+}
 let editCtx={secId:null,itemId:null,newAvioCount:0};
 
 // El colapsado/expandido de cada sección es preferencia de cada persona en su propio
@@ -5194,6 +5213,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
       <button title="Subir" ${idx===0?'disabled':''} onclick="moveCorteOrder('${secId}','${itemId}',-1)" style="border:1px solid var(--border);background:${idx===0?'#f3f4f6':'#fff'};border-radius:4px;width:22px;height:20px;font-size:10px;cursor:${idx===0?'default':'pointer'};color:${idx===0?'#ccc':'inherit'}">▲</button>
       <button title="Bajar" ${idx===total-1?'disabled':''} onclick="moveCorteOrder('${secId}','${itemId}',1)" style="border:1px solid var(--border);background:${idx===total-1?'#f3f4f6':'#fff'};border-radius:4px;width:22px;height:20px;font-size:10px;cursor:${idx===total-1?'default':'pointer'};color:${idx===total-1?'#ccc':'inherit'}">▼</button>
     </div>` : '';
+  // Peso x metro y largo de capa son propiedades de la tiza física: si el artículo comparte
+  // N° de corte con otros, se muestra/edita el valor único del grupo (ver getPesoMetroEfectivo).
+  const pesoMetroEf=getPesoMetroEfectivo(item);
+  const largoCapaEf=getLargoCapaEfectivo(item);
   return `<div class="item ${item.done?'done':''}" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
     ${orderHtml}
     ${checkHtml}
@@ -5253,21 +5276,21 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canFicha?`<button class="btn-sm" onclick="editAnchoPrompt('${secId}','${itemId}')">${item.ancho?'✏️':'+ Ancho'}</button>`:''}
           </span>
           <span class="spec-chip">
-            <span class="c-check checked-auto ${item.peso_metro?'checked':''}" title="Se tilda solo cuando hay peso x metro cargado">${item.peso_metro?'✓':''}</span>
-            <span class="spec-label" title="Peso x metro">Peso x m:</span>
-            ${item.peso_metro?`<span class="spec-val">${item.peso_metro}</span>`:`<span class="spec-empty">Sin cargar</span>`}
-            ${canFicha?`<button class="btn-sm" onclick="editPesoMetroPrompt('${secId}','${itemId}')">${item.peso_metro?'✏️':'+ Peso x metro'}</button>`:''}
+            <span class="c-check checked-auto ${pesoMetroEf?'checked':''}" title="Se tilda solo cuando hay peso x metro cargado (compartido por todo el corte)">${pesoMetroEf?'✓':''}</span>
+            <span class="spec-label" title="Peso x metro — compartido por todos los artículos de este N° de corte">Peso x m:</span>
+            ${pesoMetroEf?`<span class="spec-val">${pesoMetroEf}</span>`:`<span class="spec-empty">Sin cargar</span>`}
+            ${canFicha?`<button class="btn-sm" onclick="editPesoMetroPrompt('${secId}','${itemId}')">${pesoMetroEf?'✏️':'+ Peso x metro'}</button>`:''}
           </span>
           <span class="spec-chip">
-            <span class="c-check checked-auto ${item.largo_capa?'checked':''}" title="Se tilda solo cuando hay largo de capa cargado">${item.largo_capa?'✓':''}</span>
-            <span class="spec-label" title="Largo de capa">Largo cap.:</span>
-            ${item.largo_capa?`<span class="spec-val">${item.largo_capa}</span>`:`<span class="spec-empty">Sin cargar</span>`}
-            ${canFicha?`<button class="btn-sm" onclick="editLargoCapaPrompt('${secId}','${itemId}')">${item.largo_capa?'✏️':'+ Largo de capa'}</button>`:''}
+            <span class="c-check checked-auto ${largoCapaEf?'checked':''}" title="Se tilda solo cuando hay largo de capa cargado (compartido por todo el corte)">${largoCapaEf?'✓':''}</span>
+            <span class="spec-label" title="Largo de capa — compartido por todos los artículos de este N° de corte">Largo cap.:</span>
+            ${largoCapaEf?`<span class="spec-val">${largoCapaEf}</span>`:`<span class="spec-empty">Sin cargar</span>`}
+            ${canFicha?`<button class="btn-sm" onclick="editLargoCapaPrompt('${secId}','${itemId}')">${largoCapaEf?'✏️':'+ Largo de capa'}</button>`:''}
           </span>
-          ${(item.peso_metro&&item.largo_capa)?`<span class="spec-chip">
+          ${(pesoMetroEf&&largoCapaEf)?`<span class="spec-chip">
             <span class="c-check checked-auto checked">✓</span>
             <span class="spec-label" title="Peso x metro × Largo de capa">Peso capa:</span>
-            <span class="spec-val">${(numAr(item.peso_metro)*numAr(item.largo_capa)).toFixed(3)}</span>
+            <span class="spec-val">${(numAr(pesoMetroEf)*numAr(largoCapaEf)).toFixed(3)}</span>
           </span>`:''}
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
@@ -5963,6 +5986,8 @@ function marcarCorteRealizado(secId,itemId){
       fecha_corte:fechaFinal, done:true,
       capas:capasCongeladas,
       rollos:grupo.rollos||mItem.rollos||{},
+      largo_capa:(grupo.largo_capa!==undefined&&grupo.largo_capa!==null&&grupo.largo_capa!=='')?grupo.largo_capa:mItem.largo_capa,
+      peso_metro:(grupo.peso_metro!==undefined&&grupo.peso_metro!==null&&grupo.peso_metro!=='')?grupo.peso_metro:mItem.peso_metro,
       orden_corte_cargada:true,
       encimado_terminado:true,
       fecha_etapa:Date.now(),
@@ -6261,20 +6286,34 @@ function editAnchoPrompt(secId,itemId){
 
 function editPesoMetroPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const val=prompt('Peso x metro:',item.peso_metro||'');
+  const corteKey=secId==='s3'?corteKeyFrom(item.numero_corte):null;
+  const otros=corteKey?otrosDelMismoCorte(secId,itemId,item):[];
+  const val=prompt(otros.length?`Peso x metro (se comparte con los ${otros.length+1} artículos de este N° de corte):`:'Peso x metro:',getPesoMetroEfectivo(item)||'');
   if(val===null) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/peso_metro`).set(val.trim().replace(',','.'));
-  logActivity('Editó peso x metro',`${item.code||item.name||''}: ${val.trim()||'(vacío)'}`);
-  showToast('✓ Peso x metro guardado');
+  const valFinal=val.trim().replace(',','.');
+  if(corteKey){
+    db.ref(`fabrica_v5/grupos_corte/${corteKey}/peso_metro`).set(valFinal);
+  } else {
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/peso_metro`).set(valFinal);
+  }
+  logActivity('Editó peso x metro',`${item.code||item.name||''}: ${valFinal||'(vacío)'}${otros.length?` (aplicado a ${otros.length+1} artículos del corte)`:''}`);
+  showToast('✓ Peso x metro guardado'+(otros.length?' para todo el corte':''));
 }
 
 function editLargoCapaPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const val=prompt('Largo de capa:',item.largo_capa||'');
+  const corteKey=secId==='s3'?corteKeyFrom(item.numero_corte):null;
+  const otros=corteKey?otrosDelMismoCorte(secId,itemId,item):[];
+  const val=prompt(otros.length?`Largo de capa (se comparte con los ${otros.length+1} artículos de este N° de corte):`:'Largo de capa:',getLargoCapaEfectivo(item)||'');
   if(val===null) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/largo_capa`).set(val.trim().replace(',','.'));
-  logActivity('Editó largo de capa',`${item.code||item.name||''}: ${val.trim()||'(vacío)'}`);
-  showToast('✓ Largo de capa guardado');
+  const valFinal=val.trim().replace(',','.');
+  if(corteKey){
+    db.ref(`fabrica_v5/grupos_corte/${corteKey}/largo_capa`).set(valFinal);
+  } else {
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/largo_capa`).set(valFinal);
+  }
+  logActivity('Editó largo de capa',`${item.code||item.name||''}: ${valFinal||'(vacío)'}${otros.length?` (aplicado a ${otros.length+1} artículos del corte)`:''}`);
+  showToast('✓ Largo de capa guardado'+(otros.length?' para todo el corte':''));
 }
 
 function toggleControlPiezas(secId,itemId){
@@ -6749,6 +6788,47 @@ document.getElementById('save-modal-sec').onclick=()=>{
 // NOTIFS
 document.getElementById('notif-btn').onclick=()=>{document.getElementById('notif-panel').classList.toggle('hidden');renderNotifPanel()};
 document.getElementById('pins-btn').onclick=()=>{document.getElementById('pins-panel').classList.toggle('hidden');renderPinsPanel()};
+
+// ---- Búsqueda global: busca por código, nombre o N° de corte en TODAS las secciones ----
+// (a diferencia de los buscadores de cada pestaña, que solo filtran dentro de esa pestaña)
+document.getElementById('global-search-btn').onclick=()=>{
+  document.getElementById('notif-panel').classList.add('hidden');
+  document.getElementById('pins-panel').classList.add('hidden');
+  const panel=document.getElementById('global-search-panel');
+  panel.classList.toggle('hidden');
+  if(!panel.classList.contains('hidden')){
+    const input=document.getElementById('global-search-input');
+    input.value='';
+    onGlobalSearchInput('');
+    setTimeout(()=>input.focus(),50);
+  }
+};
+function onGlobalSearchInput(value){
+  const q=(value||'').trim().toLowerCase();
+  const results=document.getElementById('global-search-results');
+  if(!q){ results.innerHTML='<div class="notif-item" style="color:var(--text2)">Escribí un código, nombre o N° de corte...</div>'; return; }
+  const matches=[];
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      const code=(item.code||'').toLowerCase();
+      const name=(item.name||'').toLowerCase();
+      const corte=(item.numero_corte||'').toLowerCase();
+      if(code.includes(q)||name.includes(q)||corte.includes(q)) matches.push({secId,itemId,item,sec});
+    });
+  });
+  if(!matches.length){ results.innerHTML='<div class="notif-item" style="color:var(--text2)">Sin resultados</div>'; return; }
+  results.innerHTML=matches.slice(0,30).map(({secId,itemId,item,sec})=>`
+    <div class="notif-item" style="cursor:pointer" onclick="closeGlobalSearchAndGo('${secId}','${itemId}')">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${item.code?item.code+' · ':''}${item.name||'(sin nombre)'}</div>
+        <div style="font-size:11px;color:var(--text2)">${sec.title||secId}${item.numero_corte?' · N° corte '+item.numero_corte:''}</div>
+      </div>
+    </div>`).join('')+(matches.length>30?`<div class="notif-item" style="color:var(--text2);font-size:11px">Y ${matches.length-30} resultado(s) más — afiná la búsqueda</div>`:'');
+}
+function closeGlobalSearchAndGo(secId,itemId){
+  document.getElementById('global-search-panel').classList.add('hidden');
+  irAItem(secId,itemId);
+}
 
 function renderPinsPanel(){
   const el=document.getElementById('pins-list');

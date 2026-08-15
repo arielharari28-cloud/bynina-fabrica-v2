@@ -5143,7 +5143,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${item.numero_corte?`<strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin asignar</span>`}
         <button class="btn-sm" onclick="editNumeroCortePrompt('${secId}','${itemId}')">${item.numero_corte?'✏️ Editar':'+ Asignar N° de corte'}</button>
       </div>`
-    : (item.numero_corte
+    : (item.numero_corte && !POST_S3_SECS.includes(secId)
       ? `<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:600">${item.numero_corte}</strong></div>` : '');
   // Capas/colores y rollos: en "Cortes próximos a sacar" (s3) esta info ahora vive en el panel
   // compartido del corte (flujoCorteHtml) — este panel viejo por ítem solo corresponde a partir
@@ -5245,6 +5245,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
         ${buildNameHtml(secId,itemId,item,canEdit,true)}
         ${!item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
+        ${(POST_S3_SECS.includes(secId)&&item.numero_corte)?`<div style="display:inline-block;background:var(--accent);color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:4px 10px;margin:2px 0 6px;letter-spacing:.2px">✂️ Corte N° ${item.numero_corte}</div>`:''}
         ${procesoInfoHtml(item,secId,itemId)}
         ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
         ${(secId==='sFIN'||item.base_aprobada)?(canEdit?buildCategoriaHtml(secId,itemId,item):(item.categoria?`<div style="font-size:11px;color:var(--text2)">Categoría: <strong>${item.categoria}</strong></div>`:'')):''}

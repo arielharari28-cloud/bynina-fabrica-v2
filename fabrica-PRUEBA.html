@@ -7767,8 +7767,10 @@ function costeoTotales(entry){
 function renderCosteoTab(){
   const cont=document.getElementById('costeo-list');
   const entries=Object.entries(costeosData||{}).sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
-  if(!entries.length){ cont.innerHTML='<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
-  cont.innerHTML=entries.map(([key,e])=>{
+  const puedeBackfill=(currentUser==='ariel'||currentUser==='stef');
+  const botonBackfill=puedeBackfill?`<button class="btn-sm" style="margin-bottom:10px" onclick="backfillCosteosExistentes()">🔄 Actualizar con cortes ya subidos</button>`:'';
+  if(!entries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
+  cont.innerHTML=botonBackfill+entries.map(([key,e])=>{
     const t=costeoTotales(e);
     const articulosTxt=(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ');
     const faltaPrecio=!e.precio_kg;
@@ -7782,6 +7784,44 @@ function renderCosteoTab(){
       <div style="font-size:13px;font-weight:700;color:var(--accent);margin-top:4px">${faltaPrecio?'Costo pendiente':'Costo total: $'+t.costoTotal.toFixed(2)+(t.piezas?' · $'+t.costoPrenda.toFixed(2)+'/prenda':'')}</div>
     </div>`;
   }).join('');
+}
+// Los cortes marcados como realizados ANTES de que existiera Costeo nunca generaron su entrada
+// automática. Este botón los busca (por sección, cualquiera con numero_corte + fecha_corte) y
+// los agrega, agrupados por N° de corte, sin pisar ninguna entrada que ya exista.
+function backfillCosteosExistentes(){
+  if(currentUser!=='ariel'&&currentUser!=='stef'){ showToast('Solo Ariel/Stef pueden hacer esto'); return; }
+  const grupos={};
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    if(!POST_S3_SECS.includes(secId)) return;
+    Object.values(sec.items||{}).forEach(item=>{
+      if(!item.numero_corte||!item.fecha_corte) return; // solo cortes que ya se marcaron cortados
+      const key=corteKeyFrom(item.numero_corte);
+      if(!key||costeosData[key]) return; // ya tiene entrada en Costeo, no se toca
+      if(!grupos[key]){
+        grupos[key]={
+          numero_corte:item.numero_corte, fecha_corte:item.fecha_corte, fecha_creado:Date.now(),
+          articulos:[], piezas_totales:0, rollos:{}, largo_capa:'', peso_metro:'',
+          avios:[], precio_kg:'', notas:'(agregado con "Actualizar con cortes ya subidos")'
+        };
+      }
+      const g=grupos[key];
+      g.articulos.push({code:item.code||'',name:item.name||''});
+      g.piezas_totales+=Object.values(item.capas||{}).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
+      Object.values(item.avios||{}).forEach(a=>{ if(a) g.avios.push({nombre:a.nombre||'',proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||''}); });
+      if(!Object.keys(g.rollos).length&&item.rollos) g.rollos=item.rollos;
+      if(!g.largo_capa&&item.largo_capa) g.largo_capa=item.largo_capa;
+      if(!g.peso_metro&&item.peso_metro) g.peso_metro=item.peso_metro;
+    });
+  });
+  const keys=Object.keys(grupos);
+  if(!keys.length){ showToast('Ya está todo al día — no hay cortes nuevos para agregar'); return; }
+  if(!confirm(`Se van a agregar ${keys.length} corte(s) que todavía no estaban en Costeo. ¿Continuar?`)) return;
+  const dbUpdates={};
+  keys.forEach(k=>{ dbUpdates[`fabrica_v5/costeos/${k}`]=grupos[k]; });
+  db.ref().update(dbUpdates).then(()=>{
+    logActivity('Actualizó Costeo con cortes ya subidos',`${keys.length} corte(s) agregados`);
+    showToast(`✓ Se agregaron ${keys.length} corte(s) a Costeo`);
+  });
 }
 let costeoDetailKey=null;
 function openCosteoDetail(key){

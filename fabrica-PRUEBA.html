@@ -469,6 +469,8 @@
       <button class="notif-btn hidden" id="colores-tela-btn" title="Editar colores por tela">🎨</button>
       <button class="notif-btn hidden" id="backup-btn" title="Descargar backup de todos los datos">💾</button>
       <button class="notif-btn" id="global-search-btn" title="Buscar en toda la app">🔎</button>
+      <button class="notif-btn" id="tab-order-btn" title="Ordenar pestañas a tu gusto">↕️</button>
+      <button class="notif-btn hidden" id="accesos-btn" title="Ver qué pestañas ve cada usuario">👥</button>
       <button class="notif-btn" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
       <button class="notif-btn hidden" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
       <div class="user-chip" id="user-chip">— <span style="opacity:.4">salir</span></div>
@@ -493,6 +495,16 @@
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Buscar en toda la app</span></div>
     <div style="padding:10px 14px 6px"><input type="text" class="search-input" id="global-search-input" placeholder="Código, nombre o N° de corte..." style="margin:0" oninput="onGlobalSearchInput(this.value)"></div>
     <div class="notif-list" id="global-search-results"></div>
+  </div>
+  <div class="notif-panel hidden" id="tab-order-panel">
+    <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Ordenar pestañas</span></div>
+    <div style="padding:6px 14px;font-size:11px;color:var(--text2)">Con las flechas cambiás el orden en el que ves las pestañas — queda guardado en este celu/navegador.</div>
+    <div class="notif-list" id="tab-order-list"></div>
+    <div style="padding:8px 14px"><button class="btn-sm" onclick="resetTabOrder()">↩ Restaurar orden original</button></div>
+  </div>
+  <div class="notif-panel hidden" id="accesos-panel">
+    <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Pestañas por usuario</span></div>
+    <div class="notif-list" id="accesos-list"></div>
   </div>
   <div class="notif-panel hidden" id="notif-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Actividad de Peque</span><button class="mark-all-btn" id="mark-all-btn">Marcar todo leído</button></div>
@@ -2177,7 +2189,7 @@ function getResponsable(sec,item,secId){
     return 'Peque'; // modelista ya asignado: falta que Peque envíe a moldería
   }
   if(tipo==='muestra_molderia'){
-    if(!item.foto_drive_ok) return 'Peque';
+    if(!item.entregada_modelista) return 'Peque';
     return item.modelista||'Peque';
   }
   if(tipo==='muestra_diseno') return 'Ariel y Stef';
@@ -2248,7 +2260,8 @@ function getProximaAccion(sec,item,secId){
     return `Falta enviar a moldería · Modelista: ${item.modelista}`;
   }
   if(tipo==='muestra_molderia'){
-    if(!item.foto_drive_ok) return 'Falta cargar la foto en Drive';
+    if(!item.entregada_modelista) return `Falta que la modelista entregue la muestra · ${item.modelista||'sin asignar'}`;
+    if(!item.foto_drive_ok) return 'Entregada — falta cargar la foto en Drive';
     return `Falta enviar a corte · Modelista: ${item.modelista||'sin asignar'}`;
   }
   if(tipo==='muestra_pend'){
@@ -2482,8 +2495,10 @@ function doLogin(user){
     document.getElementById('backup-btn').classList.remove('hidden');
     document.getElementById('pins-btn').classList.remove('hidden');
     document.getElementById('colores-tela-btn').classList.remove('hidden');
+    document.getElementById('accesos-btn').classList.remove('hidden');
     document.getElementById('tab-btn-costeo').classList.remove('hidden');
   }
+  applyTabOrder();
   if(user==='nahuel'){
     document.getElementById('stats-bar').classList.add('hidden');
     document.querySelector('.tabs').classList.add('hidden');
@@ -3453,24 +3468,9 @@ function toggleTelaEntregada(secId,itemId){
   const sec=sectionsData[secId];
   const item=sec.items[itemId];
   const nv=!(item.tela_entregada||false);
-  if(!nv){
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_entregada`).set(nv);
-    logActivity('Deshizo entrega de tela a Adela',item.code||item.name||'');
-    showToast('↩ Deshecho');
-    return;
-  }
-  // En Moldería: apenas se le da la tela a Adela, pasa directo a "Muestras — en taller"
-  // (ella corta y cose sola, así que ese es su equivalente al taller externo).
-  if(sec.tipo==='muestra_molderia'){
-    const newItem={...item,tela_entregada:true,tallerista:'Adela',fecha_envio_taller:Date.now(),fecha_etapa:Date.now()};
-    moveItemUndoable(secId,itemId,SEC_TALLER,newItem);
-    logActivity('Le dio la tela a Adela — pasó a En taller',item.code||item.name||'');
-    showToast('🧵 Tela entregada — pasó a Muestras en taller');
-    return;
-  }
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_entregada`).set(nv);
-  logActivity('Le dio la tela a Adela',item.code||item.name||'');
-  showToast('🧵 Tela entregada a Adela');
+  logActivity(nv?'Le dio la tela a Adela':'Deshizo entrega de tela a Adela',item.code||item.name||'');
+  showToast(nv?'🧵 Tela entregada a Adela':'↩ Deshecho');
 }
 
 function pasarAMolderia(secId,itemId){
@@ -3485,20 +3485,30 @@ function pasarAMolderia(secId,itemId){
   showToast(`🧵 ${item.code} pasó a Moldería`);
 }
 
+// "Foto en Drive" es solo un dato informativo/de control — subir la foto NO significa que la
+// modelista ya entregó la prenda. Lo que mueve el ítem de sección es toggleEntregaModelista.
 function toggleFotoDriveOk(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const nv=!(item.foto_drive_ok||false);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/foto_drive_ok`).set(nv);
+  logActivity(nv?'Foto en Drive ✓':'Foto en Drive ✗',item.code);
+  showToast(nv?'📷 Foto en Drive cargada':'↩ Deshecho');
+}
+
+// Este es el que de verdad significa "la modelista entregó la muestra" y avanza el ítem —
+// separado de la foto en Drive, que es solo un dato aparte que se puede cargar antes o después.
+function toggleEntregaModelista(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item.entregada_modelista||false);
   if(!nv){
     // Solo se puede destildar si todavía está acá (por las dudas, aunque en la práctica
     // al tildar ya se mueve de sección y este botón deja de existir para este ítem).
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/foto_drive_ok`).set(nv);
-    logActivity('Foto en Drive ✗',item.code);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/entregada_modelista`).set(nv);
+    logActivity('Entrega de modelista ✗',item.code);
     return;
   }
-  // Peque marca que la modelista entregó la muestra (con la foto ya en Drive) → pasa directo
-  // a corte, sin un botón "Enviar a corte" aparte.
-  logActivity('Foto en Drive ✓',item.code);
-  const newItem={...item,foto_drive_ok:true,fecha_etapa:Date.now()};
+  logActivity('Modelista entregó la muestra ✓',item.code);
+  const newItem={...item,entregada_modelista:true,fecha_etapa:Date.now()};
   delete newItem.estado;
   if(item.modelista==='Adela'){
     newItem.fecha_entregada=Date.now();
@@ -4916,10 +4926,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>`:''}
           ${buildRefLinkHtml(secId,itemId,item,canCorregirOrigen)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
-          ${item.modelista!=='Adela'?`<div class="cortada-row" style="padding:6px 0;border:none">
+          ${(()=>{ const esAdela=item.modelista==='Adela'; const destinoTxt=esAdela?'pasa directo a Diseño / Probar muestra':'pasa directo a corte'; return `
+          <div class="cortada-row" style="padding:6px 0;border:none">
+            <div class="c-check ${item.entregada_modelista?'checked':''}" onclick="${canEdit?`toggleEntregaModelista('${secId}','${itemId}')`:''}">${item.entregada_modelista?'✓':''}</div>
+            <span class="c-label ${item.entregada_modelista?'done':''}">Modelista entregó la muestra <span style="font-size:10px;color:var(--text3)">(${destinoTxt})</span></span>
+          </div>
+          <div class="cortada-row" style="padding:6px 0;border:none">
             <div class="c-check ${item.foto_drive_ok?'checked':''}" onclick="${canEdit?`toggleFotoDriveOk('${secId}','${itemId}')`:''}">${item.foto_drive_ok?'✓':''}</div>
-            <span class="c-label ${item.foto_drive_ok?'done':''}">Modelista entregó — foto en Drive con nombre prenda y código <span style="font-size:10px;color:var(--text3)">(Peque — pasa directo a corte)</span></span>
-          </div>`:''}
+            <span class="c-label ${item.foto_drive_ok?'done':''}">Foto en Drive con nombre prenda y código</span>
+          </div>`; })()}
           ${refBox}
           <div class="item-actions">
             ${moveOpts}
@@ -6963,6 +6978,99 @@ function closeGlobalSearchAndGo(secId,itemId){
   document.getElementById('global-search-panel').classList.add('hidden');
   irAItem(secId,itemId);
 }
+
+// ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-costeo':'💰 Costeo'};
+function getTabOrder(){
+  let saved=null;
+  try{ saved=JSON.parse(localStorage.getItem('fabrica_tab_order_v1')||'null'); }catch(e){}
+  if(!Array.isArray(saved)) return [...TAB_ORDER_DEFAULT];
+  // Por si en el futuro se agregan/sacan pestañas: mezcla lo guardado con el default, sin perder ni duplicar.
+  const merged=saved.filter(id=>TAB_ORDER_DEFAULT.includes(id));
+  TAB_ORDER_DEFAULT.forEach(id=>{ if(!merged.includes(id)) merged.push(id); });
+  return merged;
+}
+function saveTabOrder(order){
+  try{ localStorage.setItem('fabrica_tab_order_v1',JSON.stringify(order)); }catch(e){}
+}
+function applyTabOrder(){
+  const cont=document.querySelector('.tabs');
+  if(!cont) return;
+  getTabOrder().forEach(id=>{
+    const btn=document.getElementById(id);
+    if(btn) cont.appendChild(btn);
+  });
+}
+function resetTabOrder(){
+  try{ localStorage.removeItem('fabrica_tab_order_v1'); }catch(e){}
+  applyTabOrder();
+  renderTabOrderPanel();
+  showToast('↩ Orden original restaurado');
+}
+function renderTabOrderPanel(){
+  const cont=document.getElementById('tab-order-list');
+  const order=getTabOrder().filter(id=>{
+    const btn=document.getElementById(id);
+    return btn&&!btn.classList.contains('hidden');
+  });
+  cont.innerHTML=order.map((id,i)=>`
+    <div class="notif-item" style="display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:13px">${TAB_LABELS[id]}</span>
+      <div style="display:flex;gap:4px">
+        <button class="btn-sm" ${i===0?'disabled':''} onclick="moveTabOrder('${id}',-1)">▲</button>
+        <button class="btn-sm" ${i===order.length-1?'disabled':''} onclick="moveTabOrder('${id}',1)">▼</button>
+      </div>
+    </div>`).join('');
+}
+function moveTabOrder(id,dir){
+  const full=getTabOrder();
+  const visibles=full.filter(tid=>{ const b=document.getElementById(tid); return b&&!b.classList.contains('hidden'); });
+  const idx=visibles.indexOf(id);
+  const swapWith=idx+dir;
+  if(swapWith<0||swapWith>=visibles.length) return;
+  [visibles[idx],visibles[swapWith]]=[visibles[swapWith],visibles[idx]];
+  // Reconstruye el orden completo: las visibles en su nuevo orden + las ocultas al final, tal cual estaban.
+  const ocultas=full.filter(tid=>!visibles.includes(tid));
+  const nuevoOrden=[...visibles,...ocultas];
+  saveTabOrder(nuevoOrden);
+  applyTabOrder();
+  renderTabOrderPanel();
+}
+document.getElementById('tab-order-btn').onclick=()=>{
+  document.getElementById('notif-panel').classList.add('hidden');
+  document.getElementById('pins-panel').classList.add('hidden');
+  document.getElementById('global-search-panel').classList.add('hidden');
+  document.getElementById('accesos-panel').classList.add('hidden');
+  const panel=document.getElementById('tab-order-panel');
+  panel.classList.toggle('hidden');
+  if(!panel.classList.contains('hidden')) renderTabOrderPanel();
+};
+
+// ---- Accesos por usuario: referencia de qué pestañas ve cada rol (informativo, no editable) ----
+const ACCESOS_POR_USUARIO=[
+  {user:'Ariel / Stef',tabs:'Todas las pestañas (Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística, Costeo) + herramientas admin (PIN, backup, colores por tela)'},
+  {user:'Peque',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
+  {user:'Emir',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
+  {user:'Ari Morón',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
+  {user:'Nahuel',tabs:'Vista especial: Diseño y Fábrica juntos en una sola pantalla, sin pestañas para elegir (más Logística para conteo)'},
+  {user:'Noemí',tabs:'Diseño, Fábrica, Pendientes, Galería, Actividad, Estampas, Logística — sin Costeo'},
+];
+document.getElementById('accesos-btn').onclick=()=>{
+  document.getElementById('notif-panel').classList.add('hidden');
+  document.getElementById('pins-panel').classList.add('hidden');
+  document.getElementById('global-search-panel').classList.add('hidden');
+  document.getElementById('tab-order-panel').classList.add('hidden');
+  const panel=document.getElementById('accesos-panel');
+  panel.classList.toggle('hidden');
+  if(!panel.classList.contains('hidden')){
+    document.getElementById('accesos-list').innerHTML=ACCESOS_POR_USUARIO.map(a=>`
+      <div class="notif-item" style="flex-direction:column;align-items:flex-start;gap:2px">
+        <span style="font-weight:700;font-size:13px">${a.user}</span>
+        <span style="font-size:11px;color:var(--text2)">${a.tabs}</span>
+      </div>`).join('');
+  }
+};
 
 function renderPinsPanel(){
   const el=document.getElementById('pins-list');

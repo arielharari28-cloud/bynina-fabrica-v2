@@ -466,6 +466,7 @@
     <div class="topbar-left"><span class="topbar-logo">By Nina</span><span class="topbar-title">· Fábrica</span></div>
     <div style="display:flex;align-items:center">
       <button class="notif-btn hidden" id="pins-btn" title="Cambiar PIN de usuarios">🔑</button>
+      <button class="notif-btn hidden" id="colores-tela-btn" title="Editar colores por tela">🎨</button>
       <button class="notif-btn hidden" id="backup-btn" title="Descargar backup de todos los datos">💾</button>
       <button class="notif-btn" id="global-search-btn" title="Buscar en toda la app">🔎</button>
       <button class="notif-btn" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
@@ -476,6 +477,17 @@
   <div class="notif-panel hidden" id="pins-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Cambiar PIN</span></div>
     <div class="notif-list" id="pins-list"></div>
+  </div>
+  <div class="notif-panel hidden" id="colores-tela-panel">
+    <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Colores por tela</span></div>
+    <div style="padding:10px 14px 6px">
+      <select id="colores-tela-select" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:8px;font-size:13px" onchange="renderColoresTelaLista()"></select>
+    </div>
+    <div style="padding:0 14px 6px;display:flex;gap:6px">
+      <input type="text" id="colores-tela-nuevo" placeholder="Nuevo color..." style="flex:1;padding:7px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+      <button class="btn-sm" onclick="addColorATela()">+ Agregar</button>
+    </div>
+    <div class="notif-list" id="colores-tela-lista"></div>
   </div>
   <div class="notif-panel hidden" id="global-search-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Buscar en toda la app</span></div>
@@ -495,6 +507,7 @@
       <button class="tab" id="tab-btn-actividad">Actividad</button>
       <button class="tab" id="tab-btn-estampas">🎨 Estampas</button>
       <button class="tab" id="tab-btn-logistica">📦 Logística</button>
+      <button class="tab hidden" id="tab-btn-costeo">💰 Costeo</button>
     </div>
     <div id="tab-diseno">
       <div id="alert-banner"></div>
@@ -550,6 +563,12 @@
         <div id="logi-rows-container"></div>
         <div id="logi-final-summary"></div>
       </div>
+    </div>
+    <div id="tab-costeo" class="hidden">
+      <div id="costeo-board-screen">
+        <div id="costeo-list"><div class="loading">Cargando...</div></div>
+      </div>
+      <div id="costeo-detail-screen" class="hidden"></div>
     </div>
   </div>
 </div>
@@ -2294,6 +2313,8 @@ let talleresCorteList = ['Adela','Willy Ramos'];
 let marcasList = ['By Nina'];
 // Telas usadas (editable: se puede agregar una nueva directo desde la tarjeta)
 let telasList = [];
+let telasColoresData = {};
+let costeosData = {};
 // Proveedores de tela (mismo patrón que Telas — se comparte y crece con lo que se va cargando)
 let proveedoresList = [];
 // Categoría y temporada del producto (editable, mismo patrón que Marca/Tela)
@@ -2460,6 +2481,8 @@ function doLogin(user){
   if(user==='ariel'||user==='stef'){
     document.getElementById('backup-btn').classList.remove('hidden');
     document.getElementById('pins-btn').classList.remove('hidden');
+    document.getElementById('colores-tela-btn').classList.remove('hidden');
+    document.getElementById('tab-btn-costeo').classList.remove('hidden');
   }
   if(user==='nahuel'){
     document.getElementById('stats-bar').classList.add('hidden');
@@ -2789,6 +2812,14 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     const v=snap.val();
     if(v){ telasList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
     renderSections('diseno');renderSections('fabrica');
+  });
+  db.ref('fabrica_v5/telas_colores').on('value',snap=>{
+    telasColoresData=snap.val()||{};
+    if(!document.getElementById('colores-tela-panel').classList.contains('hidden')) renderColoresTelaLista();
+  });
+  db.ref('fabrica_v5/costeos').on('value',snap=>{
+    costeosData=snap.val()||{};
+    if(!document.getElementById('tab-costeo').classList.contains('hidden')) renderCosteoTab();
   });
   db.ref('fabrica_v5/proveedores').on('value',snap=>{
     const v=snap.val();
@@ -5970,6 +6001,9 @@ function marcarCorteRealizado(secId,itemId){
 
   const dbUpdates={};
   const destinos=[];
+  const costeoArticulos=[];
+  const costeoAvios=[];
+  let costeoPiezas=0;
   miembros.forEach(([mId,mItem])=>{
     // Congela las capas/rollos compartidos del corte en cada artículo — la cantidad por talle
     // se calcula con la curva propia de CADA artículo (las curvas pueden diferir entre ellos).
@@ -5982,6 +6016,12 @@ function marcarCorteRealizado(secId,itemId){
       const cant={};
       talles.forEach(t=>{ cant[t]=capas*(parseInt(curvaValores[t])||0); });
       capasCongeladas[rid]={color:r.color||'',capas,cant};
+    });
+    // Datos para la entrada automática de Costeo (ver más abajo).
+    costeoPiezas+=Object.values(capasCongeladas).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
+    costeoArticulos.push({code:mItem.code||'',name:mItem.name||''});
+    Object.values(mItem.avios||{}).forEach(a=>{
+      if(a) costeoAvios.push({nombre:a.nombre||'',proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||''});
     });
     const newItem={...mItem,
       fecha_corte:fechaFinal, done:true,
@@ -6009,6 +6049,25 @@ function marcarCorteRealizado(secId,itemId){
     destinos.push(`${mItem.code||mItem.name||'(sin código)'} → ${targetTitle}`);
   });
   if(corteKey) dbUpdates[`fabrica_v5/grupos_corte/${corteKey}`]=null; // libera el nodo compartido, ya está congelado en cada ítem
+  if(corteKey){
+    // Alta automática en el tablero de Costeo — Ariel/Stef después le suman el precio x kg y ven
+    // el costo total. Si por algo ya existía una entrada para este N° de corte, no se pisa el
+    // precio x kg ni las notas que ya haya cargado.
+    const existente=costeosData[corteKey]||{};
+    dbUpdates[`fabrica_v5/costeos/${corteKey}`]={
+      numero_corte:item.numero_corte||'',
+      fecha_corte:fechaFinal,
+      fecha_creado:existente.fecha_creado||Date.now(),
+      articulos:costeoArticulos,
+      piezas_totales:costeoPiezas,
+      rollos:grupo.rollos||{},
+      largo_capa:(grupo.largo_capa!==undefined&&grupo.largo_capa!==null&&grupo.largo_capa!=='')?grupo.largo_capa:'',
+      peso_metro:(grupo.peso_metro!==undefined&&grupo.peso_metro!==null&&grupo.peso_metro!=='')?grupo.peso_metro:'',
+      avios:costeoAvios,
+      precio_kg:existente.precio_kg||'',
+      notas:existente.notas||''
+    };
+  }
   db.ref().update(dbUpdates);
   logActivity('Corte realizado',`Corte ${item.numero_corte||item.code} — ${fechaFinal} (${miembros.length} artículo${miembros.length!==1?'s':''}): ${destinos.join(' · ')}`);
   showToast(miembros.length>1
@@ -6636,8 +6695,10 @@ function openEditModal(secId,itemId){
     <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-top:10px">Avíos</div>
     <div id="avios-edit">
       ${avios.map(([avioId,avio])=>`<div class="avio-block">
-        <div class="field"><label>Avío</label><input type="text" id="an-${avioId}" value="${avio.nombre||''}"></div>
-        <div class="field"><label>Proveedor</label><input type="text" id="ap-${avioId}" value="${avio.proveedor||''}"></div>
+        <div class="field"><label>Avío${esCorte?' *':''}</label><input type="text" id="an-${avioId}" value="${avio.nombre||''}"></div>
+        <div class="field"><label>Proveedor${esCorte?' *':''}</label><input type="text" id="ap-${avioId}" value="${avio.proveedor||''}"></div>
+        <div class="field"><label>Cantidad por unidad${esCorte?' *':''}</label><input type="text" id="aq-${avioId}" value="${avio.cantidad||''}" placeholder="Ej: 2"></div>
+        <div class="field"><label>Precio${esCorte?' *':''}</label><input type="text" id="apr-${avioId}" value="${avio.precio||''}" placeholder="Ej: 150"></div>
         <div class="field"><label>Fecha pedido</label><input type="text" id="af-${avioId}" value="${avio.fecha_pedido||''}"></div>
         ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" style="margin-top:4px;width:100%" onclick="deleteAvio('${secId}','${itemId}','${avioId}')">Eliminar avío</button>`:''}
       </div>`).join('')}
@@ -6713,10 +6774,13 @@ function removeCapaRow(id){
 function addAvioField(){
   editCtx.newAvioCount++;
   const n=`new${editCtx.newAvioCount}`;
+  const esCorte=!sectionsData[editCtx.secId].tipo;
   const d=document.createElement('div');d.className='avio-block';
   d.innerHTML=`
-    <div class="field"><label>Avío</label><input type="text" id="an-${n}" placeholder="Ej: Botón Jeanero"></div>
-    <div class="field"><label>Proveedor</label><input type="text" id="ap-${n}" placeholder="Ej: Button Company"></div>
+    <div class="field"><label>Avío${esCorte?' *':''}</label><input type="text" id="an-${n}" placeholder="Ej: Botón Jeanero"></div>
+    <div class="field"><label>Proveedor${esCorte?' *':''}</label><input type="text" id="ap-${n}" placeholder="Ej: Button Company"></div>
+    <div class="field"><label>Cantidad por unidad${esCorte?' *':''}</label><input type="text" id="aq-${n}" placeholder="Ej: 2"></div>
+    <div class="field"><label>Precio${esCorte?' *':''}</label><input type="text" id="apr-${n}" placeholder="Ej: 150"></div>
     <div class="field"><label>Fecha pedido</label><input type="text" id="af-${n}" placeholder="Ej: 8/6/2026"></div>`;
   document.getElementById('avios-edit').appendChild(d);
 }
@@ -6726,6 +6790,22 @@ function saveEditItem(){
   const item=sectionsData[secId].items[itemId];
   const sec=sectionsData[secId];
   const esCorte=!sec.tipo;
+  // En cortes, cada avío nuevo tiene que tener Proveedor, Cantidad por unidad y Precio antes de
+  // guardar (evita que se cargue un avío "a medias" y se olvide completar el costo después).
+  if(esCorte){
+    for(let i=1;i<=newAvioCount;i++){
+      const n=document.getElementById(`an-new${i}`);
+      if(!n||!n.value.trim()) continue; // fila vacía sin usar, se ignora
+      const faltan=[];
+      if(!document.getElementById(`ap-new${i}`)?.value.trim()) faltan.push('Proveedor');
+      if(!document.getElementById(`aq-new${i}`)?.value.trim()) faltan.push('Cantidad por unidad');
+      if(!document.getElementById(`apr-new${i}`)?.value.trim()) faltan.push('Precio');
+      if(faltan.length){
+        alert(`Falta completar en el avío "${n.value.trim()}": ${faltan.join(', ')}`);
+        return;
+      }
+    }
+  }
   const updates={
     code:document.getElementById('e-code').value.trim(),
     name:document.getElementById('e-name').value.trim(),
@@ -6751,6 +6831,8 @@ function saveEditItem(){
     if(n) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}`).update({
       nombre:n.value.trim(),
       proveedor:(document.getElementById(`ap-${avioId}`)?.value||'').trim(),
+      cantidad:(document.getElementById(`aq-${avioId}`)?.value||'').trim(),
+      precio:(document.getElementById(`apr-${avioId}`)?.value||'').trim(),
       fecha_pedido:(document.getElementById(`af-${avioId}`)?.value||'').trim(),
     });
   });
@@ -6759,6 +6841,8 @@ function saveEditItem(){
     if(n&&n.value.trim()) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios`).push({
       nombre:n.value.trim(),
       proveedor:(document.getElementById(`ap-new${i}`)?.value||'').trim(),
+      cantidad:(document.getElementById(`aq-new${i}`)?.value||'').trim(),
+      precio:(document.getElementById(`apr-new${i}`)?.value||'').trim(),
       fecha_pedido:(document.getElementById(`af-new${i}`)?.value||'').trim(),
       recibido:false
     });
@@ -6789,6 +6873,55 @@ document.getElementById('save-modal-sec').onclick=()=>{
 // NOTIFS
 document.getElementById('notif-btn').onclick=()=>{document.getElementById('notif-panel').classList.toggle('hidden');renderNotifPanel()};
 document.getElementById('pins-btn').onclick=()=>{document.getElementById('pins-panel').classList.toggle('hidden');renderPinsPanel()};
+
+// ---- Colores por tela: catálogo editable (independiente de los colores ya usados históricamente) ----
+document.getElementById('colores-tela-btn').onclick=()=>{
+  document.getElementById('notif-panel').classList.add('hidden');
+  document.getElementById('pins-panel').classList.add('hidden');
+  document.getElementById('global-search-panel').classList.add('hidden');
+  const panel=document.getElementById('colores-tela-panel');
+  panel.classList.toggle('hidden');
+  if(!panel.classList.contains('hidden')) renderColoresTelaSelect();
+};
+function renderColoresTelaSelect(){
+  const sel=document.getElementById('colores-tela-select');
+  const actual=sel.value;
+  sel.innerHTML=(telasList||[]).map(t=>`<option value="${t}">${t}</option>`).join('')||`<option value="">No hay telas cargadas todavía</option>`;
+  if(actual&&telasList.includes(actual)) sel.value=actual;
+  renderColoresTelaLista();
+}
+function renderColoresTelaLista(){
+  const tela=document.getElementById('colores-tela-select').value;
+  const cont=document.getElementById('colores-tela-lista');
+  if(!tela){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Elegí una tela arriba</div>'; return; }
+  const key=sanitizeStr(tela);
+  const colores=(telasColoresData[key]&&telasColoresData[key].colores)||[];
+  if(!colores.length){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Todavía no hay colores cargados para esta tela</div>'; return; }
+  cont.innerHTML=colores.map((c,i)=>`
+    <div class="notif-item" style="display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:13px">${c}</span>
+      <button class="btn-danger" style="padding:2px 8px;font-size:11px" onclick="removeColorDeTela(${i})">✕</button>
+    </div>`).join('');
+}
+function addColorATela(){
+  const tela=document.getElementById('colores-tela-select').value;
+  if(!tela){ showToast('Elegí una tela primero'); return; }
+  const input=document.getElementById('colores-tela-nuevo');
+  const color=(input.value||'').trim();
+  if(!color) return;
+  const key=sanitizeStr(tela);
+  const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
+  if(!colores.includes(color)) colores.push(color);
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+  input.value='';
+}
+function removeColorDeTela(idx){
+  const tela=document.getElementById('colores-tela-select').value;
+  const key=sanitizeStr(tela);
+  const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
+  colores.splice(idx,1);
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+}
 
 // ---- Búsqueda global: busca por código, nombre o N° de corte en TODAS las secciones ----
 // (a diferencia de los buscadores de cada pestaña, que solo filtran dentro de esa pestaña)
@@ -7431,8 +7564,115 @@ function logiGridConfirmar(){
 }
 
 // TABS
+// ---- COSTEO: tablero automático que se alimenta al marcar cada corte como realizado ----
+function numAr2(v){ const n=parseFloat(String(v||'').replace(',','.')); return isNaN(n)?0:n; }
+function costeoTotales(entry){
+  const kgTotal=Object.values(entry.rollos||{}).reduce((s,r)=>s+numAr2(r&&r.kgmts),0);
+  const precioKg=numAr2(entry.precio_kg);
+  const costoTela=precioKg?kgTotal*precioKg:0;
+  const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
+  const costoTotal=costoTela+costoAvios;
+  const piezas=entry.piezas_totales||0;
+  const costoPrenda=piezas?costoTotal/piezas:0;
+  return{kgTotal,costoTela,costoAvios,costoTotal,piezas,costoPrenda};
+}
+function renderCosteoTab(){
+  const cont=document.getElementById('costeo-list');
+  const entries=Object.entries(costeosData||{}).sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
+  if(!entries.length){ cont.innerHTML='<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
+  cont.innerHTML=entries.map(([key,e])=>{
+    const t=costeoTotales(e);
+    const articulosTxt=(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ');
+    const faltaPrecio=!e.precio_kg;
+    return `<div class="item" style="cursor:pointer;flex-direction:column;align-items:stretch" onclick="openCosteoDetail('${key}')">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <div style="font-weight:700;font-size:14px">✂️ Corte N° ${e.numero_corte||'—'}</div>
+        ${faltaPrecio?`<span style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:2px 8px">⚠️ Falta precio x kg</span>`:`<span style="font-size:11px;color:var(--green-text);background:var(--green-bg,#dcfce7);border-radius:6px;padding:2px 8px">✅ Costeado</span>`}
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">${articulosTxt||'(sin artículos)'}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:2px">✂️ Cortado: ${e.fecha_corte||'—'} · ${t.kgTotal.toFixed(2)} kg · ${t.piezas} prendas</div>
+      <div style="font-size:13px;font-weight:700;color:var(--accent);margin-top:4px">${faltaPrecio?'Costo pendiente':'Costo total: $'+t.costoTotal.toFixed(2)+(t.piezas?' · $'+t.costoPrenda.toFixed(2)+'/prenda':'')}</div>
+    </div>`;
+  }).join('');
+}
+let costeoDetailKey=null;
+function openCosteoDetail(key){
+  costeoDetailKey=key;
+  document.getElementById('costeo-board-screen').classList.add('hidden');
+  document.getElementById('costeo-detail-screen').classList.remove('hidden');
+  renderCosteoDetail();
+}
+function closeCosteoDetail(){
+  costeoDetailKey=null;
+  document.getElementById('costeo-detail-screen').classList.add('hidden');
+  document.getElementById('costeo-board-screen').classList.remove('hidden');
+}
+function renderCosteoDetail(){
+  const e=costeosData[costeoDetailKey];
+  const cont=document.getElementById('costeo-detail-screen');
+  if(!e){ cont.innerHTML=`<button class="btn-sm" onclick="closeCosteoDetail()">← Volver</button><div class="empty-state">Este corte ya no está en Costeo</div>`; return; }
+  const t=costeoTotales(e);
+  const canEdit=(currentUser==='ariel'||currentUser==='stef');
+  const rollosRows=Object.values(e.rollos||{}).filter(r=>r&&(r.color||r.kgmts)).map(r=>`
+    <tr><td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td></tr>`).join('');
+  const aviosRows=(e.avios||[]).map(a=>`
+    <tr><td style="padding:3px 6px;font-size:12px">${a.nombre||'—'}${a.proveedor?` · ${a.proveedor}`:''}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${a.cantidad||'—'} × $${a.precio||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:right">$${(numAr2(a.cantidad)*numAr2(a.precio)).toFixed(2)}</td></tr>`).join('');
+  cont.innerHTML=`
+    <button class="btn-sm" onclick="closeCosteoDetail()">← Volver al tablero</button>
+    <div style="font-weight:800;font-size:17px;margin-top:8px">✂️ Corte N° ${e.numero_corte||'—'}</div>
+    <div style="font-size:12px;color:var(--text2);margin:2px 0 10px">${(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ')||'(sin artículos)'} · Cortado: ${e.fecha_corte||'—'} · ${t.piezas} prendas</div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Tela</div>
+      <table style="width:100%;border-collapse:collapse">${rollosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin rollos cargados</td></tr>'}</table>
+      <div style="font-size:12px;margin-top:4px">Total: <strong>${t.kgTotal.toFixed(2)} kg</strong> · Largo capa: <strong>${e.largo_capa||'—'}</strong> · Peso x m: <strong>${e.peso_metro||'—'}</strong></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <span style="font-size:12px">Precio x kg:</span>
+        <span style="font-weight:700">${e.precio_kg?'$'+e.precio_kg:'Sin cargar'}</span>
+        ${canEdit?`<button class="btn-sm" onclick="editCosteoPrecioKg('${costeoDetailKey}')">${e.precio_kg?'✏️ Editar':'+ Cargar precio'}</button>`:''}
+      </div>
+      <div style="font-size:12px;margin-top:2px">Costo tela: <strong>$${t.costoTela.toFixed(2)}</strong></div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">🧷 Avíos</div>
+      <table style="width:100%;border-collapse:collapse">${aviosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin avíos</td></tr>'}</table>
+      <div style="font-size:12px;margin-top:4px">Costo avíos: <strong>$${t.costoAvios.toFixed(2)}</strong></div>
+    </div>
+    <div style="background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-size:14px;font-weight:800;color:var(--accent)">Costo total: $${t.costoTotal.toFixed(2)}</div>
+      ${t.piezas?`<div style="font-size:12px;color:var(--text2)">≈ $${t.costoPrenda.toFixed(2)} por prenda (${t.piezas} prendas)</div>`:''}
+    </div>
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📝 Notas</div>
+      <div style="font-size:12px;color:${e.notas?'var(--text)':'var(--text3)'};font-style:${e.notas?'normal':'italic'}">${e.notas||'Sin notas'}</div>
+      ${canEdit?`<button class="btn-sm" style="margin-top:4px" onclick="editCosteoNotas('${costeoDetailKey}')">✏️ Editar nota</button>`:''}
+    </div>
+    ${canEdit?`<button class="btn-danger" onclick="deleteCosteo('${costeoDetailKey}')">Eliminar del tablero de Costeo</button>`:''}
+  `;
+}
+function editCosteoPrecioKg(key){
+  const e=costeosData[key]||{};
+  const val=prompt('Precio x kg de tela:',e.precio_kg||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/precio_kg`).set(val.trim().replace(',','.'));
+  logActivity('Editó precio x kg (Costeo)',`Corte ${e.numero_corte}: $${val.trim()}`);
+  showToast('✓ Precio x kg guardado');
+}
+function editCosteoNotas(key){
+  const e=costeosData[key]||{};
+  const val=prompt('Nota sobre este costeo:',e.notas||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/notas`).set(val.trim());
+  showToast('✓ Nota guardada');
+}
+function deleteCosteo(key){
+  if(!confirm('¿Eliminar este corte del tablero de Costeo? No afecta el corte en Fábrica, solo este resumen.')) return;
+  db.ref(`fabrica_v5/costeos/${key}`).remove();
+  closeCosteoDetail();
+  showToast('Eliminado del tablero de Costeo');
+}
+
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-costeo'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -7469,6 +7709,12 @@ document.getElementById('tab-btn-logistica').onclick=function(){
   ocultarTabsMenosActiva('tab-logistica');
   this.classList.add('active');
   logiInit();
+};
+document.getElementById('tab-btn-costeo').onclick=function(){
+  ocultarTabsMenosActiva('tab-costeo');
+  this.classList.add('active');
+  closeCosteoDetail();
+  renderCosteoTab();
 };
 document.getElementById('close-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');
 document.getElementById('cancel-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');

@@ -3930,6 +3930,14 @@ function fmtFecha(timestamp){
   const d = new Date(timestamp);
   return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
 }
+// Convierte "DD/MM/AAAA" a timestamp (mediodía, para evitar líos de huso horario). Si no
+// matchea el formato, devuelve null y quien llama decide qué hacer (ej: usar Date.now()).
+function parseFechaArToTs(str){
+  const m=String(str||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return null;
+  const d=new Date(parseInt(m[3],10),parseInt(m[2],10)-1,parseInt(m[1],10),12,0,0);
+  return isNaN(d.getTime())?null:d.getTime();
+}
 
 function diasEntre(ts){
   if(!ts) return null;
@@ -5321,7 +5329,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const rollosHtml = secId==='s3' ? '' : buildRollosHtml(item,secId,itemId,canEditRollosFuera);
   const realesHtml = secId==='s3' ? '' : buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = (secId==='sFIN'||secId==='s6')&&item.fecha_salida_taller
-    ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></div>` : '';
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text2)">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></span>
+        ${canFicha?`<button class="btn-sm" onclick="editFechaSalidaTaller('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
+      </div>` : '';
   // Banner grande y persistente: si quedan avíos sin recibir, se ve fuerte en CUALQUIER
   // etapa (incluido ya en taller / Cortes Finalizados) — no se pierde entre la lista.
   const aviosSinRecibir=avios.filter(([,a])=>!a.recibido);
@@ -6456,16 +6467,35 @@ function sacarATaller(secId,itemId){
     }
   }
   if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
+  const hoy=new Date();
+  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fecha=prompt('¿Qué fecha salió a taller?',fechaDefault);
+  if(fecha===null) return;
+  const fechaFinal=fecha.trim()||fechaDefault;
+  const tsSalida=parseFechaArToTs(fechaFinal)||Date.now();
   const avList=Object.values(item.avios||{});
   const avioPendiente = avList.length>0 && !avList.every(a=>a.recibido);
   const targetSec = avioPendiente ? 's6' : 'sFIN';
-  const newItem={...item, fecha_salida_taller:Date.now(), fecha_etapa:Date.now()};
+  const newItem={...item, fecha_salida_taller:tsSalida, fecha_etapa:Date.now()};
   delete newItem.pedido_sin_avio;
   ensureSeccionCorte(targetSec);
   db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Corte sacado a taller',`${item.code} → ${item.taller_corte}${avioPendiente?' (avío pendiente)':''}`);
+  logActivity('Corte sacado a taller',`${item.code} → ${item.taller_corte}${avioPendiente?' (avío pendiente)':''}: ${fechaFinal}`);
   showToast(avioPendiente?`📦 ${item.code} salió a ${item.taller_corte} — el avío queda pendiente`:`📦 ${item.code} salió a ${item.taller_corte}`);
+}
+
+// Deja corregir la fecha de salida a taller de un artículo ya entregado (por si se marcó
+// entregado un día pero en realidad salió otro).
+function editFechaSalidaTaller(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const fecha=prompt('¿Qué fecha salió a taller?',fmtFecha(item.fecha_salida_taller));
+  if(fecha===null) return;
+  const ts=parseFechaArToTs(fecha.trim());
+  if(fecha.trim()&&!ts){ showToast('Fecha inválida — usá el formato DD/MM/AAAA'); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_salida_taller`).set(ts||null);
+  logActivity('Editó fecha de salida a taller',`${item.code||item.name||''}: ${fecha.trim()}`);
+  showToast('✓ Fecha guardada');
 }
 
 // Cuando el avío todavía está pendiente (s4/s5), Emir/Peque no pueden sacar el corte

@@ -3480,6 +3480,26 @@ function toggleTelaEntregada(secId,itemId){
   showToast(nv?'🧵 Tela entregada a Adela':'↩ Deshecho');
 }
 
+// Cuando la muestra la hace Adela, alguien tiene que avisarle a los chicos de corte cuánta
+// tela separar para ella (no pasa por el circuito normal de Cortador) y confirmar si esa
+// tela + los avíos ya se le entregaron, para que pueda cortar y confeccionar la muestra.
+function editTelaCantidadAdela(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const val=prompt('¿Cuánta tela separar para Adela? (ej: 1.5m, 2 cortes)',item.tela_cantidad_adela||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_cantidad_adela`).set(val.trim()||null);
+  logActivity('Cargó cantidad de tela para Adela',`${item.code||item.name||''}: ${val.trim()}`);
+  showToast('✓ Cantidad guardada');
+}
+
+function toggleAviosEntregadosAdela(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item.avios_entregados_adela||false);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios_entregados_adela`).set(nv);
+  logActivity(nv?'Avíos entregados a Adela':'Deshizo entrega de avíos a Adela',item.code||item.name||'');
+  showToast(nv?'✓ Avíos entregados a Adela':'↩ Deshecho');
+}
+
 function pasarAMolderia(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.code||!item.ficha_link||!item.modelista){ showToast('Falta código, link de ficha o modelista asignada'); return; }
@@ -3795,6 +3815,42 @@ async function uploadFotoPrueba(secId,itemId,file){
 
 function deleteFotoPrueba(secId,itemId,fotoId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fotos_prueba/${fotoId}`).remove();
+}
+
+// Fotos de referencia adjuntas a un pedido de modificación (de ficha, de molde, o de ambas) —
+// para que quien tiene que corregir (Peque / modelista) vea cómo quedó puesto además de leer
+// el texto. Se guardan en item.mod_fotos y viajan con el ítem a donde vaya.
+function triggerModFotoUpload(secId,itemId){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept='image/*';
+  input.onchange=(e)=>{ if(e.target.files[0]) uploadModFoto(secId,itemId,e.target.files[0]); };
+  input.click();
+}
+
+async function uploadModFoto(secId,itemId,file){
+  showToast('📤 Subiendo foto...');
+  const formData=new FormData();
+  formData.append('file',file);
+  formData.append('upload_preset',CLOUDINARY_PRESET);
+  try{
+    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+    const data=await res.json();
+    if(data.secure_url){
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mod_fotos`).push(data.secure_url);
+      const item=sectionsData[secId].items[itemId];
+      logActivity('Agregó foto a modificación',item.code);
+      showToast('✓ Foto cargada');
+    } else {
+      showToast('✗ Error al subir foto');
+    }
+  }catch(e){
+    showToast('✗ Error al subir foto');
+  }
+}
+
+function deleteModFoto(secId,itemId,fotoId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mod_fotos/${fotoId}`).remove();
 }
 
 function marcarAprobada(secId,itemId){
@@ -4858,26 +4914,45 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${!fichaCorregidaEsperando?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirModificacionFicha('${secId}','${itemId}')">🔧 Pedir modificación</button>`:''}`:''}
             ${canControl&&!item.ficha_link?`<span style="font-size:11px;color:var(--text3);font-style:italic">Cargá la ficha primero</span>`:''}
           </div>
-          ${fichaModPendiente?`<div class="mod-ref-box">
+          ${(()=>{ const modFotos=Object.entries(item.mod_fotos||{}); const fotosHtml=`<div class="diseno-fotos-grid" style="margin-top:6px">
+              ${modFotos.map(([fotoId,url])=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')">${canControl?`<button class="diseno-foto-del" onclick="deleteModFoto('${secId}','${itemId}','${fotoId}')">×</button>`:''}</div>`).join('')}
+              ${canControl?`<div class="diseno-add-foto" onclick="triggerModFotoUpload('${secId}','${itemId}')" title="Agregar foto de cómo quedó puesto">📷</div>`:''}
+            </div>`;
+          if(fichaModPendiente) return `<div class="mod-ref-box">
             <div class="mod-ref-title">🔧 Modificación pedida${item.ficha_mod_por?` por ${item.ficha_mod_por}`:''}:</div>
             <div>${(item.ficha_mod_notas||'').replace(/</g,'&lt;')}</div>
+            ${fotosHtml}
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
               ${canPeque?`<button class="btn-advance" onclick="marcarFichaCorregida('${secId}','${itemId}')">✅ Ya corregí la ficha</button>`:''}
               ${canControl?`<button class="btn-sm" onclick="deshacerPedidoModificacion('${secId}','${itemId}')">↩ Deshacer pedido</button>`:''}
             </div>
-          </div>`:''}
-          ${fichaCorregidaEsperando?`<div class="mod-ref-box" style="background:var(--accent-bg);color:var(--accent)">
+          </div>`;
+          if(fichaCorregidaEsperando) return `<div class="mod-ref-box" style="background:var(--accent-bg);color:var(--accent)">
             <div class="mod-ref-title">🔄 Ficha corregida — falta que Ariel/Stef la vuelvan a controlar</div>
-            ${canPeque?`<button class="btn-sm" onclick="deshacerFichaCorregida('${secId}','${itemId}')">↩ Todavía no está corregida</button>`:''}
-          </div>`:''}
+            <div style="color:var(--text)">🔧 Se había pedido${item.ficha_mod_por?` por ${item.ficha_mod_por}`:''}: ${(item.ficha_mod_notas||'').replace(/</g,'&lt;')}</div>
+            ${fotosHtml}
+            ${canPeque?`<button class="btn-sm" style="margin-top:8px" onclick="deshacerFichaCorregida('${secId}','${itemId}')">↩ Todavía no está corregida</button>`:''}
+          </div>`;
+          return ''; })()}
 
           ${item.base_aprobada
             ? `<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3);font-style:italic">No aplica — base ya aprobada</span></div>`
             : (canStef?buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha'):`<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3)">${item.modelista||'— Sin asignar —'}</span></div>`)}
 
-          ${esAdela?`<div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canPeque?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
-            <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada (ella corta directo, sin pasar por Cortador)</span>
+          ${esAdela?`<div style="margin:4px 0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span class="c-label" style="font-size:11px">📏 Tela a separar:</span>
+              ${item.tela_cantidad_adela?`<strong style="font-size:12px">${item.tela_cantidad_adela}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
+              ${canPeque?`<button class="btn-sm" onclick="editTelaCantidadAdela('${secId}','${itemId}')">${item.tela_cantidad_adela?'✏️ Editar':'+ Cargar cantidad'}</button>`:''}
+            </div>
+            <div class="avio-item" style="padding-left:0;border-top:none">
+              <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canPeque?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
+              <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada (ella corta directo, sin pasar por Cortador)</span>
+            </div>
+            <div class="avio-item" style="padding-left:0;border-top:none">
+              <div class="c-check ${item.avios_entregados_adela?'checked':''}" onclick="${canPeque?`toggleAviosEntregadosAdela('${secId}','${itemId}')`:''}">${item.avios_entregados_adela?'✓':''}</div>
+              <span class="c-label ${item.avios_entregados_adela?'done':''}" style="font-size:11px">Avíos entregados junto con la tela</span>
+            </div>
           </div>`:''}
 
           ${buildNotasHtml(secId,itemId,item,canEdit)}
@@ -4924,9 +4999,20 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
           ${buildModelistaHtml(secId,itemId,item)}
-          ${item.modelista==='Adela'?`<div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canEdit?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
-            <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada — ¿ya se le dio la tela a Adela?</span>
+          ${item.modelista==='Adela'?`<div style="margin:4px 0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+              <span class="c-label" style="font-size:11px">📏 Tela a separar:</span>
+              ${item.tela_cantidad_adela?`<strong style="font-size:12px">${item.tela_cantidad_adela}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
+              ${canEdit?`<button class="btn-sm" onclick="editTelaCantidadAdela('${secId}','${itemId}')">${item.tela_cantidad_adela?'✏️ Editar':'+ Cargar cantidad'}</button>`:''}
+            </div>
+            <div class="avio-item" style="padding-left:0;border-top:none">
+              <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canEdit?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
+              <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada — ¿ya se le dio la tela a Adela?</span>
+            </div>
+            <div class="avio-item" style="padding-left:0;border-top:none">
+              <div class="c-check ${item.avios_entregados_adela?'checked':''}" onclick="${canEdit?`toggleAviosEntregadosAdela('${secId}','${itemId}')`:''}">${item.avios_entregados_adela?'✓':''}</div>
+              <span class="c-label ${item.avios_entregados_adela?'done':''}" style="font-size:11px">Avíos entregados junto con la tela</span>
+            </div>
           </div>`:''}
           ${buildRefLinkHtml(secId,itemId,item,canCorregirOrigen)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
@@ -5219,7 +5305,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
         : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
       ${canFicha?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
     </div>`;
-  const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}</div>` : '';
+  const notaHtml = item.nota ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">📝 <strong>Aclaración:</strong> ${item.nota}
+      ${item.fotos_prueba&&Object.keys(item.fotos_prueba).length?`<div class="diseno-fotos-grid" style="margin-top:6px">
+        ${Object.values(item.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}
+      </div>`:''}
+    </div>` : '';
   const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&secId!=='s6'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const avioPendiente=(secId==='s4'||secId==='s5');
@@ -5318,7 +5408,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
                 ${canFicha?`<button class="btn-sm" onclick="editRefLink('${secId}','${itemId}')">${item.ref_link?'🔗 Editar link':'+ Link'}</button>`:''}
               </div>
             </div>`
-          : (canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:''))}
+          : `<div style="display:flex;flex-direction:column;gap:2px">
+              ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
+              ${canFicha?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
+            </div>`}
         ${baseHtml}
         ${fichaHtml}
         <div class="specs-line">
@@ -5476,14 +5569,34 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const faltantesRollos=coloresOrden.filter(c=>(cargadoPorColor[c]||0)<requeridoPorColor[c]);
   const rollosCompletos=coloresOrden.length>0&&faltantesRollos.length===0;
 
+  // Si faltan capas (puede ser que no llegue la tela o no quieran abrir un rollo entero por
+  // 1 sola capa), Emir/Peque pueden pedirle a Ariel/Stef que autoricen igual marcar el
+  // encimado como terminado con lo cargado hasta ahora.
+  const canAutorizarCapas=(currentUser==='ariel'||currentUser==='stef');
+  const pedidoCapas=grupo.pedido_capas_incompletas||null;
+  let encimadoBtnHtml='';
+  if(!rollosCompletos){
+    if(pedidoCapas){
+      encimadoBtnHtml=canAutorizarCapas
+        ? `<button class="btn-advance" onclick="autorizarCapasIncompletas('${secId}','${itemId}')">✅ Autorizar y marcar encimado terminado</button>
+           <button class="btn-sm" onclick="rechazarCapasIncompletas('${secId}','${itemId}')">✖ Rechazar pedido</button>`
+        : `<span class="c-label" style="font-size:11px;color:var(--warn-text);flex:0">🔔 Esperando autorización de Ariel/Stef</span>`;
+    } else {
+      encimadoBtnHtml=canRollosEncimado
+        ? `<button class="btn-advance" disabled title="Cargá los rollos de todos los colores primero" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>
+           <button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionCapas('${secId}','${itemId}')">🔔 Pedir autorización (faltan capas)</button>`
+        : '';
+    }
+  }
+  const pedidoCapasHtml=pedidoCapas?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[pedidoCapas.por]||pedidoCapas.por}</strong> pidió marcar encimado terminado con capas incompletas (${faltantesRollos.join(', ')}) — ${fmtTime(pedidoCapas.fecha)}</div>`:'';
+
   const encimadoRow = !encimadoTerm
     ? `<div class="cortada-row">
         <span class="c-label" style="font-weight:500;color:var(--warn-text)">⏳ Pendiente encimado</span>
-        ${canRollosEncimado?(rollosCompletos
+        ${rollosCompletos&&canRollosEncimado
           ? `<button class="btn-advance" onclick="setEncimadoTerminado('${secId}','${itemId}',true)">🧷 Encimado terminado</button>`
-          : `<button class="btn-advance" disabled title="Cargá los rollos de todos los colores primero" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>`
-        ):''}
-      </div>${(!rollosCompletos&&canRollosEncimado)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}`
+          : encimadoBtnHtml}
+      </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}`
     : `<div class="cortada-row">
         <span class="c-label">🧷 Encimado: <strong style="color:var(--green-text)">Terminado</strong></span>
         ${canCortar?`<button class="btn-sm" onclick="setEncimadoTerminado('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
@@ -5491,6 +5604,36 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
 
   // Orden de corte cargada, encimado pendiente o recién terminado (acá ya puede aparecer Marcar cortado).
   return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${ordenRow}${rollosRow}${encimadoRow}</div>`;
+}
+
+// Pide autorización a Ariel/Stef para marcar el encimado como terminado aunque falten
+// capas de algún color (puede ser que no llegue la tela a tiempo, o que no quieran abrir
+// un rollo entero por 1 sola capa que falta).
+function pedirAutorizacionCapas(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(!corteKey) return;
+  db.ref(`fabrica_v5/grupos_corte/${corteKey}/pedido_capas_incompletas`).set({por:currentUser,fecha:Date.now()});
+  logActivity('🔔 Pidió autorización por capas incompletas',`Corte ${item.numero_corte} — necesita autorización de Ariel/Stef`);
+  showToast('🔔 Le avisamos a Ariel/Stef — esperá la autorización');
+}
+
+function autorizarCapasIncompletas(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(!corteKey) return;
+  db.ref(`fabrica_v5/grupos_corte/${corteKey}/pedido_capas_incompletas`).remove();
+  setEncimadoTerminado(secId,itemId,true);
+  logActivity('Autorizó encimado con capas incompletas',`Corte ${item.numero_corte}`);
+}
+
+function rechazarCapasIncompletas(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(!corteKey) return;
+  db.ref(`fabrica_v5/grupos_corte/${corteKey}/pedido_capas_incompletas`).remove();
+  logActivity('Rechazó pedido de capas incompletas',`Corte ${item.numero_corte}`);
+  showToast('Pedido rechazado');
 }
 
 function setTizaHecha(secId,itemId,val){
@@ -7017,7 +7160,7 @@ const TAB_VISIBILITY={
   ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-actividad'],
-  emir:['tab-btn-fabrica','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
+  emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   arimoron:['tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
   noemi:['tab-btn-logistica'],

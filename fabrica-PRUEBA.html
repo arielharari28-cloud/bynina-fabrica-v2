@@ -2433,6 +2433,7 @@ function grupoCorteOf(item){
 }
 function ordenCargadaGrupo(item){ const g=grupoCorteOf(item); return g?!!g.orden_corte_cargada:false; }
 function encimadoTerminadoGrupo(item){ const g=grupoCorteOf(item); return g?!!g.encimado_terminado:false; }
+function liquidarTelaGrupo(item){ const g=grupoCorteOf(item); return g?!!g.liquidar_tela:false; }
 // Mismo N° de corte = misma tiza física: largo de capa y peso x metro son propiedades de esa
 // tiza compartida, no de cada artículo. Si el grupo tiene el dato cargado, se usa ese (para todos
 // los artículos del corte); si no, cae al valor propio del ítem (compatibilidad con cortes viejos).
@@ -4418,6 +4419,9 @@ function moveSectionOrder(secId,dir){
 function buildItem(secId,itemId,item,sec){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
   const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
+  // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
+  // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
+  const canMarcarCortadaMuestra=canEdit||currentUser==='emir';
   const tipo=sec.tipo||'';
 
   // --- MUESTRA PENDIENTE CORTE ---
@@ -4428,7 +4432,7 @@ function buildItem(secId,itemId,item,sec){
         <div class="item-code">${item.code}</div>
         ${item.name?`<div class="item-name">${item.name}</div>`:''}
         <div class="item-actions">
-          ${canEdit?`<button class="btn-advance" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
+          ${canMarcarCortadaMuestra?`<button class="btn-advance" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
           ${moveOpts}
           ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
@@ -4585,6 +4589,9 @@ function buildMoveOptsForItem(secId,itemId){
 function buildItem(secId,itemId,item,sec,idx,total){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
   const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
+  // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
+  // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
+  const canMarcarCortadaMuestra=canEdit||currentUser==='emir';
   const tipo=sec.tipo||'';
   const moveOpts=buildMoveOptsForItem(secId,itemId);
 
@@ -4625,7 +4632,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" ${(item.color&&item.talle)?'':'disabled'} title="${(item.color&&item.talle)?'':'Falta cargar Color y/o Talle'}" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
+            ${canMarcarCortadaMuestra?`<button class="btn-advance" ${(item.color&&item.talle)?'':'disabled'} title="${(item.color&&item.talle)?'':'Falta cargar Color y/o Talle'}" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
@@ -5347,7 +5354,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
   const listoParaCortar = secId!=='s3' || (encimadoTerminadoGrupo(item) && !item.sin_confirmar);
-  const canConfirmarCorte = secId==='s3'&&(currentUser==='ariel'||currentUser==='stef');
+  const canConfirmarCorte = secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||(currentUser==='emir'&&liquidarTelaGrupo(item)));
   const sinConfirmarHtml = secId==='s3' ? (item.sin_confirmar
     ? `<div class="cortada-row" style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:4px 0">
         <span class="c-label" style="font-weight:600;color:var(--warn-text)">⏳ Todavía no lo confirmó Ari — no es prioridad</span>
@@ -5570,15 +5577,21 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       ${canRollosEncimado?`<button class="btn-sm" onclick="openRollosModal('${secId}','${itemId}')">${rollosCount?'✏️ Editar rollos':'+ Cargar rollos'}</button>`:''}
     </div>`;
 
+  // En un corte de liquidación de tela, Ariel/Stef no cargan capas por color (usan lo que
+  // quede del rollo hasta agotarlo), así que no hay nada contra qué "matchear" — alcanza con
+  // que Emir cargue al menos un rollo para poder marcar el encimado terminado.
+  const esLiquidar=!!grupo.liquidar_tela;
+
   // El encimado no se puede marcar terminado hasta que las capas cargadas en rollos alcancen
-  // las capas requeridas de CADA color de la orden de corte (a nivel del corte/grupo).
+  // las capas requeridas de CADA color de la orden de corte (a nivel del corte/grupo) —
+  // excepto en liquidación de tela, donde no hay capas por color que cumplir.
   const requeridoPorColor={};
   Object.values(grupo.capas||{}).forEach(r=>{ if(r.color) requeridoPorColor[r.color]=(requeridoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
   const cargadoPorColor={};
   Object.values(grupo.rollos||{}).forEach(r=>{ if(r&&r.color) cargadoPorColor[r.color]=(cargadoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
   const coloresOrden=Object.keys(requeridoPorColor);
   const faltantesRollos=coloresOrden.filter(c=>(cargadoPorColor[c]||0)<requeridoPorColor[c]);
-  const rollosCompletos=coloresOrden.length>0&&faltantesRollos.length===0;
+  const rollosCompletos=esLiquidar?(rollosCount>0):(coloresOrden.length>0&&faltantesRollos.length===0);
 
   // Si faltan capas (puede ser que no llegue la tela o no quieran abrir un rollo entero por
   // 1 sola capa), Emir/Peque pueden pedirle a Ariel/Stef que autoricen igual marcar el
@@ -5586,7 +5599,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const canAutorizarCapas=(currentUser==='ariel'||currentUser==='stef');
   const pedidoCapas=grupo.pedido_capas_incompletas||null;
   let encimadoBtnHtml='';
-  if(!rollosCompletos){
+  if(!rollosCompletos&&!esLiquidar){
     if(pedidoCapas){
       encimadoBtnHtml=canAutorizarCapas
         ? `<button class="btn-advance" onclick="autorizarCapasIncompletas('${secId}','${itemId}')">✅ Autorizar y marcar encimado terminado</button>
@@ -5598,8 +5611,12 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
            <button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionCapas('${secId}','${itemId}')">🔔 Pedir autorización (faltan capas)</button>`
         : '';
     }
+  } else if(!rollosCompletos&&esLiquidar){
+    encimadoBtnHtml=canRollosEncimado
+      ? `<button class="btn-advance" disabled title="Cargá al menos un rollo primero" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>`
+      : '';
   }
-  const pedidoCapasHtml=pedidoCapas?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[pedidoCapas.por]||pedidoCapas.por}</strong> pidió marcar encimado terminado con capas incompletas (${faltantesRollos.join(', ')}) — ${fmtTime(pedidoCapas.fecha)}</div>`:'';
+  const pedidoCapasHtml=(pedidoCapas&&!esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[pedidoCapas.por]||pedidoCapas.por}</strong> pidió marcar encimado terminado con capas incompletas (${faltantesRollos.join(', ')}) — ${fmtTime(pedidoCapas.fecha)}</div>`:'';
 
   const encimadoRow = !encimadoTerm
     ? `<div class="cortada-row">
@@ -5607,7 +5624,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
         ${rollosCompletos&&canRollosEncimado
           ? `<button class="btn-advance" onclick="setEncimadoTerminado('${secId}','${itemId}',true)">🧷 Encimado terminado</button>`
           : encimadoBtnHtml}
-      </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}`
+      </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}${(!rollosCompletos&&esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Cargá al menos un rollo (tela a liquidar) para poder marcar el encimado terminado.</div>`:''}`
     : `<div class="cortada-row">
         <span class="c-label">🧷 Encimado: <strong style="color:var(--green-text)">Terminado</strong></span>
         ${canCortar?`<button class="btn-sm" onclick="setEncimadoTerminado('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
@@ -6057,6 +6074,7 @@ function openRollosModal(secId,itemId){
     secId,itemId,corteKey,
     coloresDisponibles,
     requeridoPorColor,
+    liquidar:!!(grupo&&grupo.liquidar_tela),
     largo:numAr(item.largo_capa),
     peso:numAr(item.peso_metro)
   };
@@ -6128,14 +6146,17 @@ function renderRollosResumenHtml(){
   </div>`;
 }
 function renderRollosModal(){
-  const{coloresDisponibles,rows}=rollosCtx;
+  const{coloresDisponibles,rows,liquidar}=rollosCtx;
   const colorOptsFor=sel=>coloresDisponibles.length
     ? coloresDisponibles.map(c=>`<option value="${c}" ${sel===c?'selected':''}>${c}</option>`).join('')
     : `<option value="">Sin colores (cargá la orden de corte)</option>`;
   const bodyRows=rows.map(row=>{
     const{usado,sobrante}=rollosCalc(row);
+    const colorCell=liquidar
+      ? `<input type="text" value="${(row.color||'').replace(/"/g,'&quot;')}" placeholder="Color del rollo" onchange="rollosUpdateField('${row.id}','color',this.value)" style="width:90px;padding:5px;font-size:12px;border:1px solid var(--border);border-radius:6px">`
+      : `<select onchange="rollosUpdateField('${row.id}','color',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--border);border-radius:6px">${colorOptsFor(row.color)}</select>`;
     return `<tr>
-      <td><select onchange="rollosUpdateField('${row.id}','color',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--border);border-radius:6px">${colorOptsFor(row.color)}</select></td>
+      <td>${colorCell}</td>
       <td><input type="number" min="0" step="0.01" value="${row.kgmts}" placeholder="0" oninput="rollosUpdateField('${row.id}','kgmts',this.value)" style="width:64px;padding:5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:6px"></td>
       <td><input type="number" min="0" value="${row.capas}" placeholder="0" oninput="rollosUpdateField('${row.id}','capas',this.value)" class="oc-capas-input" style="width:56px"></td>
       <td><span class="oc-cell-calc" id="rol-usado-${row.id}">${usado?usado.toFixed(2):'—'}</span></td>
@@ -6145,7 +6166,8 @@ function renderRollosModal(){
     </tr>`;
   }).join('');
   document.getElementById('modal-rollos-body').innerHTML=`
-    ${!coloresDisponibles.length?`<div class="oc-warn">⚠️ Este ítem todavía no tiene colores cargados en la orden de corte. Cargalos primero y después volvé acá.</div>`:''}
+    ${liquidar?`<div class="oc-hint" style="margin-bottom:10px">🏷️ <strong>Corte de liquidación de tela</strong> — no hace falta que coincida con capas por color, cargá los rollos que se van a usar hasta agotar la tela y escribí el color libremente.</div>`:''}
+    ${(!coloresDisponibles.length&&!liquidar)?`<div class="oc-warn">⚠️ Este ítem todavía no tiene colores cargados en la orden de corte. Cargalos primero y después volvé acá.</div>`:''}
     <div class="oc-hint" style="margin-bottom:10px">El <strong>usado</strong> se calcula solo: capas × largo de capa (${rollosCtx.largo||'—'}) × peso x metro (${rollosCtx.peso||'—'}). El <strong>sobrante</strong> es Kg/Mts del rollo menos lo usado.</div>
     ${renderRollosResumenHtml()}
     <div class="oc-table-wrap">

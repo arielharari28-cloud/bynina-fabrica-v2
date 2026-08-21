@@ -5310,6 +5310,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${Object.values(item.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}
       </div>`:''}
     </div>` : '';
+  const liquidarBadgeHtml = (secId!=='s3'&&item.liquidar_tela) ? `<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:4px 8px;margin-top:4px">🏷️ <strong>Corte de liquidación de tela</strong>
+      ${item.liquidar_fotos?`<div class="diseno-fotos-grid" style="margin-top:6px">
+        ${Object.values(item.liquidar_fotos).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}
+      </div>`:''}
+    </div>` : '';
   const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&secId!=='s6'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const avioPendiente=(secId==='s4'||secId==='s5');
@@ -5487,6 +5492,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${fechaSalidaHtml}
         ${avioPendienteBannerHtml}
         ${notaHtml}
+        ${liquidarBadgeHtml}
         ${pedidoSinAvioHtml}
         ${aviosHtml}
         ${checklistPreTallerHtml}
@@ -5528,6 +5534,11 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const avisoGrupo=compartidos.length
     ? `<div style="font-size:11px;color:var(--text2);padding:0 2px 4px">🔗 Corte compartido con ${compartidos.length} artículo${compartidos.length!==1?'s':''} más: <strong>${compartidos.map(([,it])=>it.code||it.name||'(sin código)').join(', ')}</strong> — la orden de corte, rollos y encimado se cargan una sola vez para todo el grupo.</div>`
     : '';
+  const liquidarHtml=grupo.liquidar_tela?`<div style="font-size:11px;color:#92400e;background:#fef3c7;border-radius:6px;padding:6px 8px;margin:0 0 6px">🏷️ <strong>Esta orden es para liquidar tela</strong> — usar los rollos de las fotos hasta agotar stock.
+    ${grupo.liquidar_fotos?`<div class="diseno-fotos-grid" style="margin-top:6px">
+      ${Object.values(grupo.liquidar_fotos).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}
+    </div>`:''}
+  </div>`:'';
   const ordenCargada=!!grupo.orden_corte_cargada;
   const encimadoTerm=!!grupo.encimado_terminado;
   // Emir puede cargar rollos y marcar encimado/cortado, pero no cargar/editar la Orden de Corte en sí.
@@ -5550,7 +5561,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
 
   // Orden de corte todavía no cargada.
   if(!ordenCargada){
-    return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${ordenRow}</div>`;
+    return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${liquidarHtml}${ordenRow}</div>`;
   }
 
   const rollosCount=Object.values(grupo.rollos||{}).filter(r=>r&&(r.color||r.kgmts||r.capas)).length;
@@ -5603,7 +5614,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       </div>`;
 
   // Orden de corte cargada, encimado pendiente o recién terminado (acá ya puede aparecer Marcar cortado).
-  return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${ordenRow}${rollosRow}${encimadoRow}</div>`;
+  return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${liquidarHtml}${ordenRow}${rollosRow}${encimadoRow}</div>`;
 }
 
 // Pide autorización a Ariel/Stef para marcar el encimado como terminado aunque falten
@@ -5696,11 +5707,46 @@ function openOrdenCorteModal(secId,itemId){
   // estampas distintas (cada una con su propia foto), y las cantidades se reparten solas después.
   ordenCtx.dtf=!!item.estampado_dtf;
   ordenCtx.estampasArticulos=[{id:'a'+Date.now(),articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||''),img:item.foto||''}];
+  // Liquidar tela: a veces la orden de corte es para agotar stock de un rollo/resto de tela.
+  // En ese caso Ariel/Stef quieren poder subir fotos de los rollos a utilizar, para que
+  // Emir/el cortador sepan exactamente qué tela usar y así se termine agotando ese stock.
+  ordenCtx.liquidar=!!(grupo&&grupo.liquidar_tela);
+  ordenCtx.liquidarFotos=Object.entries((grupo&&grupo.liquidar_fotos)||{}).map(([id,url])=>({id,url}));
   renderOrdenCorteModal();
   document.getElementById('modal-orden-corte').classList.remove('hidden');
 }
 function ordenCorteToggleDtf(checked){
   ordenCtx.dtf=checked;
+  renderOrdenCorteModal();
+}
+function ordenCorteToggleLiquidar(checked){
+  ordenCtx.liquidar=checked;
+  renderOrdenCorteModal();
+}
+function ordenCorteTriggerLiquidarFoto(){
+  const input=document.createElement('input');
+  input.type='file';
+  input.accept='image/*';
+  input.onchange=(e)=>{ if(e.target.files[0]) ordenCorteUploadLiquidarFoto(e.target.files[0]); };
+  input.click();
+}
+async function ordenCorteUploadLiquidarFoto(file){
+  showToast('📤 Subiendo foto...');
+  const formData=new FormData();
+  formData.append('file',file);
+  formData.append('upload_preset',CLOUDINARY_PRESET);
+  try{
+    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+    const data=await res.json();
+    if(data.secure_url){
+      ordenCtx.liquidarFotos.push({id:'lf'+Date.now()+Math.random().toString(36).slice(2,5),url:data.secure_url});
+      renderOrdenCorteModal();
+      showToast('✓ Foto cargada');
+    } else showToast('✗ Error al subir foto');
+  }catch(e){ showToast('✗ Error al subir foto'); }
+}
+function ordenCorteRemoveLiquidarFoto(id){
+  ordenCtx.liquidarFotos=ordenCtx.liquidarFotos.filter(f=>f.id!==id);
   renderOrdenCorteModal();
 }
 function ordenCorteAddArticulo(){
@@ -5848,6 +5894,20 @@ function renderOrdenCorteModal(){
       <input type="checkbox" id="oc-dtf-check" ${ordenCtx.dtf?'checked':''} onchange="ordenCorteToggleDtf(this.checked)" style="width:16px;height:16px">
       <label for="oc-dtf-check" style="font-size:12px;cursor:pointer">🎨 Este corte va a estampado DTF</label>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <input type="checkbox" id="oc-liquidar-check" ${ordenCtx.liquidar?'checked':''} onchange="ordenCorteToggleLiquidar(this.checked)" style="width:16px;height:16px">
+      <label for="oc-liquidar-check" style="font-size:12px;cursor:pointer">🏷️ Esta orden es para liquidar tela (agotar stock)</label>
+    </div>
+    ${ordenCtx.liquidar?`<div style="margin-top:10px">
+      <div class="oc-hint" style="margin-bottom:6px">Subí fotos de los rollos a utilizar, para que quien corta sepa exactamente qué tela agotar.</div>
+      <div class="diseno-fotos-grid">
+        ${ordenCtx.liquidarFotos.map(f=>`<div class="diseno-foto-item">
+          <img src="${f.url}" onclick="openPhotoModal('${f.url}')">
+          <button class="diseno-foto-del" onclick="ordenCorteRemoveLiquidarFoto('${f.id}')">×</button>
+        </div>`).join('')}
+        <div class="diseno-add-foto" onclick="ordenCorteTriggerLiquidarFoto()" title="Agregar foto de rollos">📷</div>
+      </div>
+    </div>`:''}
     ${ordenCtx.dtf?`<div style="margin-top:10px">
       <div class="oc-hint" style="margin-bottom:6px">Artículos/estampas de este corte — si se divide en varios diseños distintos, agregá una fila por cada uno con su foto. Las cantidades se reparten solas entre todos después.</div>
       ${ordenCtx.estampasArticulos.map(a=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:6px;background:var(--surface2);border-radius:8px">
@@ -5905,6 +5965,13 @@ function saveOrdenCorte(){
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({estampado_dtf:false,estampado_id:null});
     logActivity('Desmarcó estampado DTF (desde Orden de corte)',item.code);
   }
+  const liquidarFotosObj={};
+  ordenCtx.liquidarFotos.forEach(f=>{ liquidarFotosObj[f.id]=f.url; });
+  const liquidarUpdates={};
+  liquidarUpdates[`fabrica_v5/grupos_corte/${corteKey}/liquidar_tela`]=ordenCtx.liquidar;
+  liquidarUpdates[`fabrica_v5/grupos_corte/${corteKey}/liquidar_fotos`]=ordenCtx.liquidar?liquidarFotosObj:null;
+  db.ref().update(liquidarUpdates);
+  if(ordenCtx.liquidar) logActivity('Orden de corte marcada para liquidar tela',`Corte ${item.numero_corte}`);
   document.getElementById('modal-orden-corte').classList.add('hidden');
   showToast('📋 Orden de corte guardada');
 }
@@ -6200,6 +6267,8 @@ function marcarCorteRealizado(secId,itemId){
       rollos:grupo.rollos||mItem.rollos||{},
       largo_capa:(grupo.largo_capa!==undefined&&grupo.largo_capa!==null&&grupo.largo_capa!=='')?grupo.largo_capa:mItem.largo_capa,
       peso_metro:(grupo.peso_metro!==undefined&&grupo.peso_metro!==null&&grupo.peso_metro!=='')?grupo.peso_metro:mItem.peso_metro,
+      liquidar_tela:grupo.liquidar_tela||mItem.liquidar_tela||false,
+      liquidar_fotos:grupo.liquidar_fotos||mItem.liquidar_fotos||null,
       orden_corte_cargada:true,
       encimado_terminado:true,
       fecha_etapa:Date.now(),

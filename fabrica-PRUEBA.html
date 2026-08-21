@@ -2967,11 +2967,27 @@ function reactivarMuestra(secId,itemId){
 function moverACortada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.color||!item.talle){ showToast('Falta cargar Color y/o Talle antes de marcar cortada'); return; }
-  const newItem={...item,ficha:false,lleva_avios:null,avios:item.avios||{},fecha_etapa:Date.now()};
+  const hoy=new Date();
+  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fecha=prompt('¿Qué fecha se cortó esta muestra?',fechaDefault);
+  if(fecha===null) return;
+  const fechaFinal=fecha.trim()||fechaDefault;
+  const newItem={...item,ficha:false,lleva_avios:null,avios:item.avios||{},fecha_corte:fechaFinal,fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Muestra cortada',item.code);
+  logActivity('Muestra cortada',`${item.code}: ${fechaFinal}`);
   showToast(`✂️ ${item.code} pasó a Cortadas`);
+}
+
+// Deja editar la fecha de corte de una muestra ya marcada como cortada (por si se cargó tarde
+// y en realidad se cortó otro día).
+function editFechaCorteMuestra(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const fecha=prompt('¿Qué fecha se cortó esta muestra?',item.fecha_corte||'');
+  if(fecha===null) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_corte`).set(fecha.trim()||null);
+  logActivity('Editó fecha de corte de muestra',`${item.code||item.name||''}: ${fecha.trim()}`);
+  showToast('✓ Fecha guardada');
 }
 
 const TALLERISTAS_MUESTRA = ['Adela', 'Willy Ramos'];
@@ -4685,6 +4701,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editColorPrompt('${secId}','${itemId}')">✏️ Color</button>`:''}
             ${canCheck?`<button class="btn-sm" onclick="editTallePrompt('${secId}','${itemId}')">✏️ Talle</button>`:''}
           </div>
+          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text2)">✂️ Cortado: <strong>${item.fecha_corte||'—'}</strong></span>
+            ${canCheck?`<button class="btn-sm" onclick="editFechaCorteMuestra('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
+          </div>
           ${buildRefLinkHtml(secId,itemId,item,canEdit)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
           <div class="cortada-panel">
@@ -5279,7 +5299,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
     ? '' // en s3 no hay checkbox, se usa botón Marcar cortado
     : `<div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>`;
   const fechaCorteHtml = secId!=='s3'&&item.fecha_corte
-    ? `<div style="font-size:11px;color:var(--text2);margin-top:2px">✂️ Cortado: <strong>${item.fecha_corte}</strong></div>` : '';
+    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text2)">✂️ Cortado: <strong>${item.fecha_corte}</strong></span>
+        ${canFicha?`<button class="btn-sm" onclick="editFechaCorteItem('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
+      </div>` : '';
   const numeroCorteHtml = esArmarTizada && canFicha
     ? `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
         <span style="font-size:13px;color:var(--text)">🔢 N° de corte:</span>
@@ -5529,6 +5552,25 @@ function otrosDelMismoCorte(secId,itemId,item){
   const sec=sectionsData[secId];
   if(!sec||!sec.items) return [];
   return Object.entries(sec.items).filter(([id,it])=>id!==itemId&&corteKeyFrom(it.numero_corte)===key);
+}
+
+// Deja corregir la fecha de corte de un artículo YA cortado (por si se marcó cortado un día
+// pero en realidad la tela se cortó otro) — se aplica también a los demás artículos del mismo
+// N° de corte que estén en esta misma sección, ya que se cortaron todos juntos, físicamente.
+function editFechaCorteItem(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const fecha=prompt('¿Qué fecha se cortó?',item.fecha_corte||'');
+  if(fecha===null) return;
+  const fechaFinal=fecha.trim();
+  const otros=otrosDelMismoCorte(secId,itemId,item);
+  const updates={};
+  updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_corte`]=fechaFinal||null;
+  otros.forEach(([id])=>{ updates[`fabrica_v5/sections/${secId}/items/${id}/fecha_corte`]=fechaFinal||null; });
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(corteKey&&costeosData[corteKey]) updates[`fabrica_v5/costeos/${corteKey}/fecha_corte`]=fechaFinal||null;
+  db.ref().update(updates);
+  logActivity('Editó fecha de corte',`Corte ${item.numero_corte||''} (${item.code||item.name||''}): ${fechaFinal}`);
+  showToast('✓ Fecha guardada');
 }
 
 // FLUJO PRE-CORTE: Orden de corte -> Rollos -> Encimado -> (recién ahí) Marcar cortado.
@@ -7998,13 +8040,45 @@ function costeoTotales(entry){
   const costoPrenda=piezas?costoTotal/piezas:0;
   return{kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda};
 }
+function parseFechaCorteToYM(fechaStr){
+  // Espera "DD/MM/AAAA" (como lo tipean en el prompt de Marcar cortado). Si no matchea, se ignora.
+  const m=String(fechaStr||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return null;
+  return `${m[3]}-${m[2].padStart(2,'0')}`;
+}
+function buildPrendasPorMesHtml(entries){
+  const porMes={};
+  entries.forEach(([,e])=>{
+    const ym=parseFechaCorteToYM(e.fecha_corte);
+    if(!ym) return;
+    const piezas=costeoTotales(e).piezas;
+    porMes[ym]=(porMes[ym]||0)+piezas;
+  });
+  const meses=Object.keys(porMes).sort().reverse();
+  if(!meses.length) return '';
+  const hoy=new Date();
+  const ymActual=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const nombreMes=(ym)=>{
+    const [y,mo]=ym.split('-');
+    const nombres=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    return `${nombres[parseInt(mo,10)-1]} ${y}`;
+  };
+  const filas=meses.map(ym=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--border);font-size:12px">
+      <span style="${ym===ymActual?'font-weight:700':''}">${nombreMes(ym)}${ym===ymActual?' (este mes)':''}</span>
+      <span style="font-weight:600">${porMes[ym]} prendas</span>
+    </div>`).join('');
+  return `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+    <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Prendas cortadas por mes</div>
+    ${filas}
+  </div>`;
+}
 function renderCosteoTab(){
   const cont=document.getElementById('costeo-list');
   const entries=Object.entries(costeosData||{}).sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
   const puedeBackfill=(currentUser==='ariel'||currentUser==='stef');
   const botonBackfill=puedeBackfill?`<button class="btn-sm" style="margin-bottom:10px" onclick="backfillCosteosExistentes()">🔄 Actualizar con cortes ya subidos</button>`:'';
   if(!entries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
-  cont.innerHTML=botonBackfill+entries.map(([key,e])=>{
+  cont.innerHTML=botonBackfill+buildPrendasPorMesHtml(entries)+entries.map(([key,e])=>{
     const t=costeoTotales(e);
     const articulosTxt=(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ');
     const faltaPrecio=!e.precio_kg;

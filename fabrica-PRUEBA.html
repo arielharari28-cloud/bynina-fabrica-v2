@@ -2781,6 +2781,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
+    publishPendientesResumen();
   });
   db.ref('fabrica_v5/grupos_corte').on('value',snap=>{
     gruposCorteData=snap.val()||{};
@@ -2793,6 +2794,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     // También refresca las tarjetas de fabrica: el badge "En Estampas" depende de si el corte vinculado sigue existiendo.
     renderSections('diseno');renderSections('fabrica');
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
+    publishPendientesResumen();
   });
   db.ref('fabrica_v5/modelistas').on('value',snap=>{
     const v=snap.val();
@@ -7629,6 +7631,37 @@ function onGaleriaDrop(ev){
   galeriaOrden[board]=keys; galeriaDragKey=null;
   db.ref(`fabrica_v5/galeria_orden/${board}`).set(keys);
   renderGaleria();
+}
+
+// Publica una versión "aplanada" y de solo lectura de los pendientes en fabrica_v5/pendientes_resumen,
+// para que control-bynina (la app de tareas) pueda mostrarlos mezclados en su panorama sin
+// duplicar acá la lógica de responsables/atrasos — esta sigue siendo la única fuente de verdad.
+// control-bynina NUNCA escribe en esta ruta ni en fabrica_v5 en general, solo la lee.
+function publishPendientesResumen(){
+  const resumen={};
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(item.done) return;
+      const resp=getResponsable(sec,item,secId);
+      if(!resp) return;
+      const dias=diasEntre(fechaInicioResponsableActual(sec,item,secId));
+      const umbral=umbralAtraso(sec,item,secId);
+      const atrasado=dias!==null&&dias>=umbral;
+      const accion=getProximaAccion(sec,item,secId);
+      resumen[`${secId}__${itemId}`]={
+        secId, itemId,
+        code: item.code||item.name||'(sin código)',
+        name: (item.name&&item.code)?item.name:'',
+        secTitle: sec.title||'',
+        responsable: resp,
+        dias: dias===null?null:dias,
+        atrasado: !!atrasado,
+        accion: accion||'',
+        board: getBoard(sec)
+      };
+    });
+  });
+  db.ref('fabrica_v5/pendientes_resumen').set(resumen);
 }
 
 function renderPendientes(){

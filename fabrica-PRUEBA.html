@@ -231,6 +231,7 @@
   .logi-card.logi-cerrado{opacity:.6}
   .logi-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
   .logi-badge.logi-pend{background:#fbe4e1;color:#b0392f}
+  .logi-badge.logi-controlar{background:#fdf1d9;color:#b8860b}
   .logi-badge.logi-done{background:#e3f3e8;color:#2e7d4f}
   .logi-section-title{font-size:13px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin:18px 0 8px}
   .logi-detail-header{display:flex;gap:12px;align-items:center;margin-bottom:14px}
@@ -622,6 +623,18 @@
     <div class="logi-mbtns" style="margin-top:14px">
       <button class="logi-cancel" onclick="logiCerrarGridModal()">Cancelar</button>
       <button class="logi-save" onclick="logiGridConfirmar()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div class="logi-modal-bg" id="logi-count-grid-modal">
+  <div class="logi-modal" style="max-height:90vh;overflow-y:auto;max-width:640px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px">Cargar conteo por grilla</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Escribí un número y tocá "aplicar a toda la fila" para repetirlo en todos los talles de ese color. Los guiones (—) son combinaciones que no aplican a este corte.</div>
+    <div id="logi-count-grid-wrap" style="overflow-x:auto"></div>
+    <div class="logi-mbtns" style="margin-top:14px">
+      <button class="logi-cancel" onclick="logiCerrarContadoGridModal()">Cancelar</button>
+      <button class="logi-save" onclick="logiContadoGridConfirmar()">Guardar conteo</button>
     </div>
   </div>
 </div>
@@ -7823,6 +7836,14 @@ function logiCardHtml(id,it,cerrado){
   if(it.numero_corte) corteTallerParts.push(`N° corte: ${it.numero_corte}`);
   if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
   const corteTallerHtml=corteTallerParts.length?`<div class="logi-fecha" style="color:var(--accent);font-weight:600">${corteTallerParts.join(' · ')}</div>`:'';
+  let badgeHtml;
+  if(cerrado){
+    badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
+  } else if(it.marcado_pendiente_controlar){
+    badgeHtml = '<span class="logi-badge logi-controlar">🟡 Pendiente controlar</span>';
+  } else {
+    badgeHtml = '<span class="logi-badge logi-pend">Pendiente</span>';
+  }
   return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
     ${foto}
     <div class="logi-info">
@@ -7830,9 +7851,25 @@ function logiCardHtml(id,it,cerrado){
       <div class="logi-name">${it.name||''}</div>
       ${corteTallerHtml}
       <div class="logi-fecha">Entregado: ${it.fecha_entregado||'—'}</div>
-      <div class="logi-progress">${cerrado?'<span class="logi-badge logi-done">Cerrado</span>':'<span class="logi-badge logi-pend">Pendiente</span> · '+logiProgresoTexto(it)}</div>
+      <div class="logi-progress">${badgeHtml} · ${logiProgresoTexto(it)}</div>
     </div>
   </div>`;
+}
+
+// Orden lógico de talles (no alfabético): XS→S→M→L→XL→XXL→XXXL, con numéricos después
+// en orden creciente, y cualquier otro caso al final por orden alfabético.
+const TALLE_ORDEN = ['XS','S','M','L','XL','XXL','XXXL','XXXXL'];
+function talleSortIndex(talle){
+  const t = (talle||'').trim().toUpperCase();
+  const i = TALLE_ORDEN.indexOf(t);
+  if(i!==-1) return i;
+  if(/^\d+$/.test(t)) return 100 + Number(t); // talles numéricos (38, 40, 42...) ordenados entre sí
+  return 9999; // desconocidos, al final
+}
+function compareTalles(a,b){
+  const ia = talleSortIndex(a), ib = talleSortIndex(b);
+  if(ia!==ib) return ia-ib;
+  return (a||'').localeCompare(b||'');
 }
 
 function logiOpenDetail(id){
@@ -7871,8 +7908,8 @@ function logiRenderDetail(id){
           ? '<div class="empty">Este corte no tiene talle/color cargado. Cargalo con el botón de abajo.</div>'
           : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo cargue.</div>');
   } else {
-    // Ordenamos por color y después por talle, para que la tabla se lea agrupada.
-    filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || (a[1].talle||'').localeCompare(b[1].talle||''));
+    // Ordenamos por color y después por talle (orden lógico S/M/L/XL, no alfabético).
+    filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || compareTalles(a[1].talle,b[1].talle));
     const body = filas.map(([key,f])=>{
       const clasificadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
       const contado = f.contado||0;
@@ -7909,7 +7946,8 @@ function logiRenderDetail(id){
     </table></div>`;
   }
   document.getElementById('logi-rows-container').innerHTML = rowsHtml +
-    (canEditarGrilla ? `<button class="btn-sm" style="margin-top:10px" onclick="logiOpenGridModal('${id}')">${filas.length?'+ Cargar más talles/colores':'+ Cargar talles/colores'}</button>` : '');
+    (canEditarGrilla ? `<button class="btn-sm" style="margin-top:10px" onclick="logiOpenGridModal('${id}')">${filas.length?'+ Cargar más talles/colores':'+ Cargar talles/colores'}</button>` : '') +
+    (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenContadoGridModal('${id}')">🔢 Cargar conteo por grilla</button>` : '');
 
   const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
   const totalContado = filas.reduce((s,[,f])=>s+(f.contado||0),0);
@@ -7933,9 +7971,16 @@ function logiRenderDetail(id){
       (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
     const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>` : '';
-    html += avisoControl + `<div class="logi-summary-bar">
+    const puedeGuardarPendiente = totalContado>0 && !it.marcado_pendiente_controlar;
+    const yaMarcado = it.marcado_pendiente_controlar
+      ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">🟡 Guardado — queda pendiente de controlar${it.marcado_pendiente_controlar_por?` (por ${it.marcado_pendiente_controlar_por})`:''}</div>`
+      : '';
+    const btnGuardarPendiente = totalContado>0
+      ? `<button class="btn-sm" ${puedeGuardarPendiente?'':'disabled'} onclick="logiGuardarPendienteControlar('${id}')" style="margin-right:6px">💾 Guardar y dejar pendiente controlar</button>`
+      : '';
+    html += avisoControl + yaMarcado + `<div class="logi-summary-bar">
       <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
-      <button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar conteo</button>
+      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar conteo</button></div>
     </div>`;
   }
   document.getElementById('logi-final-summary').innerHTML = html;
@@ -7985,6 +8030,18 @@ function logiCerrarConteo(itemId){
   showToast('✅ Conteo cerrado');
 }
 
+// Guarda el conteo "tal cual está" (ya se guarda solo, no hace falta esto para no perder
+// datos) y lo marca visiblemente como pendiente de controlar, para que quien haga el
+// control (OK/Detalle/Fallado) sepa que ese corte ya está listo para revisar, sin
+// necesidad de cerrarlo todavía.
+function logiGuardarPendienteControlar(itemId){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/marcado_pendiente_controlar`).set(true);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_marcado_pendiente_controlar`).set(Date.now());
+  db.ref(`fabrica_v5/logistica/items/${itemId}/marcado_pendiente_controlar_por`).set(currentUser);
+  showToast('💾 Guardado — queda pendiente de controlar');
+  logiRenderDetail(itemId);
+}
+
 function logiReabrirConteo(itemId){
   if(!confirm('¿Reabrir este conteo para seguir cargando lo que falta?')) return;
   db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('abierto');
@@ -7992,6 +8049,79 @@ function logiReabrirConteo(itemId){
   db.ref(`fabrica_v5/logistica/items/${itemId}/reabierto_por`).set(currentUser);
   logActivity('Reabrió un conteo de Logística',itemId);
   showToast('🔓 Conteo reabierto — ya podés seguir cargando');
+}
+
+// ===== Carga rápida del conteo por grilla (matriz color x talle) =====
+let logiContadoGridItemId = null;
+
+function logiOpenContadoGridModal(itemId){
+  logiContadoGridItemId = itemId;
+  const it = logiItemsData[itemId] || {};
+  const filas = Object.entries(it.grilla||{});
+  const colores = [...new Set(filas.map(([,f])=>f.color||''))].sort((a,b)=>a.localeCompare(b));
+  const talles = [...new Set(filas.map(([,f])=>f.talle||''))].sort(compareTalles);
+  const porCombo = {};
+  filas.forEach(([key,f])=>{ porCombo[`${f.color||''}__${f.talle||''}`] = {key,f}; });
+
+  const headerCols = talles.map(t=>`<th>${(t||'—').replace(/</g,'&lt;')}</th>`).join('');
+  const rows = colores.map(c=>{
+    const cells = talles.map(t=>{
+      const combo = porCombo[`${c}__${t}`];
+      if(!combo) return `<td style="color:var(--text3)">—</td>`;
+      const val = combo.f.contado||0;
+      return `<td><input type="number" min="0" value="${val}" data-rowkey="${combo.key}"></td>`;
+    }).join('');
+    return `<tr>
+      <td>
+        <div style="font-weight:700;margin-bottom:4px">${(c||'(sin color)').replace(/</g,'&lt;')}</div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" min="0" placeholder="Nº" class="logi-apply-fila-input" style="width:52px">
+          <button class="logi-note-btn" style="font-size:10px;padding:2px 6px" onclick="logiAplicarFilaContado(this)">➡ aplicar a fila</button>
+        </div>
+      </td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('logi-count-grid-wrap').innerHTML = (colores.length && talles.length)
+    ? `<table class="logi-gen-table"><thead><tr><th>Color</th>${headerCols}</tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">Este corte todavía no tiene talles/colores cargados.</div>';
+
+  document.getElementById('logi-count-grid-modal').classList.add('logi-show');
+}
+
+function logiCerrarContadoGridModal(){
+  document.getElementById('logi-count-grid-modal').classList.remove('logi-show');
+  logiContadoGridItemId = null;
+}
+
+// Toma el número puesto al lado del color y lo replica en todas las celdas de esa fila
+// (todos los talles que aplican a ese color) — todavía no guarda nada, solo llena el
+// formulario; hace falta tocar "Guardar conteo" para que se escriba en Firebase.
+function logiAplicarFilaContado(btnEl){
+  const row = btnEl.closest('tr');
+  const input = row.querySelector('.logi-apply-fila-input');
+  const val = Math.max(0, parseInt(input.value)||0);
+  row.querySelectorAll('td input[data-rowkey]').forEach(inp=>{ inp.value = val; });
+}
+
+function logiContadoGridConfirmar(){
+  const itemId = logiContadoGridItemId;
+  if(!itemId) return;
+  const wrap = document.getElementById('logi-count-grid-wrap');
+  const inputs = wrap.querySelectorAll('input[data-rowkey]');
+  if(!inputs.length){ showToast('No hay talles/colores para cargar'); return; }
+  const updates = {};
+  inputs.forEach(inp=>{
+    const n = Math.max(0, parseInt(inp.value)||0);
+    const key = inp.dataset.rowkey;
+    updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/contado`] = n;
+    updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/contado_set_by`] = currentUser;
+  });
+  db.ref().update(updates);
+  showToast(`✓ Conteo guardado (${inputs.length} celda${inputs.length!==1?'s':''})`);
+  logiCerrarContadoGridModal();
+  logiRenderDetail(itemId);
 }
 
 // ===== Carga masiva de talles/colores esperados (grilla tipo matriz) =====
@@ -8032,7 +8162,8 @@ function logiGridAddTalle(){
   logiGridRenderChips();
 }
 function logiGridGenerar(){
-  const {colores,talles}=logiGridCtx;
+  const {colores}=logiGridCtx;
+  const talles=logiGridCtx.talles.slice().sort(compareTalles);
   const wrap=document.getElementById('logi-grid-table-wrap');
   if(!colores.length || !talles.length){
     wrap.innerHTML='<div style="font-size:12px;color:var(--text3);font-style:italic">Cargá al menos un color y un talle antes de generar.</div>';

@@ -3703,8 +3703,8 @@ function saveMejoraNota(secId,itemId,el){
 
 function triggerMejoraFotoUpload(secId,itemId){
   const input=document.createElement('input');
-  input.type='file';input.accept='image/*';
-  input.onchange=(e)=>{ if(e.target.files[0]) uploadMejoraFoto(secId,itemId,e.target.files[0]); };
+  input.type='file';input.accept='image/*';input.multiple=true;
+  input.onchange=(e)=>{ Array.from(e.target.files||[]).forEach(file=>uploadMejoraFoto(secId,itemId,file)); };
   input.click();
 }
 
@@ -3717,10 +3717,16 @@ async function uploadMejoraFoto(secId,itemId,file){
     const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
     const data=await res.json();
     if(data.secure_url){
-      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mejora_foto`).set(data.secure_url);
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mejora_fotos`).push(data.secure_url);
+      const item=sectionsData[secId].items[itemId];
+      logActivity('Agregó foto a mejora',item.code);
       showToast('✓ Foto cargada');
     } else showToast('✗ Error al subir foto');
   }catch(e){ showToast('✗ Error al subir foto'); }
+}
+
+function deleteMejoraFoto(secId,itemId,fotoId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mejora_fotos/${fotoId}`).remove();
 }
 
 function saveMejoraTipo(secId,itemId,val){
@@ -5224,7 +5230,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div style="margin-top:8px">
             <div class="diseno-field-label">Foto del problema</div>
             <div class="diseno-fotos-grid" style="margin-top:6px">
-              ${item.mejora_foto?`<div class="diseno-foto-item"><img src="${item.mejora_foto}" onclick="openPhotoModal('${item.mejora_foto}')"></div>`:''}
+              ${Object.entries(item.mejora_fotos||{}).map(([fotoId,url])=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')">${canEdit?`<button class="diseno-foto-del" onclick="deleteMejoraFoto('${secId}','${itemId}','${fotoId}')">×</button>`:''}</div>`).join('')}
+              ${(!item.mejora_fotos&&item.mejora_foto)?`<div class="diseno-foto-item"><img src="${item.mejora_foto}" onclick="openPhotoModal('${item.mejora_foto}')"></div>`:''}
               ${canEdit?`<div class="diseno-add-foto" onclick="triggerMejoraFotoUpload('${secId}','${itemId}')" title="Agregar foto">📷</div>`:''}
             </div>
           </div>

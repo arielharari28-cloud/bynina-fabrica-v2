@@ -8094,6 +8094,7 @@ function logiRenderDetail(id){
   const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel');
 
   let rowsHtml='';
+  let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalSaldo=0, totalPorControlar=0;
   if(!filas.length){
     rowsHtml = cerrado
       ? '<div class="empty">Este corte se cerró sin talles/colores cargados.</div>'
@@ -8112,12 +8113,14 @@ function logiRenderDetail(id){
       const tieneNotaDetalle = f.notas && Object.values(f.notas).some(n=>n.tipo==='detalle');
       const tieneNotaFallado = f.notas && Object.values(f.notas).some(n=>n.tipo==='fallado');
       const inputAttr = cerrado ? 'disabled' : '';
+      totalEsperado+=(f.esperado||0); totalContado+=contado; totalOk+=(f.ok||0); totalDetalle+=(f.detalle||0); totalFallado+=(f.fallado||0);
+      totalSaldo+=(f.esperado?saldo:0); totalPorControlar+=porControlar;
       return `<tr class="${completo?'logi-row-complete':''}">
         <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
         <td>${(f.talle||'—').replace(/</g,'&lt;')}</td>
         <td>${f.esperado||'—'}</td>
         <td><input type="number" min="0" class="logi-in-contado" value="${contado}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','contado',this.value)"></td>
-        <td style="font-weight:700;color:${porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
+        <td style="font-weight:700;color:${porControlar<0?'#b0392f':porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
         <td><input type="number" min="0" class="logi-in-ok" value="${f.ok||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','ok',this.value)"></td>
         <td>
           <input type="number" min="0" class="logi-in-detalle" value="${f.detalle||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','detalle',this.value)">
@@ -8131,11 +8134,23 @@ function logiRenderDetail(id){
         ${canEditarGrilla?`<td><button class="logi-note-btn" title="Borrar fila" onclick="logiBorrarFila('${id}','${key}')">🗑️</button></td>`:''}
       </tr>`;
     }).join('');
+    const totalRow = `<tr class="logi-total-row" style="font-weight:700;border-top:2px solid var(--border)">
+      <td colspan="2">Total</td>
+      <td>${totalEsperado||'—'}</td>
+      <td>${totalContado}</td>
+      <td style="color:${totalPorControlar<0?'#b0392f':totalPorControlar>0?'#b8860b':'var(--text2)'}">${totalPorControlar}</td>
+      <td>${totalOk}</td>
+      <td>${totalDetalle}</td>
+      <td>${totalFallado}</td>
+      <td style="color:${totalSaldo<0?'#b0392f':(totalSaldo===0&&totalEsperado?'#2e7d4f':'var(--text2)')}">${totalEsperado?totalSaldo:'—'}</td>
+      ${canEditarGrilla?'<td></td>':''}
+    </tr>`;
     rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table">
       <thead><tr>
         <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>Por controlar</th><th>OK</th><th>Detalle</th><th>Fallado</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
       </tr></thead>
       <tbody>${body}</tbody>
+      <tfoot>${totalRow}</tfoot>
     </table></div>`;
   }
   document.getElementById('logi-rows-container').innerHTML = rowsHtml +
@@ -8143,13 +8158,7 @@ function logiRenderDetail(id){
     (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenContadoGridModal('${id}')">🔢 Cargar conteo por grilla</button>` : '') +
     (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenClasifGridModal('${id}')">🔢 Cargar OK/Detalle/Fallado por grilla</button>` : '');
 
-  const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
-  const totalContado = filas.reduce((s,[,f])=>s+(f.contado||0),0);
-  const totalOk = filas.reduce((s,[,f])=>s+(f.ok||0),0);
-  const totalDetalle = filas.reduce((s,[,f])=>s+(f.detalle||0),0);
-  const totalFallado = filas.reduce((s,[,f])=>s+(f.fallado||0),0);
   const totalClasificadas = totalOk+totalDetalle+totalFallado;
-  const totalPorControlar = totalContado - totalClasificadas;
   const puedeCerrar = !cerrado && filas.length>0 && totalContado>0 && totalPorControlar===0;
 
   let html = `<div class="logi-final-summary">
@@ -8164,7 +8173,8 @@ function logiRenderDetail(id){
     html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">✅ Conteo cerrado</div>` +
       (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
-    const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>` : '';
+    const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>`
+      : totalPorControlar<0 ? `<div style="text-align:center;font-size:12px;color:#b0392f;margin-bottom:6px">⚠️ Hay ${-totalPorControlar} prenda${-totalPorControlar!==1?'s':''} clasificada${-totalPorControlar!==1?'s':''} de más respecto de lo contado — revisá esas filas</div>` : '';
     const puedeGuardarPendiente = totalContado>0 && !it.marcado_pendiente_controlar;
     const yaMarcado = it.marcado_pendiente_controlar
       ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">🟡 Guardado — queda pendiente de controlar${it.marcado_pendiente_controlar_por?` (por ${it.marcado_pendiente_controlar_por})`:''}</div>`
@@ -8181,11 +8191,24 @@ function logiRenderDetail(id){
 }
 
 // Edición directa: escribe el valor tal cual (no suma de a uno), así se puede corregir un error
-// de tipeo sin tener que resetear todo.
+// de tipeo sin tener que resetear todo. Para OK/Detalle/Fallado, no deja que la suma de los tres
+// supere lo Contado en esa fila — si te pasás, lo recorta al máximo posible y avisa.
 function logiSetConteo(itemId,rowKey,tipo,valor){
-  const n = Math.max(0, parseInt(valor)||0);
+  const it = logiItemsData[itemId];
+  const f = (it && it.grilla && it.grilla[rowKey]) || {};
+  let n = Math.max(0, parseInt(valor)||0);
+  if(tipo==='ok'||tipo==='detalle'||tipo==='fallado'){
+    const contado = f.contado||0;
+    const otrosDosCampos = ['ok','detalle','fallado'].filter(t=>t!==tipo).reduce((s,t)=>s+(f[t]||0),0);
+    const maxPermitido = Math.max(0, contado-otrosDosCampos);
+    if(n>maxPermitido){
+      n=maxPermitido;
+      showToast(`⚠️ No podés cargar más de lo Contado (${contado}) entre OK/Detalle/Fallado — quedó en ${n}`);
+    }
+  }
   db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}`).set(n);
   db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}_set_by`).set(currentUser);
+  logiRenderDetail(itemId); // refleja el valor recortado al toque, sin esperar el ida y vuelta de Firebase
 }
 
 function logiBorrarFila(itemId,rowKey){
@@ -8380,17 +8403,26 @@ function logiClasifGridConfirmar(){
   const wrap = document.getElementById('logi-clasif-grid-wrap');
   const inputs = wrap.querySelectorAll('input[data-rowkey]');
   if(!inputs.length){ showToast('No hay talles/colores para cargar'); return; }
+  const it = logiItemsData[itemId] || {};
   const updates = {};
+  let recortados = 0;
   inputs.forEach(inp=>{
-    const n = Math.max(0, parseInt(inp.value)||0);
     const key = inp.dataset.rowkey;
+    const f = (it.grilla && it.grilla[key]) || {};
+    const contado = f.contado||0;
+    const otrosDosCampos = ['ok','detalle','fallado'].filter(t=>t!==field).reduce((s,t)=>s+(f[t]||0),0);
+    const maxPermitido = Math.max(0, contado-otrosDosCampos);
+    let n = Math.max(0, parseInt(inp.value)||0);
+    if(n>maxPermitido){ n=maxPermitido; recortados++; }
     updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/${field}`] = n;
     updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/${field}_set_by`] = currentUser;
   });
   db.ref().update(updates);
   const fieldLabel = field==='ok'?'OK':field==='detalle'?'Detalle':'Fallado';
-  showToast(`✓ ${fieldLabel} guardado (${inputs.length} celda${inputs.length!==1?'s':''})`);
-  logiRenderClasifGrid(); // se queda abierto, por si querés cargar los otros dos campos seguido
+  showToast(recortados
+    ? `✓ ${fieldLabel} guardado — ${recortados} celda${recortados!==1?'s':''} se recortaron para no superar lo Contado`
+    : `✓ ${fieldLabel} guardado (${inputs.length} celda${inputs.length!==1?'s':''})`);
+  logiCerrarClasifGridModal();
   logiRenderDetail(itemId);
 }
 

@@ -639,6 +639,23 @@
   </div>
 </div>
 
+<div class="logi-modal-bg" id="logi-clasif-grid-modal">
+  <div class="logi-modal" style="max-height:90vh;overflow-y:auto;max-width:640px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px">Cargar OK / Detalle / Fallado por grilla</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Elegí qué campo cargar y después escribí un número y tocá "aplicar a fila" para repetirlo en todos los talles de ese color. Los guiones (—) son combinaciones que no aplican a este corte.</div>
+    <select id="logi-clasif-field-select" style="border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin-bottom:12px" onchange="logiRenderClasifGrid()">
+      <option value="ok">✓ OK</option>
+      <option value="detalle">Detalle</option>
+      <option value="fallado">Fallado</option>
+    </select>
+    <div id="logi-clasif-grid-wrap" style="overflow-x:auto"></div>
+    <div class="logi-mbtns" style="margin-top:14px">
+      <button class="logi-cancel" onclick="logiCerrarClasifGridModal()">Cancelar</button>
+      <button class="logi-save" onclick="logiClasifGridConfirmar()">Guardar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal editar ítem -->
 <!-- Modal Estampado DTF (manda el corte a la app de Estampas & Bordados vía Airtable) -->
 <!-- Modales del módulo Estampas DTF -->
@@ -8123,7 +8140,8 @@ function logiRenderDetail(id){
   }
   document.getElementById('logi-rows-container').innerHTML = rowsHtml +
     (canEditarGrilla ? `<button class="btn-sm" style="margin-top:10px" onclick="logiOpenGridModal('${id}')">${filas.length?'+ Cargar más talles/colores':'+ Cargar talles/colores'}</button>` : '') +
-    (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenContadoGridModal('${id}')">🔢 Cargar conteo por grilla</button>` : '');
+    (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenContadoGridModal('${id}')">🔢 Cargar conteo por grilla</button>` : '') +
+    (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenClasifGridModal('${id}')">🔢 Cargar OK/Detalle/Fallado por grilla</button>` : '');
 
   const totalEsperado = filas.reduce((s,[,f])=>s+(f.esperado||0),0);
   const totalContado = filas.reduce((s,[,f])=>s+(f.contado||0),0);
@@ -8297,6 +8315,82 @@ function logiContadoGridConfirmar(){
   db.ref().update(updates);
   showToast(`✓ Conteo guardado (${inputs.length} celda${inputs.length!==1?'s':''})`);
   logiCerrarContadoGridModal();
+  logiRenderDetail(itemId);
+}
+
+// ===== Carga rápida de OK / Detalle / Fallado por grilla (matriz color x talle) =====
+// Mismo patrón que la grilla de conteo: se elige el campo (OK, Detalle o Fallado) y se
+// carga como matriz color x talle, con "aplicar a fila" para repetir un número en todos
+// los talles de un color. Las notas de Detalle/Fallado (el motivo) se siguen cargando
+// aparte, fila por fila, con el botón 📝 de la tabla principal — acá solo van los números.
+let logiClasifGridItemId = null;
+
+function logiOpenClasifGridModal(itemId){
+  logiClasifGridItemId = itemId;
+  document.getElementById('logi-clasif-field-select').value = 'ok';
+  logiRenderClasifGrid();
+  document.getElementById('logi-clasif-grid-modal').classList.add('logi-show');
+}
+
+function logiRenderClasifGrid(){
+  const itemId = logiClasifGridItemId;
+  if(!itemId) return;
+  const field = document.getElementById('logi-clasif-field-select').value;
+  const it = logiItemsData[itemId] || {};
+  const filas = Object.entries(it.grilla||{});
+  const colores = [...new Set(filas.map(([,f])=>f.color||''))].sort((a,b)=>a.localeCompare(b));
+  const talles = [...new Set(filas.map(([,f])=>f.talle||''))].sort(compareTalles);
+  const porCombo = {};
+  filas.forEach(([key,f])=>{ porCombo[`${f.color||''}__${f.talle||''}`] = {key,f}; });
+
+  const headerCols = talles.map(t=>`<th>${(t||'—').replace(/</g,'&lt;')}</th>`).join('');
+  const rows = colores.map(c=>{
+    const cells = talles.map(t=>{
+      const combo = porCombo[`${c}__${t}`];
+      if(!combo) return `<td style="color:var(--text3)">—</td>`;
+      const val = combo.f[field]||0;
+      return `<td><input type="number" min="0" value="${val}" data-rowkey="${combo.key}"></td>`;
+    }).join('');
+    return `<tr>
+      <td>
+        <div style="font-weight:700;margin-bottom:4px">${(c||'(sin color)').replace(/</g,'&lt;')}</div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" min="0" placeholder="Nº" class="logi-apply-fila-input" style="width:52px">
+          <button class="logi-note-btn" style="font-size:10px;padding:2px 6px" onclick="logiAplicarFilaContado(this)">➡ aplicar a fila</button>
+        </div>
+      </td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  document.getElementById('logi-clasif-grid-wrap').innerHTML = (colores.length && talles.length)
+    ? `<table class="logi-gen-table"><thead><tr><th>Color</th>${headerCols}</tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">Este corte todavía no tiene talles/colores cargados.</div>';
+}
+
+function logiCerrarClasifGridModal(){
+  document.getElementById('logi-clasif-grid-modal').classList.remove('logi-show');
+  logiClasifGridItemId = null;
+}
+
+function logiClasifGridConfirmar(){
+  const itemId = logiClasifGridItemId;
+  if(!itemId) return;
+  const field = document.getElementById('logi-clasif-field-select').value;
+  const wrap = document.getElementById('logi-clasif-grid-wrap');
+  const inputs = wrap.querySelectorAll('input[data-rowkey]');
+  if(!inputs.length){ showToast('No hay talles/colores para cargar'); return; }
+  const updates = {};
+  inputs.forEach(inp=>{
+    const n = Math.max(0, parseInt(inp.value)||0);
+    const key = inp.dataset.rowkey;
+    updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/${field}`] = n;
+    updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/${field}_set_by`] = currentUser;
+  });
+  db.ref().update(updates);
+  const fieldLabel = field==='ok'?'OK':field==='detalle'?'Detalle':'Fallado';
+  showToast(`✓ ${fieldLabel} guardado (${inputs.length} celda${inputs.length!==1?'s':''})`);
+  logiRenderClasifGrid(); // se queda abierto, por si querés cargar los otros dos campos seguido
   logiRenderDetail(itemId);
 }
 

@@ -2206,7 +2206,10 @@ function getResponsable(sec,item,secId){
     if(!item.entregada_modelista) return 'Peque';
     return item.modelista||'Peque';
   }
-  if(tipo==='muestra_diseno') return 'Ariel y Stef';
+  if(tipo==='muestra_diseno'){
+    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 'Peque'; // Guada no tiene usuario propio; lo gestiona Peque
+    return 'Ariel y Stef';
+  }
   if(tipo==='muestra_pend') return 'Cortador';
   if(tipo==='muestra_cort') return 'Peque';
   if(tipo==='muestra_lista') return 'Peque';
@@ -2295,6 +2298,7 @@ function getProximaAccion(sec,item,secId){
   if(tipo==='muestra_lista') return item.taller_elegido?`Falta marcar enviado · Taller: ${item.taller_elegido}`:'Falta elegir taller y enviar';
   if(tipo==='muestra_en_taller') return 'Esperando que el taller entregue';
   if(tipo==='muestra_diseno'){
+    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return '🖨️ Falta digitalizar el molde (Guada)';
     const fotos=Object.keys(item.fotos_prueba||{});
     if(!fotos.length) return 'Falta cargar foto de cómo queda puesta';
     return 'Falta decidir: Aprobar / A revisión / Corregir sin muestra';
@@ -3569,6 +3573,25 @@ function toggleAviosEntregadosAdela(secId,itemId){
   showToast(nv?'✓ Avíos entregados a Adela':'↩ Deshecho');
 }
 
+// Los moldes de Adela son físicos y hay que pasarlos a sistema — eso lo hace Guada, no Peque.
+// El molde queda "aprobado" automáticamente cuando se aprueba la PRENDA en Diseño (ver
+// marcarAprobada / marcarCorregirSinMuestra) — no es un paso aparte. Lo único que falta trackear
+// acá es la digitalización: mientras no esté, el ítem se queda en Diseño sin pasar a producción.
+// Como Guada no tiene usuario propio, Peque/Ariel/Stef tildan esto por ella.
+function confirmarDigitalizacionYAvanzar(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(!item.molde_aprobado){ showToast('Todavía no se aprobó el molde'); return; }
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
+  const newItem={...item, molde_digitalizado:true, fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios)};
+  delete newItem.estado;
+  delete newItem.modificaciones;
+  db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Molde digitalizado (Guada) — a Pendiente armar tizada',item.code);
+  showToast(`🖨️ ${item.code} digitalizado → Pendiente armar tizada`);
+}
+
 function pasarAMolderia(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.code||!item.ficha_link||!item.modelista){ showToast('Falta código, link de ficha o modelista asignada'); return; }
@@ -3933,6 +3956,13 @@ function marcarAprobada(secId,itemId){
   const fotos=Object.keys(item.fotos_prueba||{});
   if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
   if(!confirm(`¿Aprobar ${item.code} y pasarla a Pendiente armar tizada?`)) return;
+  if(item.modelista==='Adela'&&!item.molde_digitalizado){
+    // Se aprueba la prenda → el molde queda aprobado, pero no avanza hasta que Guada lo digitalice.
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({molde_aprobado:true,fecha_aprobada:Date.now()});
+    logActivity('Prenda aprobada — molde aprobado, esperando digitalización (Guada)',item.code);
+    showToast(`📐 ${item.code} aprobada — falta que Guada digitalice el molde`);
+    return;
+  }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
   const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios)};
@@ -3967,9 +3997,20 @@ function marcarCorregirSinMuestra(secId,itemId){
   }
   const tocaFicha=confirm('¿También hay que modificar la Ficha Técnica?\n\nAceptar = sí, hay que corregir la ficha.\nCancelar = no, solo se corrige el molde.');
   if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a Pendiente armar tizada?`)) return;
+  const notaCorreccion=`🔧 Corrección sin nueva muestra${tocaFicha?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
+  if(item.modelista==='Adela'&&!item.molde_digitalizado){
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+      molde_aprobado:true,
+      fecha_aprobada:Date.now(),
+      nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
+      ...(tocaFicha?{ficha_control_pendiente:true}:{})
+    });
+    logActivity('Corregido sin nueva muestra — molde aprobado, esperando digitalización (Guada)',item.code);
+    showToast(`📐 ${item.code} corregido — falta que Guada digitalice el molde`);
+    return;
+  }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
-  const notaCorreccion=`🔧 Corrección sin nueva muestra${tocaFicha?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
   const newItem={...item,
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
     fecha_aprobada:Date.now(),
@@ -5159,6 +5200,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar':'+ Cargar si ya se sabe'}</button>`:''}
           </div>
           ${item.modelista==='Adela'?`<div style="margin:4px 0">
+            <div class="mod-badge" style="background:var(--accent-bg);color:var(--accent)">🧵✂️ Moldería + Muestra — lo hace Adela junto</div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
               <span class="c-label" style="font-size:11px">📏 Tela a separar:</span>
               ${item.tela_cantidad_adela?`<strong style="font-size:12px">${item.tela_cantidad_adela}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
@@ -5175,15 +5217,14 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>`:''}
           ${buildRefLinkHtml(secId,itemId,item,canCorregirOrigen)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
-          ${(()=>{ const esAdela=item.modelista==='Adela'; const destinoTxt=esAdela?'pasa directo a Diseño / Probar muestra':'pasa directo a corte'; return `
           <div class="cortada-row" style="padding:6px 0;border:none">
             <div class="c-check ${item.entregada_modelista?'checked':''}" onclick="${canEdit?`toggleEntregaModelista('${secId}','${itemId}')`:''}">${item.entregada_modelista?'✓':''}</div>
-            <span class="c-label ${item.entregada_modelista?'done':''}">Modelista entregó la muestra <span style="font-size:10px;color:var(--text3)">(${destinoTxt})</span></span>
+            <span class="c-label ${item.entregada_modelista?'done':''}">Modelista entregó la muestra <span style="font-size:10px;color:var(--text3)">(${item.modelista==='Adela'?'pasa directo a Diseño / Probar muestra':'pasa directo a corte'})</span></span>
           </div>
           <div class="cortada-row" style="padding:6px 0;border:none">
             <div class="c-check ${item.foto_drive_ok?'checked':''}" onclick="${canEdit?`toggleFotoDriveOk('${secId}','${itemId}')`:''}">${item.foto_drive_ok?'✓':''}</div>
             <span class="c-label ${item.foto_drive_ok?'done':''}">Foto en Drive con nombre prenda y código</span>
-          </div>`; })()}
+          </div>
           ${refBox}
           <div class="item-actions">
             ${moveOpts}
@@ -5200,6 +5241,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const canDesign=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
     const fotos=Object.entries(item.fotos_prueba||{});
     const tieneFotos=fotos.length>0;
+    const esperandoDigitalizar=item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado;
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
         ${buildPhotoHtml(secId,itemId,item,canEdit)}
@@ -5237,10 +5279,20 @@ function buildItem(secId,itemId,item,sec,idx,total){
                 : `<div style="font-size:12px;color:var(--text2);margin-top:4px">${item.modificaciones||'—'}</div>`}
             </div>
           </div>
+          ${esperandoDigitalizar?`
+          <div class="cortada-panel">
+            <div class="cortada-row">
+              <span class="c-label" style="font-weight:500">📐 Molde aprobado (Adela) — falta digitalizar</span>
+            </div>
+            <div class="avio-item" style="padding-left:0;border-top:none">
+              <div class="c-check" onclick="${canEdit?`confirmarDigitalizacionYAvanzar('${secId}','${itemId}')`:''}"></div>
+              <span class="c-label" style="font-size:11px">🖨️ Molde digitalizado (Guada) — al tildar pasa a Pendiente armar tizada</span>
+            </div>
+          </div>`:''}
           <div class="item-actions">
-            ${canDesign?`<button class="btn-approve" ${tieneFotos?'':'disabled'} title="${tieneFotos?'':'Cargá al menos una foto de cómo queda puesta'}" onclick="marcarAprobada('${secId}','${itemId}')">✅ Aprobar</button>`:''}
-            ${canDesign?`<button class="btn-revision" onclick="marcarRevision('${secId}','${itemId}')" title="Necesita que le hagan una muestra nueva">🔁 A revisión (nueva muestra)</button>`:''}
-            ${canDesign?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarCorregirSinMuestra('${secId}','${itemId}')" title="Se corrige molde/ficha pero NO hace falta otra muestra">🔧 Corregir sin nueva muestra</button>`:''}
+            ${(!esperandoDigitalizar&&canDesign)?`<button class="btn-approve" ${tieneFotos?'':'disabled'} title="${tieneFotos?'':'Cargá al menos una foto de cómo queda puesta'}" onclick="marcarAprobada('${secId}','${itemId}')">✅ Aprobar</button>`:''}
+            ${(!esperandoDigitalizar&&canDesign)?`<button class="btn-revision" onclick="marcarRevision('${secId}','${itemId}')" title="Necesita que le hagan una muestra nueva">🔁 A revisión (nueva muestra)</button>`:''}
+            ${(!esperandoDigitalizar&&canDesign)?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarCorregirSinMuestra('${secId}','${itemId}')" title="Se corrige molde/ficha pero NO hace falta otra muestra">🔧 Corregir sin nueva muestra</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}

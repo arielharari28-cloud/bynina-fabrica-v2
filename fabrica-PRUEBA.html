@@ -1806,7 +1806,7 @@ function pasarABaseAprobada(secId,itemId){
     base_ref_manual:item.base_ref_manual||null,
     nota:'Base ya aprobada (viene de Nuevos Desarrollos, sin moldería)',
     done:false,
-    avios:{},
+    avios:resetAviosParaCorte(item.avios),
     fecha_ingreso:Date.now(),
     fecha_etapa:Date.now()
   };
@@ -3040,12 +3040,48 @@ function marcarEnviadoTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const tallerista=item.taller_elegido;
   if(!tallerista){ showToast('Todavía no se eligió el taller'); return; }
+  // Último control antes de que la muestra salga físicamente: si lleva avíos y falta alguno
+  // por recibir, no se deja enviar sin la autorización explícita de Ariel/Stef.
+  const avios=Object.values(item.avios||{});
+  const aviosPendientes=item.lleva_avios===true&&avios.length>0&&!avios.every(a=>a.recibido);
+  if(aviosPendientes){ showToast('⏳ Faltan avíos por recibir — pedí autorización para enviar igual'); return; }
   const newItem={...item, tallerista, fecha_envio_taller:Date.now(), fecha_etapa:Date.now()};
   delete newItem.taller_elegido;
+  delete newItem.pedido_sin_avio;
   db.ref(`fabrica_v5/sections/${SEC_TALLER}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Enviada a taller',`${item.code} → ${tallerista}`);
   showToast(`📦 Enviada a ${tallerista}`);
+}
+
+// Ariel/Stef autorizan enviar la muestra a taller aunque falte algún avío por recibir.
+function autorizarEnviarMuestraSinAvio(secId,itemId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pedido_sin_avio`).remove();
+  marcarEnviadoTallerAutorizado(secId,itemId);
+}
+
+// Igual que marcarEnviadoTaller pero sin el chequeo de avíos — solo se llama después de que
+// Ariel/Stef autorizaron explícitamente el envío sin esperar el avío.
+function marcarEnviadoTallerAutorizado(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const tallerista=item.taller_elegido;
+  if(!tallerista){ showToast('Todavía no se eligió el taller'); return; }
+  const newItem={...item, tallerista, fecha_envio_taller:Date.now(), fecha_etapa:Date.now()};
+  delete newItem.taller_elegido;
+  delete newItem.pedido_sin_avio;
+  db.ref(`fabrica_v5/sections/${SEC_TALLER}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Enviada a taller (autorizado sin avío)',`${item.code} → ${tallerista}`);
+  showToast(`📦 Enviada a ${tallerista} — sin esperar el avío (autorizado)`);
+}
+
+// Define si la muestra lleva avíos, sin disparar el auto-avance de checkListaParaTaller
+// (ese chequeo es solo para la transición Muestra Cortada → Lista; acá la muestra ya está lista).
+function setLlevaAviosLista(secId,itemId,val){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/lleva_avios`).set(val);
+  logActivity(`Lleva avíos: ${val?'Sí':'No'}`,item.code);
+  showToast(val?'Lleva avíos: Sí':'Sin avíos requeridos');
 }
 
 function diasDesde(timestamp){
@@ -3482,7 +3518,8 @@ function corregirFichaYEnviarCorte(secId,itemId){
     ficha_control_pendiente:true,
     fecha_aprobada:Date.now(),
     fecha_ingreso:Date.now(),
-    fecha_etapa:Date.now()};
+    fecha_etapa:Date.now(),
+    avios:resetAviosParaCorte(item.avios)};
   delete newItem.estado;
   delete newItem.modificaciones;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
@@ -3898,7 +3935,7 @@ function marcarAprobada(secId,itemId){
   if(!confirm(`¿Aprobar ${item.code} y pasarla a Pendiente armar tizada?`)) return;
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
-  const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now()};
+  const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios)};
   delete newItem.estado;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -3937,6 +3974,7 @@ function marcarCorregirSinMuestra(secId,itemId){
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
     fecha_aprobada:Date.now(),
     fecha_etapa:Date.now(),
+    avios:resetAviosParaCorte(item.avios),
     ...(tocaFicha?{ficha_control_pendiente:true}:{})};
   delete newItem.estado;
   delete newItem.modificaciones;
@@ -4705,9 +4743,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
           const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Entregado</span>`
             :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
             :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-          const btns=canCheck?`${(!rec&&!hasDate)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${!rec
+          const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
+          const canRecibir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
+          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibir)
             ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`
-            :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`}`:'';
+            :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
           return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
             <span class="avio-name">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
             ${badge}${btns}</div>`;
@@ -4772,6 +4812,48 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const tallerOpts=TALLERISTAS_MUESTRA.map(t=>`<option value="${t}">${t}</option>`).join('');
     const tallerElegido=item.taller_elegido;
     const canMarcarEnviado=canEdit||currentUser==='emir';
+    // Último punto de control antes de que la muestra salga físicamente al taller: si lleva
+    // avíos y todavía no llegaron, se bloquea el botón "Enviado" (salvo autorización de Ariel/Stef).
+    const llevaAvios=item.lleva_avios;
+    const avios=Object.entries(item.avios||{});
+    const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
+    const canPedir=esAutorizador||currentUser==='peque';
+    const canRecibir=esAutorizador||currentUser==='emir'||currentUser==='peque';
+    const aviosPendientes=llevaAvios===true&&avios.length>0&&!avios.every(([,a])=>a.recibido);
+    let aviosPanel='';
+    if(llevaAvios===true){
+      if(avios.length===0){
+        aviosPanel=`<div class="avio-item" style="padding-left:0;border-top:none;color:var(--text3);font-size:12px;font-style:italic">Sin avíos cargados ${canEdit?`<button class="btn-sm" style="margin-left:4px" onclick="openEditModal('${secId}','${itemId}')">+ Cargar</button>`:''}</div>`;
+      } else {
+        aviosPanel='<div class="avios-sub">'+avios.map(([avioId,avio])=>{
+          const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
+          const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
+          const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
+            :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
+            :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
+          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibir)
+            ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
+            :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
+          return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
+            <span class="avio-name">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
+            ${badge}${btns}</div>`;
+        }).join('')+(canEdit?`<div class="avio-item"><button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar avíos</button></div>`:'')+'</div>';
+      }
+    }
+    const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió enviar sin esperar el avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
+    let enviarBtnHtml;
+    if(!aviosPendientes){
+      enviarBtnHtml=`<button class="btn-advance" onclick="marcarEnviadoTaller('${secId}','${itemId}')">✅ Enviado</button>`;
+    } else if(esAutorizador){
+      enviarBtnHtml=item.pedido_sin_avio
+        ? `<button class="btn-advance" onclick="autorizarEnviarMuestraSinAvio('${secId}','${itemId}')">✅ Autorizar y enviar</button>
+           <button class="btn-sm" onclick="rechazarSinAvio('${secId}','${itemId}')">✖ Rechazar pedido</button>`
+        : `<span class="c-label" style="font-size:11px;color:var(--text3);flex:0">Faltan avíos — esperando que pidan autorización para enviar igual</span>`;
+    } else {
+      enviarBtnHtml=item.pedido_sin_avio
+        ? `<span class="c-label" style="font-size:11px;color:var(--warn-text);flex:0">🔔 Esperando autorización de Ariel/Stef</span>`
+        : `<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionSinAvio('${secId}','${itemId}')">🔔 Faltan avíos — pedir autorización para enviar igual</button>`;
+    }
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
         ${buildPhotoHtml(secId,itemId,item,canEdit)}
@@ -4789,6 +4871,18 @@ function buildItem(secId,itemId,item,sec,idx,total){
           </div>
           ${buildRefLinkHtml(secId,itemId,item,canEdit)}
           ${buildNotasHtml(secId,itemId,item,canEdit)}
+          <div class="cortada-panel">
+            <div class="cortada-row">
+              <span class="c-label" style="font-weight:500">¿Lleva avíos?</span>
+              <div class="radio-group">
+                ${canCheck?`
+                  <button class="radio-btn ${llevaAvios===true?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',true)">Sí</button>
+                  <button class="radio-btn ${llevaAvios===false?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',false)">No</button>
+                `:`<span style="font-size:12px;color:var(--text2)">${llevaAvios===true?'Sí':llevaAvios===false?'No':'Sin definir'}</span>`}
+              </div>
+            </div>
+            ${aviosPanel}
+          </div>
           <div class="listo-badge">🎉 Lista para sacar a taller</div>
           ${(!tallerElegido&&canEdit)?`
           <div class="enviar-taller-row">
@@ -4800,9 +4894,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <button class="btn-advance" onclick="confirmarEleccionTaller('${secId}','${itemId}')">Elegir taller</button>
           </div>`:''}
           ${tallerElegido?`
-          <div class="enviar-taller-row" style="align-items:center">
+          ${pedidoSinAvioHtml}
+          <div class="enviar-taller-row" style="align-items:center;flex-wrap:wrap">
             <span style="font-size:12px;color:var(--text2)">Taller elegido: <strong>${tallerElegido}</strong></span>
-            ${canMarcarEnviado?`<button class="btn-advance" onclick="marcarEnviadoTaller('${secId}','${itemId}')">✅ Enviado</button>`:''}
+            ${canMarcarEnviado?enviarBtnHtml:''}
           </div>`:''}
           <div class="item-actions">
             ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Avíos</button>`:''}
@@ -4953,6 +5048,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <div class="c-check ${ninox?'checked':''}" onclick="${canPeque?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
             <span class="c-label" style="font-size:11px">Cargado en Ninox</span>
           </div>
+          <div class="avio-item" style="padding-left:0;border-top:none">
+            <span class="c-label" style="font-size:11px">🧵 Avíos: ${Object.keys(item.avios||{}).length?`<strong>${Object.keys(item.avios||{}).length} cargado${Object.keys(item.avios||{}).length!==1?'s':''}</strong>`:'<span style="color:var(--text3);font-style:italic">sin cargar</span>'}</span>
+            ${canPeque?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar':'+ Cargar si ya se sabe'}</button>`:''}
+          </div>
 
           <div style="margin-top:10px">
             <span class="modelista-label">Ficha técnica:</span>
@@ -5055,6 +5154,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
           ${buildModelistaHtml(secId,itemId,item)}
+          <div class="avio-item" style="padding-left:0;border-top:none">
+            <span class="c-label" style="font-size:11px">🧵 Avíos: ${Object.keys(item.avios||{}).length?`<strong>${Object.keys(item.avios||{}).length} cargado${Object.keys(item.avios||{}).length!==1?'s':''}</strong>`:'<span style="color:var(--text3);font-style:italic">sin cargar</span>'}</span>
+            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar':'+ Cargar si ya se sabe'}</button>`:''}
+          </div>
           ${item.modelista==='Adela'?`<div style="margin:4px 0">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
               <span class="c-label" style="font-size:11px">📏 Tela a separar:</span>
@@ -5300,9 +5403,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
       const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
         :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-      const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
-        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
-          :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`)):'';
+      const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
+      const canRecibir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
+      const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibir)
+        ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
+        :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
       const costoLine=`<div style="font-size:10px;color:var(--text3);margin-left:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span>Cantidad: <strong style="color:var(--text2)">${avio.cantidad||'—'}</strong></span>
         <span>Precio: <strong style="color:var(--text2)">${avio.precio||'—'}</strong></span>
@@ -6410,6 +6515,18 @@ function marcarCorteRealizado(secId,itemId){
   showToast(miembros.length>1
     ? `✂️ Corte ${item.numero_corte}: ${miembros.length} artículos cortados y repartidos`
     : `🎉 ${destinos[0]}`);
+}
+
+// Al pasar de muestra (prototipo) a la etapa de corte real (Pendiente armar tizada), los avíos
+// ya cargados (nombre/proveedor/cantidad/precio) se mantienen para no volver a tipearlos — pero
+// el pedido/recibido se reinicia: la cantidad que se pidió/recibió para la muestra no es la
+// cantidad de producción, así que Peque tiene que volver a pedirlo y Emir volver a confirmarlo.
+function resetAviosParaCorte(avios){
+  const out={};
+  Object.entries(avios||{}).forEach(([id,a])=>{
+    out[id]={...a,recibido:false,fecha_pedido:''};
+  });
+  return out;
 }
 
 // Autorización de Ariel/Stef para que Emir saque un corte a taller sin esperar un avío puntual

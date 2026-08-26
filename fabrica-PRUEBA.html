@@ -234,6 +234,26 @@
   .logi-badge.logi-controlar{background:#fdf1d9;color:#b8860b}
   .logi-badge.logi-done{background:#e3f3e8;color:#2e7d4f}
   .logi-section-title{font-size:13px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.6px;margin:18px 0 8px}
+  /* Layout con resumen lateral: en pantallas angostas se apila arriba del tablero. */
+  .logi-layout{display:flex;gap:18px;align-items:flex-start}
+  .logi-main-col{flex:1;min-width:0}
+  .logi-sidebar-col{width:260px;flex-shrink:0}
+  @media (max-width:860px){ .logi-layout{flex-direction:column} .logi-sidebar-col{width:100%} }
+  .logi-side-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:14px}
+  .logi-side-box-title{font-size:11px;font-weight:800;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+  .logi-resumen-row{display:flex;flex-direction:column;gap:1px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;font-size:11px}
+  .logi-resumen-row:last-child{border-bottom:none}
+  .logi-resumen-row:hover{background:var(--surface2)}
+  .logi-resumen-top{display:flex;justify-content:space-between;gap:6px;font-weight:700;color:var(--text1)}
+  .logi-resumen-sub{color:var(--text3);display:flex;justify-content:space-between;gap:6px}
+  .logi-stat-row{display:flex;justify-content:space-between;gap:6px;font-size:11px;padding:4px 2px;border-bottom:1px solid var(--border)}
+  .logi-stat-row:last-child{border-bottom:none}
+  .logi-stat-row strong{color:var(--text1)}
+  .logi-prio-badge{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;margin-left:4px}
+  .logi-prio-badge.alta{background:#fbe4e1;color:#b0392f}
+  .logi-prio-badge.media{background:#fdf1d9;color:#b8860b}
+  .logi-prio-select{border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:11px}
+  .logi-proveedor-chip{display:inline-block;background:#e7e0f7;color:#5b4e9e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:2px}
   .logi-detail-header{display:flex;gap:12px;align-items:center;margin-bottom:14px}
   .logi-detail-header img{width:72px;height:72px;object-fit:cover;border-radius:12px;background:var(--surface2)}
   .logi-detail-header .logi-noimg{width:72px;height:72px;border-radius:12px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:26px}
@@ -558,19 +578,34 @@
     </div>
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <span style="font-size:12px;color:var(--text2)">Ordenar por:</span>
           <select id="logi-orden-select" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="logiOrdenPor=this.value;logiRenderBoard()">
             <option value="fecha">Fecha de entrega</option>
             <option value="corte">N° de corte</option>
           </select>
+          <button class="btn-sm" onclick="logiOpenProveedorModal()" style="margin-left:auto">➕ Agregar prenda de proveedor</button>
         </div>
-        <div class="logi-section-title">🕓 Pendiente de conteo</div>
-        <div id="logi-conteo-list"></div>
-        <div class="logi-section-title">🟡 Pendiente de control</div>
-        <div id="logi-control-list"></div>
-        <div class="logi-section-title">✅ Finalizados</div>
-        <div id="logi-done-list"></div>
+        <div class="logi-layout">
+          <div class="logi-main-col">
+            <div class="logi-section-title">🕓 Pendiente de conteo</div>
+            <div id="logi-conteo-list"></div>
+            <div class="logi-section-title">🟡 Pendiente de control</div>
+            <div id="logi-control-list"></div>
+            <div class="logi-section-title">✅ Finalizados</div>
+            <div id="logi-done-list"></div>
+          </div>
+          <div class="logi-sidebar-col">
+            <div class="logi-side-box">
+              <div class="logi-side-box-title">📋 Resumen de pendientes</div>
+              <div id="logi-resumen-lateral"></div>
+            </div>
+            <div class="logi-side-box">
+              <div class="logi-side-box-title">👥 Prendas por persona</div>
+              <div id="logi-stats-persona"></div>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="logi-detail-screen" class="hidden">
         <button class="logi-back-btn" onclick="logiCloseDetail()">← Volver al tablero</button>
@@ -582,6 +617,7 @@
             <div style="font-size:12px;color:var(--accent);font-weight:600" id="logi-detail-corte"></div>
             <div style="font-size:11px;color:var(--text3)" id="logi-detail-fecha"></div>
             <div style="font-size:11px;color:var(--text3)" id="logi-detail-quienes"></div>
+            <div style="margin-top:6px" id="logi-detail-prioridad"></div>
           </div>
         </div>
         <div id="logi-rows-container"></div>
@@ -604,6 +640,25 @@
     <div class="logi-mbtns">
       <button class="logi-cancel" onclick="logiCerrarNotaModal()">Cancelar</button>
       <button class="logi-save" onclick="logiConfirmarNota()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div class="logi-modal-bg" id="logi-proveedor-modal">
+  <div class="logi-modal">
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px">Agregar prenda de proveedor</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Para mercadería que no sale de un corte propio (compra a un proveedor externo). Después cargás los talles/colores esperados como con cualquier otro ítem.</div>
+    <label style="font-size:11px;color:var(--text2);font-weight:600">Código</label>
+    <input type="text" id="logi-prov-code" placeholder="Ej: PROV-001" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
+    <label style="font-size:11px;color:var(--text2);font-weight:600">Nombre de la prenda</label>
+    <input type="text" id="logi-prov-name" placeholder="Ej: Remera básica importada" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
+    <label style="font-size:11px;color:var(--text2);font-weight:600">Proveedor</label>
+    <input type="text" id="logi-prov-proveedor" placeholder="Ej: Textil Once" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
+    <label style="font-size:11px;color:var(--text2);font-weight:600">Fecha de entrega</label>
+    <input type="text" id="logi-prov-fecha" placeholder="dd/mm/aaaa" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
+    <div class="logi-mbtns">
+      <button class="logi-cancel" onclick="logiCerrarProveedorModal()">Cancelar</button>
+      <button class="logi-save" onclick="logiConfirmarProveedor()">Agregar</button>
     </div>
   </div>
 </div>
@@ -8084,8 +8139,12 @@ function logiNumeroCorteSort(it){
 }
 
 let logiOrdenPor = 'fecha'; // 'fecha' | 'corte'
+const LOGI_PRIORIDAD_RANK = {alta:0, media:1};
 function logiOrdenarLista(lista){
   return lista.slice().sort((a,b)=>{
+    // La prioridad manual siempre manda primero; a igual prioridad, se aplica el criterio elegido.
+    const pa=LOGI_PRIORIDAD_RANK[a[1].prioridad]??2, pb=LOGI_PRIORIDAD_RANK[b[1].prioridad]??2;
+    if(pa!==pb) return pa-pb;
     if(logiOrdenPor==='corte') return logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]);
     return logiParseFechaEntregado(a[1].fecha_entregado)-logiParseFechaEntregado(b[1].fecha_entregado);
   });
@@ -8104,6 +8163,99 @@ function logiRenderBoard(){
   document.getElementById('logi-control-list').innerHTML = control.length ? logiOrdenarLista(control).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
   const doneShow=logiOrdenarLista(done).slice(0,10);
   document.getElementById('logi-done-list').innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : '<div class="empty">Todavía no se cerró ningún conteo</div>';
+  logiRenderResumenLateral(conteo, control);
+  logiRenderStatsPorPersona();
+}
+
+// Resumen chico a un costado: un renglón por corte pendiente (conteo o control), con
+// N° de corte, nombre, código, y la cantidad de prendas que corresponde según en qué
+// etapa está — esperado si todavía se está contando, contado si ya se está controlando.
+function logiRenderResumenLateral(conteo, control){
+  const el=document.getElementById('logi-resumen-lateral');
+  if(!el) return;
+  const filas=[...logiOrdenarLista(conteo).map(x=>[...x,'conteo']), ...logiOrdenarLista(control).map(x=>[...x,'control'])];
+  if(!filas.length){ el.innerHTML='<div class="empty" style="font-size:11px">Sin pendientes 🎉</div>'; return; }
+  el.innerHTML=filas.map(([id,it,etapa])=>{
+    const grilla=Object.values(it.grilla||{});
+    const esperado=grilla.reduce((s,f)=>s+(f.esperado||0),0);
+    const contado=grilla.reduce((s,f)=>s+(f.contado||0),0);
+    const cantidad = etapa==='conteo' ? (esperado||contado) : contado;
+    const cantLabel = etapa==='conteo' ? 'a contar' : 'a controlar';
+    const prio = it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴':'🟡'}</span>` : '';
+    return `<div class="logi-resumen-row" onclick="logiOpenDetail('${id}')">
+      <div class="logi-resumen-top"><span>${it.numero_corte?('N°'+it.numero_corte):(it.code||'—')}${prio}</span><span>${cantidad||0} ${cantLabel}</span></div>
+      <div class="logi-resumen-sub"><span>${(it.name||'').slice(0,26)}${(it.name||'').length>26?'…':''}</span><span>${it.code||''}</span></div>
+    </div>`;
+  }).join('');
+}
+
+// Cuántas prendas contó y cuántas controló cada persona — junta los "_set_by" de todas
+// las celdas de todos los cortes (cerrados o no). Es aproximado: si una celda se corrigió
+// más de una vez, solo queda registrada la última persona que la tocó.
+function logiStatsPorPersona(){
+  const stats={};
+  const add=(persona,campo,cant)=>{
+    if(!persona || !cant) return;
+    if(!stats[persona]) stats[persona]={contadas:0,controladas:0};
+    stats[persona][campo]+=cant;
+  };
+  Object.values(logiItemsData).forEach(it=>{
+    Object.values(it.grilla||{}).forEach(f=>{
+      add(f.contado_set_by,'contadas',f.contado||0);
+      ['ok','detalle','fallado'].forEach(campo=>add(f[campo+'_set_by'],'controladas',f[campo]||0));
+    });
+  });
+  return stats;
+}
+
+function logiRenderStatsPorPersona(){
+  const el=document.getElementById('logi-stats-persona');
+  if(!el) return;
+  const stats=logiStatsPorPersona();
+  const nombre=u=>USER_DISPLAY[u]||u;
+  const rows=Object.entries(stats).sort((a,b)=>(b[1].contadas+b[1].controladas)-(a[1].contadas+a[1].controladas));
+  el.innerHTML = rows.length ? rows.map(([u,s])=>`<div class="logi-stat-row"><strong>${nombre(u)}</strong><span>🔢${s.contadas} · 🔍${s.controladas}</span></div>`).join('')
+    : '<div class="empty" style="font-size:11px">Todavía no hay datos cargados</div>';
+}
+
+// Prioridad manual — un corte marcado como alta o media prioridad sube al principio de
+// su columna sin importar el criterio de orden elegido (fecha o N° de corte).
+function logiSetPrioridad(itemId, prioridad){
+  const ref=`fabrica_v5/logistica/items/${itemId}/prioridad`;
+  if(prioridad) db.ref(ref).set(prioridad); else db.ref(ref).remove();
+  showToast(prioridad?`✓ Prioridad: ${prioridad==='alta'?'🔴 Alta':'🟡 Media'}`:'↩ Prioridad quitada');
+}
+
+// ===== Prendas de proveedor (mercadería que no sale de un corte propio) =====
+function logiOpenProveedorModal(){
+  document.getElementById('logi-prov-code').value='';
+  document.getElementById('logi-prov-name').value='';
+  document.getElementById('logi-prov-proveedor').value='';
+  const hoy=new Date();
+  document.getElementById('logi-prov-fecha').value=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  document.getElementById('logi-proveedor-modal').classList.add('logi-show');
+}
+function logiCerrarProveedorModal(){
+  document.getElementById('logi-proveedor-modal').classList.remove('logi-show');
+}
+function logiConfirmarProveedor(){
+  const code=document.getElementById('logi-prov-code').value.trim();
+  const name=document.getElementById('logi-prov-name').value.trim();
+  const proveedor=document.getElementById('logi-prov-proveedor').value.trim();
+  const fecha=document.getElementById('logi-prov-fecha').value.trim();
+  if(!name){ showToast('Cargá al menos el nombre de la prenda'); return; }
+  const item={
+    code, name, foto:'',
+    numero_corte:'', taller:'',
+    proveedor,
+    origen:'proveedor',
+    fecha_entregado:fecha, fecha_creado:Date.now(),
+    estado:'pendiente_conteo', grilla:{}
+  };
+  db.ref('fabrica_v5/logistica/items').push(item);
+  logActivity('Agregó prenda de proveedor a Logística', `${name}${proveedor?' — '+proveedor:''}`);
+  showToast('✓ Prenda de proveedor agregada — cargale los talles/colores esperados');
+  logiCerrarProveedorModal();
 }
 
 function logiProgresoTexto(it){
@@ -8120,6 +8272,8 @@ function logiCardHtml(id,it,cerrado){
   if(it.numero_corte) corteTallerParts.push(`N° corte: ${it.numero_corte}`);
   if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
   const corteTallerHtml=corteTallerParts.length?`<div class="logi-fecha" style="color:var(--accent);font-weight:600">${corteTallerParts.join(' · ')}</div>`:'';
+  const proveedorHtml = it.origen==='proveedor' ? `<div><span class="logi-proveedor-chip">🏷️ Proveedor${it.proveedor?': '+it.proveedor:''}</span></div>` : '';
+  const prioHtml = it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '';
   let badgeHtml;
   if(cerrado){
     badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
@@ -8133,7 +8287,8 @@ function logiCardHtml(id,it,cerrado){
   return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
     ${foto}
     <div class="logi-info">
-      <div class="logi-code">${it.code||'(sin código)'}</div>
+      ${proveedorHtml}
+      <div class="logi-code">${it.code||'(sin código)'} ${prioHtml}</div>
       <div class="logi-name">${it.name||''}</div>
       ${corteTallerHtml}
       <div class="logi-fecha">Entregado: ${it.fecha_entregado||'—'}</div>
@@ -8180,6 +8335,7 @@ function logiRenderDetail(id){
   const corteTallerParts=[];
   if(it.numero_corte) corteTallerParts.push(`N° de corte: ${it.numero_corte}`);
   if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
+  if(it.origen==='proveedor') corteTallerParts.push(`🏷️ Proveedor${it.proveedor?': '+it.proveedor:''}`);
   document.getElementById('logi-detail-corte').textContent = corteTallerParts.length ? corteTallerParts.join(' · ') : '';
   document.getElementById('logi-detail-fecha').textContent = 'Entregado: '+(it.fecha_entregado||'—');
   const quienesDet=logiQuienes(it);
@@ -8187,6 +8343,16 @@ function logiRenderDetail(id){
     (quienesDet.contadoPor.length?`🧍 Contó: ${quienesDet.contadoPor.join(', ')}`:'') +
     (quienesDet.contadoPor.length&&quienesDet.controladoPor.length?' · ':'') +
     (quienesDet.controladoPor.length?`🔍 Controló: ${quienesDet.controladoPor.join(', ')}`:'');
+
+  const canPrioridad=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
+  document.getElementById('logi-detail-prioridad').innerHTML = canPrioridad
+    ? `<label style="font-size:11px;color:var(--text2);margin-right:6px">Prioridad:</label>
+       <select class="logi-prio-select" onchange="logiSetPrioridad('${id}',this.value)">
+         <option value="" ${!it.prioridad?'selected':''}>Normal</option>
+         <option value="media" ${it.prioridad==='media'?'selected':''}>🟡 Media</option>
+         <option value="alta" ${it.prioridad==='alta'?'selected':''}>🔴 Alta</option>
+       </select>`
+    : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';

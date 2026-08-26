@@ -583,6 +583,8 @@
           <select id="logi-orden-select" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="logiOrdenPor=this.value;logiRenderBoard()">
             <option value="fecha">Fecha de entrega</option>
             <option value="corte">N° de corte</option>
+            <option value="taller">Taller</option>
+            <option value="proveedor">Proveedor</option>
           </select>
           <button class="btn-sm" onclick="logiOpenProveedorModal()" style="margin-left:auto">➕ Agregar prenda de proveedor</button>
         </div>
@@ -8138,14 +8140,20 @@ function logiNumeroCorteSort(it){
   return m ? parseInt(m[0]) : Infinity;
 }
 
-let logiOrdenPor = 'fecha'; // 'fecha' | 'corte'
+let logiOrdenPor = 'fecha'; // 'fecha' | 'corte' | 'taller' | 'proveedor'
 const LOGI_PRIORIDAD_RANK = {alta:0, media:1};
+// Orden por texto (taller/proveedor): sin dato, siempre al final, sin importar el resto.
+function logiTextoSortVal(txt){
+  return (txt||'').trim() ? txt.trim().toLowerCase() : '\uffff';
+}
 function logiOrdenarLista(lista){
   return lista.slice().sort((a,b)=>{
     // La prioridad manual siempre manda primero; a igual prioridad, se aplica el criterio elegido.
     const pa=LOGI_PRIORIDAD_RANK[a[1].prioridad]??2, pb=LOGI_PRIORIDAD_RANK[b[1].prioridad]??2;
     if(pa!==pb) return pa-pb;
     if(logiOrdenPor==='corte') return logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]);
+    if(logiOrdenPor==='taller') return logiTextoSortVal(a[1].taller).localeCompare(logiTextoSortVal(b[1].taller));
+    if(logiOrdenPor==='proveedor') return logiTextoSortVal(a[1].proveedor).localeCompare(logiTextoSortVal(b[1].proveedor));
     return logiParseFechaEntregado(a[1].fecha_entregado)-logiParseFechaEntregado(b[1].fecha_entregado);
   });
 }
@@ -8273,7 +8281,14 @@ function logiCardHtml(id,it,cerrado){
   if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
   const corteTallerHtml=corteTallerParts.length?`<div class="logi-fecha" style="color:var(--accent);font-weight:600">${corteTallerParts.join(' · ')}</div>`:'';
   const proveedorHtml = it.origen==='proveedor' ? `<div><span class="logi-proveedor-chip">🏷️ Proveedor${it.proveedor?': '+it.proveedor:''}</span></div>` : '';
-  const prioHtml = it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '';
+  const canPrioridadCard=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
+  const prioHtml = canPrioridadCard
+    ? `<select class="logi-prio-select" onclick="event.stopPropagation()" onchange="event.stopPropagation();logiSetPrioridad('${id}',this.value)">
+         <option value="" ${!it.prioridad?'selected':''}>Sin prioridad</option>
+         <option value="media" ${it.prioridad==='media'?'selected':''}>🟡 Media</option>
+         <option value="alta" ${it.prioridad==='alta'?'selected':''}>🔴 Alta</option>
+       </select>`
+    : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
   let badgeHtml;
   if(cerrado){
     badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';

@@ -806,6 +806,14 @@
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="modal-costeo-manual">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header"><span class="modal-title">Agregar corte manual a Costeo</span><button class="modal-close" onclick="closeCosteoManualModal()">×</button></div>
+    <div class="modal-body" id="costeo-manual-body" style="max-height:70vh;overflow-y:auto"></div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="closeCosteoManualModal()">Cancelar</button><button class="btn-primary" onclick="saveCosteoManual()">Guardar</button></div>
+  </div>
+</div>
+
 <div class="modal-overlay hidden" id="modal-edit">
   <div class="modal">
     <div class="modal-header"><span class="modal-title">Editar ítem</span><button class="modal-close" id="close-modal-edit">×</button></div>
@@ -6672,6 +6680,8 @@ function marcarCorteRealizado(secId,itemId){
       rollos:grupo.rollos||{},
       largo_capa:(grupo.largo_capa!==undefined&&grupo.largo_capa!==null&&grupo.largo_capa!=='')?grupo.largo_capa:'',
       peso_metro:(grupo.peso_metro!==undefined&&grupo.peso_metro!==null&&grupo.peso_metro!=='')?grupo.peso_metro:'',
+      tela:existente.tela||item.tela||item.tela_nombre||'',
+      proveedor:existente.proveedor||item.proveedor||item.tela_proveedor||'',
       avios:costeoAvios,
       precio_kg:existente.precio_kg||'',
       notas:existente.notas||''
@@ -8852,7 +8862,10 @@ function renderCosteoTab(){
   const cont=document.getElementById('costeo-list');
   const entries=Object.entries(costeosData||{}).sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
   const puedeBackfill=(currentUser==='ariel'||currentUser==='stef');
-  const botonBackfill=puedeBackfill?`<button class="btn-sm" style="margin-bottom:10px" onclick="backfillCosteosExistentes()">🔄 Actualizar con cortes ya subidos</button>`:'';
+  const botonBackfill=puedeBackfill?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    <button class="btn-sm" onclick="backfillCosteosExistentes()">🔄 Actualizar con cortes ya subidos</button>
+    <button class="btn-sm" onclick="openCosteoManualModal()">➕ Agregar corte manual</button>
+  </div>`:'';
   if(!entries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
   cont.innerHTML=botonBackfill+buildPrendasPorMesHtml(entries)+entries.map(([key,e])=>{
     const t=costeoTotales(e);
@@ -8865,6 +8878,7 @@ function renderCosteoTab(){
       </div>
       <div style="font-size:12px;color:var(--text2);margin-top:2px">${articulosTxt||'(sin artículos)'}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px">✂️ Cortado: ${e.fecha_corte||'—'} · ${t.kgTotal.toFixed(2)} kg · ${t.piezas} prendas</div>
+      ${(e.tela||e.proveedor)?`<div style="font-size:11px;color:var(--text3);margin-top:2px">🧵 ${e.tela||'(tela sin especificar)'}${e.proveedor?' · '+e.proveedor:''}</div>`:''}
       <div style="font-size:13px;font-weight:700;color:var(--accent);margin-top:4px">${faltaPrecio?'Costo pendiente':'Costo total: $'+t.costoTotal.toFixed(2)+(t.piezas?' · $'+t.costoPrenda.toFixed(2)+'/prenda':'')}</div>
     </div>`;
   }).join('');
@@ -8885,6 +8899,7 @@ function backfillCosteosExistentes(){
         grupos[key]={
           numero_corte:item.numero_corte, fecha_corte:item.fecha_corte, fecha_creado:Date.now(),
           articulos:[], piezas_totales:0, rollos:{}, largo_capa:'', peso_metro:'',
+          tela:item.tela||item.tela_nombre||'', proveedor:item.proveedor||item.tela_proveedor||'',
           avios:[], precio_kg:'', notas:'(agregado con "Actualizar con cortes ya subidos")'
         };
       }
@@ -8895,6 +8910,8 @@ function backfillCosteosExistentes(){
       if(!Object.keys(g.rollos).length&&item.rollos) g.rollos=item.rollos;
       if(!g.largo_capa&&item.largo_capa) g.largo_capa=item.largo_capa;
       if(!g.peso_metro&&item.peso_metro) g.peso_metro=item.peso_metro;
+      if(!g.tela&&(item.tela||item.tela_nombre)) g.tela=item.tela||item.tela_nombre;
+      if(!g.proveedor&&(item.proveedor||item.tela_proveedor)) g.proveedor=item.proveedor||item.tela_proveedor;
     });
   });
   const keys=Object.keys(grupos);
@@ -8905,6 +8922,130 @@ function backfillCosteosExistentes(){
   db.ref().update(dbUpdates).then(()=>{
     logActivity('Actualizó Costeo con cortes ya subidos',`${keys.length} corte(s) agregados`);
     showToast(`✓ Se agregaron ${keys.length} corte(s) a Costeo`);
+  });
+}
+// ===== Carga manual de un corte que nunca pasó por Fábrica (ej: hecho fuera del proceso) =====
+let costeoManualMeta={};
+let costeoManualArticulos=[];
+let costeoManualRollos=[];
+let costeoManualAvios=[];
+function openCosteoManualModal(){
+  if(currentUser!=='ariel'&&currentUser!=='stef'){ showToast('Solo Ariel/Stef pueden hacer esto'); return; }
+  costeoManualMeta={};
+  costeoManualArticulos=[{code:'',name:''}];
+  costeoManualRollos=[{color:'',kgmts:''}];
+  costeoManualAvios=[];
+  renderCosteoManualBody();
+  document.getElementById('modal-costeo-manual').classList.remove('hidden');
+}
+function closeCosteoManualModal(){
+  document.getElementById('modal-costeo-manual').classList.add('hidden');
+}
+function costeoManualSyncFromDom(){
+  const g=id=>{const el=document.getElementById(id); return el?el.value:undefined;};
+  ['numero_corte:costeo-manual-numero','fecha_corte:costeo-manual-fecha','piezas_totales:costeo-manual-piezas',
+   'largo_capa:costeo-manual-largo','peso_metro:costeo-manual-pesometro','precio_kg:costeo-manual-preciokg',
+   'tela:costeo-manual-tela','proveedor:costeo-manual-proveedor',
+   'notas:costeo-manual-notas'].forEach(pair=>{
+    const [field,id]=pair.split(':'); const v=g(id); if(v!==undefined) costeoManualMeta[field]=v;
+  });
+  document.querySelectorAll('#costeo-manual-body [data-art-idx]').forEach(inp=>{
+    const i=parseInt(inp.dataset.artIdx),f=inp.dataset.field;
+    if(costeoManualArticulos[i]) costeoManualArticulos[i][f]=inp.value;
+  });
+  document.querySelectorAll('#costeo-manual-body [data-rollo-idx]').forEach(inp=>{
+    const i=parseInt(inp.dataset.rolloIdx),f=inp.dataset.field;
+    if(costeoManualRollos[i]) costeoManualRollos[i][f]=inp.value;
+  });
+  document.querySelectorAll('#costeo-manual-body [data-avio-idx]').forEach(inp=>{
+    const i=parseInt(inp.dataset.avioIdx),f=inp.dataset.field;
+    if(costeoManualAvios[i]) costeoManualAvios[i][f]=inp.value;
+  });
+}
+function costeoManualAddArticulo(){ costeoManualSyncFromDom(); costeoManualArticulos.push({code:'',name:''}); renderCosteoManualBody(); }
+function costeoManualRemoveArticulo(i){ costeoManualSyncFromDom(); costeoManualArticulos.splice(i,1); if(!costeoManualArticulos.length) costeoManualArticulos.push({code:'',name:''}); renderCosteoManualBody(); }
+function costeoManualAddRollo(){ costeoManualSyncFromDom(); costeoManualRollos.push({color:'',kgmts:''}); renderCosteoManualBody(); }
+function costeoManualRemoveRollo(i){ costeoManualSyncFromDom(); costeoManualRollos.splice(i,1); if(!costeoManualRollos.length) costeoManualRollos.push({color:'',kgmts:''}); renderCosteoManualBody(); }
+function costeoManualAddAvio(){ costeoManualSyncFromDom(); costeoManualAvios.push({nombre:'',proveedor:'',cantidad:'',precio:''}); renderCosteoManualBody(); }
+function costeoManualRemoveAvio(i){ costeoManualSyncFromDom(); costeoManualAvios.splice(i,1); renderCosteoManualBody(); }
+function costeoManualEsc(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
+function renderCosteoManualBody(){
+  const m=costeoManualMeta;
+  const inpStyle='width:100%;padding:7px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit;box-sizing:border-box';
+  const smallStyle='padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;box-sizing:border-box';
+  const artRows=costeoManualArticulos.map((a,i)=>`
+    <div style="display:flex;gap:4px;margin-bottom:4px;align-items:center">
+      <input placeholder="Código" data-art-idx="${i}" data-field="code" value="${costeoManualEsc(a.code)}" style="flex:1;${smallStyle}">
+      <input placeholder="Nombre" data-art-idx="${i}" data-field="name" value="${costeoManualEsc(a.name)}" style="flex:1;${smallStyle}">
+      ${costeoManualArticulos.length>1?`<button class="btn-sm" onclick="costeoManualRemoveArticulo(${i})">🗑</button>`:''}
+    </div>`).join('');
+  const rolloRows=costeoManualRollos.map((r,i)=>`
+    <div style="display:flex;gap:4px;margin-bottom:4px;align-items:center">
+      <input placeholder="Color" data-rollo-idx="${i}" data-field="color" value="${costeoManualEsc(r.color)}" style="flex:1;${smallStyle}">
+      <input placeholder="Kg" data-rollo-idx="${i}" data-field="kgmts" value="${costeoManualEsc(r.kgmts)}" style="width:70px;${smallStyle}">
+      ${costeoManualRollos.length>1?`<button class="btn-sm" onclick="costeoManualRemoveRollo(${i})">🗑</button>`:''}
+    </div>`).join('');
+  const avioRows=costeoManualAvios.map((a,i)=>`
+    <div style="display:flex;gap:4px;margin-bottom:4px;align-items:center;flex-wrap:wrap">
+      <input placeholder="Nombre" data-avio-idx="${i}" data-field="nombre" value="${costeoManualEsc(a.nombre)}" style="flex:1;min-width:80px;${smallStyle}">
+      <input placeholder="Proveedor" data-avio-idx="${i}" data-field="proveedor" value="${costeoManualEsc(a.proveedor)}" style="flex:1;min-width:80px;${smallStyle}">
+      <input placeholder="Cant." data-avio-idx="${i}" data-field="cantidad" value="${costeoManualEsc(a.cantidad)}" style="width:55px;${smallStyle}">
+      <input placeholder="Precio" data-avio-idx="${i}" data-field="precio" value="${costeoManualEsc(a.precio)}" style="width:65px;${smallStyle}">
+      <button class="btn-sm" onclick="costeoManualRemoveAvio(${i})">🗑</button>
+    </div>`).join('');
+  document.getElementById('costeo-manual-body').innerHTML=`
+    <div class="field"><label>N° de corte *</label><input id="costeo-manual-numero" value="${costeoManualEsc(m.numero_corte)}" placeholder="Ej: 1234" style="${inpStyle}"></div>
+    <div class="field" style="margin-top:8px"><label>Fecha de corte (DD/MM/AAAA)</label><input id="costeo-manual-fecha" value="${costeoManualEsc(m.fecha_corte)}" placeholder="Ej: 15/08/2026" style="${inpStyle}"></div>
+    <div class="field" style="margin-top:8px"><label>Artículo(s)</label>${artRows}<button class="btn-sm" onclick="costeoManualAddArticulo()">+ Agregar artículo</button></div>
+    <div class="field" style="margin-top:8px"><label>Piezas totales</label><input id="costeo-manual-piezas" value="${costeoManualEsc(m.piezas_totales)}" placeholder="Ej: 240" style="${inpStyle}"></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <div class="field" style="flex:1"><label>Tela</label><input id="costeo-manual-tela" value="${costeoManualEsc(m.tela)}" placeholder="Ej: Frizado" style="${inpStyle}"></div>
+      <div class="field" style="flex:1"><label>Proveedor</label><input id="costeo-manual-proveedor" value="${costeoManualEsc(m.proveedor)}" placeholder="Ej: Danilan" style="${inpStyle}"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Rollos de tela (color + kg)</label>${rolloRows}<button class="btn-sm" onclick="costeoManualAddRollo()">+ Agregar rollo</button></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <div class="field" style="flex:1"><label>Largo de capa</label><input id="costeo-manual-largo" value="${costeoManualEsc(m.largo_capa)}" style="${inpStyle}"></div>
+      <div class="field" style="flex:1"><label>Peso x metro</label><input id="costeo-manual-pesometro" value="${costeoManualEsc(m.peso_metro)}" style="${inpStyle}"></div>
+    </div>
+    <div class="field" style="margin-top:8px"><label>Precio x kg</label><input id="costeo-manual-preciokg" value="${costeoManualEsc(m.precio_kg)}" placeholder="Ej: 4500" style="${inpStyle}"></div>
+    <div class="field" style="margin-top:8px"><label>Avíos</label>${avioRows||'<div style="font-size:12px;color:var(--text3);margin-bottom:4px">Sin avíos cargados</div>'}<button class="btn-sm" onclick="costeoManualAddAvio()">+ Agregar avío</button></div>
+    <div class="field" style="margin-top:8px"><label>Notas</label><textarea id="costeo-manual-notas" rows="2" style="${inpStyle};resize:vertical">${costeoManualEsc(m.notas)}</textarea></div>
+  `;
+}
+function saveCosteoManual(){
+  costeoManualSyncFromDom();
+  const m=costeoManualMeta;
+  const numero=(m.numero_corte||'').trim();
+  if(!numero){ showToast('Falta el N° de corte'); return; }
+  const key=corteKeyFrom(numero);
+  if(!key){ showToast('N° de corte inválido'); return; }
+  if(costeosData[key]){ showToast('Ya existe un corte con ese número en Costeo'); return; }
+  const rollos={};
+  costeoManualRollos.forEach((r,i)=>{ if((r.color||'').trim()||(r.kgmts||'').toString().trim()) rollos['r'+i]={color:(r.color||'').trim(),kgmts:(r.kgmts||'').toString().trim()}; });
+  const articulos=costeoManualArticulos.filter(a=>(a.code||'').trim()||(a.name||'').trim()).map(a=>({code:(a.code||'').trim(),name:(a.name||'').trim()}));
+  const avios=costeoManualAvios.filter(a=>(a.nombre||'').trim()||(a.cantidad||'').toString().trim()||(a.precio||'').toString().trim()).map(a=>({
+    nombre:(a.nombre||'').trim(),proveedor:(a.proveedor||'').trim(),cantidad:(a.cantidad||'').toString().trim(),precio:(a.precio||'').toString().trim()
+  }));
+  const entry={
+    numero_corte:numero,
+    fecha_corte:(m.fecha_corte||'').trim(),
+    fecha_creado:Date.now(),
+    articulos:articulos,
+    piezas_totales:parseInt(m.piezas_totales)||0,
+    rollos:rollos,
+    largo_capa:(m.largo_capa||'').trim(),
+    peso_metro:(m.peso_metro||'').trim(),
+    tela:(m.tela||'').trim(),
+    proveedor:(m.proveedor||'').trim(),
+    avios:avios,
+    precio_kg:(m.precio_kg||'').trim().replace(',','.'),
+    notas:(m.notas||'').trim()||'(agregado manualmente — corte fuera del proceso de Fábrica)'
+  };
+  db.ref(`fabrica_v5/costeos/${key}`).set(entry).then(()=>{
+    logActivity('Agregó corte manual a Costeo',`Corte ${numero}`);
+    showToast('✓ Corte agregado a Costeo');
+    closeCosteoManualModal();
+    openCosteoDetail(key);
   });
 }
 let costeoDetailKey=null;
@@ -8961,8 +9102,24 @@ function renderCosteoDetail(){
     <div style="font-size:12px;color:var(--text2);margin:2px 0 10px">${(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ')||'(sin artículos)'} · Cortado: ${e.fecha_corte||'—'} · ${t.piezas} prendas</div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Tela</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+        <span style="font-size:12px">Tela:</span>
+        <span style="font-weight:700;font-size:12px">${e.tela||'Sin especificar'}</span>
+        ${canEdit?`<button class="btn-sm" onclick="editCosteoTela('${costeoDetailKey}')">${e.tela?'✏️':'+ Cargar'}</button>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:12px">Proveedor:</span>
+        <span style="font-weight:700;font-size:12px">${e.proveedor||'Sin especificar'}</span>
+        ${canEdit?`<button class="btn-sm" onclick="editCosteoProveedor('${costeoDetailKey}')">${e.proveedor?'✏️':'+ Cargar'}</button>`:''}
+      </div>
       <table style="width:100%;border-collapse:collapse">${rollosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin rollos cargados</td></tr>'}</table>
-      <div style="font-size:12px;margin-top:4px">Total: <strong>${t.kgTotal.toFixed(2)} kg</strong> · Largo capa: <strong>${e.largo_capa||'—'}</strong> · Peso x m: <strong>${e.peso_metro||'—'}</strong></div>
+      <div style="font-size:12px;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
+        <span>Total: <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
+        <span>· Largo capa: <strong>${e.largo_capa||'—'}</strong></span>
+        ${canEdit?`<button class="btn-sm" onclick="editCosteoLargoCapa('${costeoDetailKey}')">${e.largo_capa?'✏️':'+ Cargar'}</button>`:''}
+        <span>· Peso x m: <strong>${e.peso_metro||'—'}</strong></span>
+        ${canEdit?`<button class="btn-sm" onclick="editCosteoPesoMetro('${costeoDetailKey}')">${e.peso_metro?'✏️':'+ Cargar'}</button>`:''}
+      </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
         <span style="font-size:12px">Precio x kg:</span>
         <span style="font-weight:700">${e.precio_kg?'$'+e.precio_kg:'Sin cargar'}</span>
@@ -9019,6 +9176,38 @@ function editCosteoPrecioKg(key){
   db.ref(`fabrica_v5/costeos/${key}/precio_kg`).set(val.trim().replace(',','.'));
   logActivity('Editó precio x kg (Costeo)',`Corte ${e.numero_corte}: $${val.trim()}`);
   showToast('✓ Precio x kg guardado');
+}
+function editCosteoLargoCapa(key){
+  const e=costeosData[key]||{};
+  const val=prompt('Largo de capa (metros):',e.largo_capa||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/largo_capa`).set(val.trim().replace(',','.'));
+  logActivity('Editó largo de capa (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
+  showToast('✓ Largo de capa guardado');
+}
+function editCosteoPesoMetro(key){
+  const e=costeosData[key]||{};
+  const val=prompt('Peso x metro:',e.peso_metro||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/peso_metro`).set(val.trim().replace(',','.'));
+  logActivity('Editó peso x metro (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
+  showToast('✓ Peso x metro guardado');
+}
+function editCosteoTela(key){
+  const e=costeosData[key]||{};
+  const val=prompt('Tela de este corte:',e.tela||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/tela`).set(val.trim());
+  logActivity('Editó tela (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
+  showToast('✓ Tela guardada');
+}
+function editCosteoProveedor(key){
+  const e=costeosData[key]||{};
+  const val=prompt('Proveedor de la tela:',e.proveedor||'');
+  if(val===null) return;
+  db.ref(`fabrica_v5/costeos/${key}/proveedor`).set(val.trim());
+  logActivity('Editó proveedor de tela (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
+  showToast('✓ Proveedor guardado');
 }
 function editCosteoNotas(key){
   const e=costeosData[key]||{};

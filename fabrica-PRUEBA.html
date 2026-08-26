@@ -7833,11 +7833,21 @@ function renderNotifPanel(){
     </div>`).join('');
 }
 // ---- "Mis pendientes": campanita personal que le muestra a cada usuario, en tiempo real,
-// qué le falta hacer a ÉL/ELLA — sin tener que entrar a Pendientes a revisar. Por ahora solo
-// para Peque (que es el caso pedido); agregar más usuarios a MIS_PENDIENTES_USERS más adelante
-// solo requiere sumar su propia función de cálculo, como getMisPendientesPeque.
-const MIS_PENDIENTES_USERS=['peque'];
+// qué le falta hacer a ÉL/ELLA — sin tener que entrar a Pendientes/Logística a revisar.
+const MIS_PENDIENTES_USERS=['peque','ariel','stef','emir','arimoron','nahuel','noemi'];
 let misPendientesLastSeen=0;
+
+// Recorre TODOS los ítems de todas las secciones, juntando los avíos de cada uno (para
+// avíos sin pedir / pedidos sin recibir, que le importan a Peque y a Emir respectivamente).
+function forEachAvio(cb){
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item.lleva_avios||!item.avios) return;
+      Object.entries(item.avios).forEach(([avioId,avio])=>{ cb(secId,itemId,item,avioId,avio); });
+    });
+  });
+}
+
 function getMisPendientesPeque(){
   const list=[];
   Object.entries(sectionsData).forEach(([secId,sec])=>{
@@ -7848,7 +7858,6 @@ function getMisPendientesPeque(){
       if(esArmarTizada){
         faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
       }
-      if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida');
       const flist=faltantes.filter(Boolean);
       if(flist.length) list.push({secId,itemId,item,texto:'Falta '+flist.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
     });
@@ -7856,10 +7865,72 @@ function getMisPendientesPeque(){
   Object.entries(sectionsData[SEC_PREP]?.items||{}).forEach(([itemId,item])=>{
     if(item.ficha_estado==='modificar') list.push({secId:SEC_PREP,itemId,item,texto:'Ficha técnica para modificar',ts:item.fecha_etapa||item.fecha_ingreso||0});
   });
+  forEachAvio((secId,itemId,item,avioId,avio)=>{
+    if(!avio.fecha_pedido) list.push({secId,itemId,item,texto:`Avío sin pedir: ${avio.nombre}`,ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
   return list;
 }
+
+function getMisPendientesEmir(){
+  const list=[];
+  forEachAvio((secId,itemId,item,avioId,avio)=>{
+    if(avio.fecha_pedido&&!avio.recibido) list.push({secId,itemId,item,texto:`Avío pedido, falta recibir: ${avio.nombre}`,ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  Object.entries(sectionsData['s3']?.items||{}).forEach(([itemId,item])=>{
+    if(!encimadoTerminadoGrupo(item)&&!item.sin_confirmar){
+      const g=grupoCorteOf(item);
+      if(g&&!g.pedido_capas_incompletas) list.push({secId:'s3',itemId,item,texto:'Encimado pendiente (cargar rollos)',ts:item.fecha_etapa||item.fecha_ingreso||0});
+    }
+  });
+  return list;
+}
+
+function getMisPendientesArielStef(){
+  const list=[];
+  Object.entries(sectionsData[SEC_PREP]?.items||{}).forEach(([itemId,item])=>{
+    if(item.ficha_estado==='modificar') list.push({secId:SEC_PREP,itemId,item,texto:'Ficha técnica para modificar',ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  Object.entries(sectionsData[SEC_PEND]?.items||{}).forEach(([itemId,item])=>{
+    if(!item.color) list.push({secId:SEC_PEND,itemId,item,texto:'Muestra sin color asignado',ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(item.ficha_control_pendiente) list.push({secId,itemId,item,texto:'Control de ficha corregida',ts:item.fecha_etapa||item.fecha_ingreso||0});
+      if(item.pedido_sin_avio) list.push({secId,itemId,item,texto:'Pidieron enviar sin esperar avío',ts:item.pedido_sin_avio.fecha||0});
+    });
+  });
+  Object.entries(gruposCorteData||{}).forEach(([corteKey,grupo])=>{
+    if(grupo.pedido_capas_incompletas){
+      list.push({secId:'s3',itemId:corteKey,item:{code:grupo.numero_corte||corteKey,name:'Corte '+(grupo.numero_corte||corteKey)},texto:'Pidieron marcar encimado con capas incompletas',ts:grupo.pedido_capas_incompletas.fecha||0,esGrupo:true});
+    }
+  });
+  return list;
+}
+
+function getMisPendientesArimoron(){
+  const list=[];
+  Object.entries(sectionsData['s3']?.items||{}).forEach(([itemId,item])=>{
+    if(encimadoTerminadoGrupo(item)&&!item.sin_confirmar&&!item.done) list.push({secId:'s3',itemId,item,texto:'Listo para marcar cortado',ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  return list;
+}
+
+function getMisPendientesLogistica(){
+  const list=[];
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+    const col=logiEstadoColumna(it);
+    if(col==='conteo') list.push({secId:'logistica',itemId:id,item:{code:it.numero_corte||'',name:it.taller||it.proveedor||'Corte'},texto:'Pendiente de contar',ts:it.fecha_ingreso||0});
+    else if(col==='control') list.push({secId:'logistica',itemId:id,item:{code:it.numero_corte||'',name:it.taller||it.proveedor||'Corte'},texto:'Contado — falta control (OK/Detalle/Fallado)',ts:it.fecha_marcado_pendiente_controlar||it.fecha_ingreso||0});
+  });
+  return list;
+}
+
 function getMisPendientes(){
   if(currentUser==='peque') return getMisPendientesPeque();
+  if(currentUser==='emir') return getMisPendientesEmir();
+  if(currentUser==='ariel'||currentUser==='stef') return getMisPendientesArielStef();
+  if(currentUser==='arimoron') return getMisPendientesArimoron();
+  if(currentUser==='nahuel'||currentUser==='noemi') return getMisPendientesLogistica();
   return [];
 }
 function renderMisPendientesBadge(){
@@ -7884,7 +7955,7 @@ function renderMisPendientesPanel(){
   const cont=document.getElementById('mis-pendientes-list');
   const list=getMisPendientes().sort((a,b)=>b.ts-a.ts);
   if(!list.length){ cont.innerHTML='<div class="empty-state">Sin pendientes 🎉</div>'; return; }
-  const card=x=>`<div class="notif-item" style="cursor:pointer;background:var(--warn-bg);border-radius:8px;margin-bottom:6px" onclick="cerrarMisPendientesYIr('${x.secId}','${x.itemId}')">
+  const card=x=>`<div class="notif-item" style="cursor:pointer;background:var(--warn-bg);border-radius:8px;margin-bottom:6px" onclick="cerrarMisPendientesYIr('${x.secId}','${x.itemId}',${!!x.esGrupo})">
     <div style="flex:1">
       <div style="font-weight:700;font-size:13px;color:var(--warn-text)">${x.item.code?x.item.code+' · ':''}${x.item.name||'(sin nombre)'}</div>
       <div style="font-size:12px;color:var(--warn-text)">${x.texto}</div>
@@ -7897,8 +7968,13 @@ function renderMisPendientesPanel(){
   if(generales.length) html+=`<div style="font-size:11px;color:var(--text2);margin:10px 0 4px;text-transform:uppercase;font-weight:700">General</div>`+generales.map(card).join('');
   cont.innerHTML=html;
 }
-function cerrarMisPendientesYIr(secId,itemId){
+function cerrarMisPendientesYIr(secId,itemId,esGrupo){
   document.getElementById('mis-pendientes-panel').classList.add('hidden');
+  if(secId==='logistica'){
+    document.getElementById('tab-btn-logistica')?.click();
+    return;
+  }
+  if(esGrupo) return; // pedido de capas incompletas: es a nivel del grupo de corte, no de un ítem puntual — no hay a dónde navegar directo.
   irAItem(secId,itemId);
 }
 document.getElementById('mis-pendientes-btn').onclick=toggleMisPendientesPanel;
@@ -8165,6 +8241,8 @@ function logiInit(){
     logiRenderBoard();
     if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
     logiBackfillCorteTaller();
+    renderMisPendientesBadge();
+    if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
   });
 }
 

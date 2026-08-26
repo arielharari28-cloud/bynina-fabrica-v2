@@ -558,6 +558,13 @@
     </div>
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:12px;color:var(--text2)">Ordenar por:</span>
+          <select id="logi-orden-select" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="logiOrdenPor=this.value;logiRenderBoard()">
+            <option value="fecha">Fecha de entrega</option>
+            <option value="corte">N° de corte</option>
+          </select>
+        </div>
         <div class="logi-section-title">🕓 Pendiente de conteo</div>
         <div id="logi-conteo-list"></div>
         <div class="logi-section-title">🟡 Pendiente de control</div>
@@ -8031,6 +8038,28 @@ function logiQuienes(it){
   return { contadoPor:[...contadores].map(nombre), controladoPor:[...controladores].map(nombre) };
 }
 
+// Fecha de entrega se guarda como texto "dd/mm/aaaa" (es-AR) — hay que parsearla para poder
+// ordenar cronológicamente. Si no matchea el formato esperado, va al final (0 = más viejo).
+function logiParseFechaEntregado(s){
+  const m=(s||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return 0;
+  return new Date(+m[3], +m[2]-1, +m[1]).getTime();
+}
+// N° de corte a veces es solo el número ("106") y a veces viene con texto ("Corte 125") —
+// se extrae el primer número que aparezca para poder ordenar; sin número, al final.
+function logiNumeroCorteSort(it){
+  const m=String(it.numero_corte||'').match(/\d+/);
+  return m ? parseInt(m[0]) : Infinity;
+}
+
+let logiOrdenPor = 'fecha'; // 'fecha' | 'corte'
+function logiOrdenarLista(lista){
+  return lista.slice().sort((a,b)=>{
+    if(logiOrdenPor==='corte') return logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]);
+    return logiParseFechaEntregado(a[1].fecha_entregado)-logiParseFechaEntregado(b[1].fecha_entregado);
+  });
+}
+
 function logiRenderBoard(){
   const conteo=[], control=[], done=[];
   Object.entries(logiItemsData).forEach(([id,it])=>{
@@ -8039,13 +8068,10 @@ function logiRenderBoard(){
     else if(col==='control') control.push([id,it]);
     else conteo.push([id,it]);
   });
-  conteo.sort((a,b)=>(a[1].fecha_creado||0)-(b[1].fecha_creado||0));
-  control.sort((a,b)=>(a[1].fecha_marcado_pendiente_controlar||a[1].fecha_creado||0)-(b[1].fecha_marcado_pendiente_controlar||b[1].fecha_creado||0));
-  done.sort((a,b)=>(b[1].fecha_cerrado||0)-(a[1].fecha_cerrado||0));
 
-  document.getElementById('logi-conteo-list').innerHTML = conteo.length ? conteo.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de conteo 🎉</div>';
-  document.getElementById('logi-control-list').innerHTML = control.length ? control.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
-  const doneShow=done.slice(0,10);
+  document.getElementById('logi-conteo-list').innerHTML = conteo.length ? logiOrdenarLista(conteo).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de conteo 🎉</div>';
+  document.getElementById('logi-control-list').innerHTML = control.length ? logiOrdenarLista(control).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
+  const doneShow=logiOrdenarLista(done).slice(0,10);
   document.getElementById('logi-done-list').innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : '<div class="empty">Todavía no se cerró ningún conteo</div>';
 }
 

@@ -495,6 +495,7 @@
       <button class="notif-btn hidden" id="accesos-btn" title="Ver qué pestañas ve cada usuario">👥</button>
       <button class="notif-btn hidden" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
       <button class="notif-btn hidden" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
+      <button class="notif-btn hidden" id="mis-pendientes-btn" title="Mis pendientes">🔔<span class="notif-badge hidden" id="mis-pendientes-badge">0</span></button>
       <div class="user-chip" id="user-chip">— <span style="opacity:.4">salir</span></div>
     </div>
   </div>
@@ -531,6 +532,10 @@
   <div class="notif-panel hidden" id="notif-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Actividad de Peque</span><button class="mark-all-btn" id="mark-all-btn">Marcar todo leído</button></div>
     <div class="notif-list" id="notif-list"></div>
+  </div>
+  <div class="notif-panel hidden" id="mis-pendientes-panel">
+    <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Mis pendientes</span></div>
+    <div class="notif-list" id="mis-pendientes-list"></div>
   </div>
   <div class="main">
     <div class="tabs">
@@ -2614,6 +2619,13 @@ function doLogin(user){
     document.getElementById('add-sec-btn-fabrica').classList.remove('hidden');
     document.getElementById('undo-btn').classList.remove('hidden');
   }
+  if(MIS_PENDIENTES_USERS.includes(user)){
+    document.getElementById('mis-pendientes-btn').classList.remove('hidden');
+    db.ref(`fabrica_v5/lastSeenPendientes/${user}`).once('value').then(snap=>{
+      misPendientesLastSeen=snap.val()||0;
+      renderMisPendientesBadge();
+    });
+  }
   if(user==='ariel'||user==='stef'){
     document.getElementById('backup-btn').classList.remove('hidden');
     document.getElementById('pins-btn').classList.remove('hidden');
@@ -2643,6 +2655,8 @@ function doLogout(){
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
   document.getElementById('notif-btn').classList.add('hidden');
+  document.getElementById('mis-pendientes-btn').classList.add('hidden');
+  document.getElementById('mis-pendientes-panel').classList.add('hidden');
   document.getElementById('backup-btn').classList.add('hidden');
   document.getElementById('pins-btn').classList.add('hidden');
   document.getElementById('pins-panel').classList.add('hidden');
@@ -2891,6 +2905,8 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
     publishPendientesResumen();
+    renderMisPendientesBadge();
+    if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
   });
   db.ref('fabrica_v5/grupos_corte').on('value',snap=>{
     gruposCorteData=snap.val()||{};
@@ -7816,6 +7832,77 @@ function renderNotifPanel(){
       ${!a.read?`<button class="notif-read-btn" onclick="markRead('${id}')">✓</button>`:''}
     </div>`).join('');
 }
+// ---- "Mis pendientes": campanita personal que le muestra a cada usuario, en tiempo real,
+// qué le falta hacer a ÉL/ELLA — sin tener que entrar a Pendientes a revisar. Por ahora solo
+// para Peque (que es el caso pedido); agregar más usuarios a MIS_PENDIENTES_USERS más adelante
+// solo requiere sumar su propia función de cálculo, como getMisPendientesPeque.
+const MIS_PENDIENTES_USERS=['peque'];
+let misPendientesLastSeen=0;
+function getMisPendientesPeque(){
+  const list=[];
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    if(POST_S3_SECS.includes(secId)) return;
+    const esArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null];
+      if(esArmarTizada){
+        faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
+      }
+      if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida');
+      const flist=faltantes.filter(Boolean);
+      if(flist.length) list.push({secId,itemId,item,texto:'Falta '+flist.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
+    });
+  });
+  Object.entries(sectionsData[SEC_PREP]?.items||{}).forEach(([itemId,item])=>{
+    if(item.ficha_estado==='modificar') list.push({secId:SEC_PREP,itemId,item,texto:'Ficha técnica para modificar',ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  return list;
+}
+function getMisPendientes(){
+  if(currentUser==='peque') return getMisPendientesPeque();
+  return [];
+}
+function renderMisPendientesBadge(){
+  const btn=document.getElementById('mis-pendientes-btn');
+  if(!btn||btn.classList.contains('hidden')) return;
+  const n=getMisPendientes().length;
+  const b=document.getElementById('mis-pendientes-badge');
+  if(n>0){b.textContent=n;b.classList.remove('hidden');}else b.classList.add('hidden');
+}
+function toggleMisPendientesPanel(){
+  document.getElementById('notif-panel').classList.add('hidden');
+  document.getElementById('pins-panel').classList.add('hidden');
+  document.getElementById('global-search-panel').classList.add('hidden');
+  const panel=document.getElementById('mis-pendientes-panel');
+  panel.classList.toggle('hidden');
+  if(!panel.classList.contains('hidden')){
+    renderMisPendientesPanel();
+    setTimeout(()=>{ db.ref(`fabrica_v5/lastSeenPendientes/${currentUser}`).set(Date.now()); },1500);
+  }
+}
+function renderMisPendientesPanel(){
+  const cont=document.getElementById('mis-pendientes-list');
+  const list=getMisPendientes().sort((a,b)=>b.ts-a.ts);
+  if(!list.length){ cont.innerHTML='<div class="empty-state">Sin pendientes 🎉</div>'; return; }
+  const card=x=>`<div class="notif-item" style="cursor:pointer;background:var(--warn-bg);border-radius:8px;margin-bottom:6px" onclick="cerrarMisPendientesYIr('${x.secId}','${x.itemId}')">
+    <div style="flex:1">
+      <div style="font-weight:700;font-size:13px;color:var(--warn-text)">${x.item.code?x.item.code+' · ':''}${x.item.name||'(sin nombre)'}</div>
+      <div style="font-size:12px;color:var(--warn-text)">${x.texto}</div>
+    </div>
+  </div>`;
+  const nuevos=list.filter(x=>x.ts>misPendientesLastSeen);
+  const generales=list.filter(x=>x.ts<=misPendientesLastSeen);
+  let html='';
+  if(nuevos.length) html+=`<div style="font-size:11px;color:var(--text2);margin:6px 0 4px;text-transform:uppercase;font-weight:700">Nuevo</div>`+nuevos.map(card).join('');
+  if(generales.length) html+=`<div style="font-size:11px;color:var(--text2);margin:10px 0 4px;text-transform:uppercase;font-weight:700">General</div>`+generales.map(card).join('');
+  cont.innerHTML=html;
+}
+function cerrarMisPendientesYIr(secId,itemId){
+  document.getElementById('mis-pendientes-panel').classList.add('hidden');
+  irAItem(secId,itemId);
+}
+document.getElementById('mis-pendientes-btn').onclick=toggleMisPendientesPanel;
+
 function renderActividad(){
   const c=document.getElementById('actividad-list');
   const acts=Object.entries(actividadData).sort((a,b)=>b[1].timestamp-a[1].timestamp);

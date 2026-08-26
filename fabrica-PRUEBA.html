@@ -3571,6 +3571,7 @@ function toggleControlFichaCorregida(secId,itemId,campo){
   showToast(nv?'✅ Ficha corregida controlada':'↩ Deshecho');
 }
 
+
 function toggleTelaEntregada(secId,itemId){
   const sec=sectionsData[secId];
   const item=sec.items[itemId];
@@ -3983,16 +3984,35 @@ function marcarAprobada(secId,itemId){
   const fotos=Object.keys(item.fotos_prueba||{});
   if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
   if(!confirm(`¿Aprobar ${item.code} y pasarla a Pendiente armar tizada?`)) return;
+  // El molde puede quedar aprobado tal cual la prenda que se probó, y aun así haber algo para
+  // ajustar en la Ficha Técnica (una medida mal anotada, un dato que falta, etc.) — no implica
+  // que el molde esté mal, así que no pasa por "Corregir sin nueva muestra". Queda un pendiente
+  // de ficha aparte, para que Peque la ajuste y Ariel/Stef la vuelvan a controlar.
+  const tocaFicha=confirm(`El molde de ${item.code} queda aprobado tal cual la muestra probada.\n\n¿Hay algo para ajustar en la Ficha Técnica antes de pasar a producción?\n\nAceptar = sí, hay que ajustar la ficha.\nCancelar = no, está todo perfecto.`);
+  let notaFicha='';
+  if(tocaFicha){
+    notaFicha=prompt('¿Qué hay que ajustar en la ficha?','')||'';
+  }
+  const fichaUpdates=tocaFicha
+    ? {ficha_control_pendiente:true, nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (molde aprobado sin cambios): ${notaFicha.trim()}`}
+    : {};
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
-    // Se aprueba la prenda → el molde queda aprobado, pero no avanza hasta que Guada lo digitalice.
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({molde_aprobado:true,fecha_aprobada:Date.now()});
-    logActivity('Prenda aprobada — molde aprobado, esperando digitalización (Guada)',item.code);
-    showToast(`📐 ${item.code} aprobada — falta que Guada digitalice el molde`);
+    // Se aprueba la prenda → el molde queda aprobado, pero no avanza a Pendiente armar tizada
+    // hasta que Guada lo digitalice. Va a la sección "Molde - Pendiente Digitalizar" para que
+    // se vea en el tablero (no se queda escondido en Diseño).
+    const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
+    if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
+    const newItemDig={...item, molde_aprobado:true, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), ...fichaUpdates};
+    delete newItemDig.estado;
+    db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Prenda aprobada — molde aprobado, a Pendiente Digitalizar (Guada)',item.code);
+    showToast(`📐 ${item.code} aprobada → Pendiente Digitalizar (Guada)`);
     return;
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
-  const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios)};
+  const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios), ...fichaUpdates};
   delete newItem.estado;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -4026,14 +4046,20 @@ function marcarCorregirSinMuestra(secId,itemId){
   if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a Pendiente armar tizada?`)) return;
   const notaCorreccion=`🔧 Corrección sin nueva muestra${tocaFicha?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
+    if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
+    const newItemDig={...item,
       molde_aprobado:true,
       fecha_aprobada:Date.now(),
+      fecha_etapa:Date.now(),
       nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
-      ...(tocaFicha?{ficha_control_pendiente:true}:{})
-    });
-    logActivity('Corregido sin nueva muestra — molde aprobado, esperando digitalización (Guada)',item.code);
-    showToast(`📐 ${item.code} corregido — falta que Guada digitalice el molde`);
+      ...(tocaFicha?{ficha_control_pendiente:true}:{})};
+    delete newItemDig.estado;
+    delete newItemDig.modificaciones;
+    db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Corregido sin nueva muestra — molde aprobado, a Pendiente Digitalizar (Guada)',item.code);
+    showToast(`📐 ${item.code} corregido → Pendiente Digitalizar (Guada)`);
     return;
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
@@ -5708,9 +5734,14 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <span class="c-label ${item.en_ninox?'done':''}" style="font-size:11px">Cargado en Ninox</span>
         </div>`:''}
         ${item.ficha_control_pendiente?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
-          <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">🔧 Molde corregido — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
+          <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
+          ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
           ${canControlFichaCorreccion?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
           <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
+        </div>`:''}
+        ${(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado)?`<div class="avio-item" style="padding-left:0;border-top:none">
+          <div class="c-check" onclick="${((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?`confirmarDigitalizacionYAvanzar('${secId}','${itemId}')`:''}"></div>
+          <span class="c-label" style="font-size:11px">🖨️ Molde digitalizado (Guada) — al tildar pasa a Pendiente armar tizada</span>
         </div>`:''}
         ${(!POST_S3_SECS.includes(secId)&&!esArmarTizada)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>

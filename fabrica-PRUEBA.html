@@ -908,7 +908,7 @@
 <!-- Modal orden de corte (variantes color x talle) -->
 <div class="modal-overlay hidden" id="modal-orden-corte">
   <div class="modal modal-wide">
-    <div class="modal-header"><span class="modal-title">Orden de corte — Variantes</span><button class="modal-close" id="close-modal-orden-corte">×</button></div>
+    <div class="modal-header"><span class="modal-title" id="modal-orden-corte-title">Orden de corte — Variantes</span><button class="modal-close" id="close-modal-orden-corte">×</button></div>
     <div class="modal-body" id="modal-orden-corte-body"></div>
     <div class="modal-footer"><button class="btn-secondary" id="cancel-modal-orden-corte">Cancelar</button><button class="btn-primary" id="save-modal-orden-corte">Confirmar</button></div>
   </div>
@@ -4573,6 +4573,12 @@ function renderSections(board){
   const containerId = board==='diseno' ? 'sections-container-diseno' : 'sections-container-fabrica';
   const c=document.getElementById(containerId);c.innerHTML='';
   let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===board).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  // Ari Morón (cortador): vista acotada — solo "Cortes próximos a sacar" (y ahí, solo lo
+  // confirmado y con orden de corte ya cargada) y "Muestras — pendiente corte" en Diseño.
+  if(currentUser==='arimoron'){
+    if(board==='fabrica') entries=entries.filter(([secId])=>secId==='s3');
+    else if(board==='diseno') entries=entries.filter(([secId])=>secId===SEC_PEND);
+  }
   entries.forEach(([secId,sec],secIdx)=>{
     const col=COLORS[sec.color]||COLORS.accent;
     let items=getSortedItems(sec);
@@ -4582,6 +4588,12 @@ function renderSections(board){
     if(searchQuery){
       const q=searchQuery.trim().toLowerCase();
       items=items.filter(([,item])=>(item.code||'').toLowerCase().includes(q)||(item.name||'').toLowerCase().includes(q)||(item.numero_corte||'').toLowerCase().includes(q));
+    }
+    if(currentUser==='arimoron'&&secId==='s3'){
+      items=items.filter(([,item])=>{
+        const g=grupoCorteOf(item);
+        return !!(g&&g.orden_corte_cargada)&&!item.sin_confirmar;
+      });
     }
     const count=items.length;
     const div=document.createElement('div');div.className='section';
@@ -5921,6 +5933,9 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const encimadoTerm=!!grupo.encimado_terminado;
   // Emir puede cargar rollos y marcar encimado/cortado, pero no cargar/editar la Orden de Corte en sí.
   const canRollosEncimado=canCortar||currentUser==='emir';
+  // La Orden de Corte (colores/capas) la carga y edita ÚNICAMENTE Ariel — el resto (Stef, Peque,
+  // Emir, Ari Morón) puede verla una vez cargada, pero no tocarla.
+  const canEditOrdenCorte=currentUser==='ariel';
   // No se puede cargar la orden de corte (=arrancar la tiza) sin tener Ficha, Curva, Ancho y
   // Control de piezas cargados — esa info tiene que estar completa antes de tizar.
   const faltanDatosTiza=!item.ficha_link||!item.curva||!item.ancho||!item.control_piezas_link;
@@ -5928,13 +5943,13 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const ordenRow = !ordenCargada
     ? `<div class="cortada-row">
         <span class="c-label" style="font-weight:500;color:var(--warn-text)">⏳ Pendiente orden de corte</span>
-        ${canCortar?`<button class="btn-advance" ${faltanDatosTiza?'disabled':''} title="${faltanDatosTiza?'Falta Ficha, Curva, Ancho y/o Control de piezas antes de cargar la orden de corte':''}" onclick="openOrdenCorteModal('${secId}','${itemId}')">📋 Cargar orden de corte</button>`:''}
-        ${(canCortar&&faltanDatosTiza)?`<div style="font-size:11px;color:var(--warn-text);width:100%;margin-top:2px">⚠️ Falta completar Ficha/Curva/Ancho/Control de piezas antes de tizar</div>`:''}
+        ${canEditOrdenCorte?`<button class="btn-advance" ${faltanDatosTiza?'disabled':''} title="${faltanDatosTiza?'Falta Ficha, Curva, Ancho y/o Control de piezas antes de cargar la orden de corte':''}" onclick="openOrdenCorteModal('${secId}','${itemId}')">📋 Cargar orden de corte</button>`:`<button class="btn-sm" onclick="verOrdenCorteModal('${secId}','${itemId}')">👁️ Ver orden de corte</button>`}
+        ${(canEditOrdenCorte&&faltanDatosTiza)?`<div style="font-size:11px;color:var(--warn-text);width:100%;margin-top:2px">⚠️ Falta completar Ficha/Curva/Ancho/Control de piezas antes de tizar</div>`:''}
       </div>`
     : `<div class="cortada-row">
         <span class="c-label">📋 Orden de corte: <strong style="color:var(--green-text)">Cargada</strong></span>
-        ${canCortar?`<button class="btn-sm" onclick="openOrdenCorteModal('${secId}','${itemId}')">✏️ Editar variantes</button>`:''}
-        ${canCortar&&!encimadoTerm?`<button class="btn-sm" onclick="setOrdenCorteCargada('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
+        ${canEditOrdenCorte?`<button class="btn-sm" onclick="openOrdenCorteModal('${secId}','${itemId}')">✏️ Editar variantes</button>`:`<button class="btn-sm" onclick="verOrdenCorteModal('${secId}','${itemId}')">👁️ Ver variantes</button>`}
+        ${canEditOrdenCorte&&!encimadoTerm?`<button class="btn-sm" onclick="setOrdenCorteCargada('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
       </div>`;
 
   // Orden de corte todavía no cargada.
@@ -6060,6 +6075,25 @@ function setOrdenCorteCargada(secId,itemId,val){
 
 // ---- ORDEN DE CORTE: variantes color x talle, con capas x curva ----
 let ordenCtx={};
+// Arma el contexto (colores, capas, curva, etc.) compartido entre el modal de edición
+// (solo Ariel) y el de solo-ver (todos los demás que pueden entrar a Cortes próximos a sacar).
+function buildOrdenCtx(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
+  const curvaValores=item.curva_valores||{};
+  const corteKey=corteKeyFrom(item.numero_corte);
+  const ctx={secId,itemId,talles,curvaValores,corteKey};
+  ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.tela_proveedor);
+  const grupo=gruposCorteData[corteKey];
+  const capasGrupo=grupo?grupo.capas:(item.capas||null);
+  const filasExistentes=Object.entries(capasGrupo||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
+  ctx.colores=filasExistentes.length?filasExistentes:[];
+  ctx.dtf=!!item.estampado_dtf;
+  ctx.estampasArticulos=[{id:'a'+Date.now(),articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||''),img:item.foto||''}];
+  ctx.liquidar=!!(grupo&&grupo.liquidar_tela);
+  ctx.liquidarFotos=Object.entries((grupo&&grupo.liquidar_fotos)||{}).map(([id,url])=>({id,url}));
+  return ctx;
+}
 function openOrdenCorteModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.ficha_link||!item.curva||!item.ancho||!item.control_piezas_link){
@@ -6079,27 +6113,22 @@ function openOrdenCorteModal(secId,itemId){
     }
     return;
   }
-  const corteKey=corteKeyFrom(item.numero_corte);
-  ordenCtx={secId,itemId,talles,curvaValores,corteKey};
-  // Colores ya usados antes con esta misma tela (+ proveedor si está cargado) — para no
-  // tener que volver a tipear todo de cero cuando ya se usaron esos colores en otro corte.
-  ordenCtx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.tela_proveedor);
-  // Precargar colores/capas ya guardados — se comparten por N° de corte, así que si otro
-  // artículo del mismo corte ya cargó colores/capas, arrancamos con eso (una sola carga por corte).
-  const grupo=gruposCorteData[corteKey];
-  const capasGrupo=grupo?grupo.capas:(item.capas||null);
-  const filasExistentes=Object.entries(capasGrupo||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
-  ordenCtx.colores=filasExistentes.length?filasExistentes:[];
-  // Artículos/estampas de este corte (si va a DTF) — arranca con 1 fila usando el artículo y
-  // la foto del producto como base; se pueden agregar más filas si el corte se divide en varias
-  // estampas distintas (cada una con su propia foto), y las cantidades se reparten solas después.
-  ordenCtx.dtf=!!item.estampado_dtf;
-  ordenCtx.estampasArticulos=[{id:'a'+Date.now(),articulo:item.code?`${item.code} — ${item.name||''}`:(item.name||''),img:item.foto||''}];
-  // Liquidar tela: a veces la orden de corte es para agotar stock de un rollo/resto de tela.
-  // En ese caso Ariel/Stef quieren poder subir fotos de los rollos a utilizar, para que
-  // Emir/el cortador sepan exactamente qué tela usar y así se termine agotando ese stock.
-  ordenCtx.liquidar=!!(grupo&&grupo.liquidar_tela);
-  ordenCtx.liquidarFotos=Object.entries((grupo&&grupo.liquidar_fotos)||{}).map(([id,url])=>({id,url}));
+  ordenCtx=buildOrdenCtx(secId,itemId);
+  ordenCtx.readOnly=false;
+  document.getElementById('modal-orden-corte-title').textContent='Orden de corte — Variantes';
+  document.getElementById('save-modal-orden-corte').classList.remove('hidden');
+  document.getElementById('cancel-modal-orden-corte').textContent='Cancelar';
+  renderOrdenCorteModal();
+  document.getElementById('modal-orden-corte').classList.remove('hidden');
+}
+// Solo-ver: para todos menos Ariel (Stef, Peque, Emir, Ari Morón) una vez que la orden ya está
+// cargada — ven colores/capas/talles pero no pueden tocar nada.
+function verOrdenCorteModal(secId,itemId){
+  ordenCtx=buildOrdenCtx(secId,itemId);
+  ordenCtx.readOnly=true;
+  document.getElementById('modal-orden-corte-title').textContent='Orden de corte — Ver (solo Ariel edita)';
+  document.getElementById('save-modal-orden-corte').classList.add('hidden');
+  document.getElementById('cancel-modal-orden-corte').textContent='Cerrar';
   renderOrdenCorteModal();
   document.getElementById('modal-orden-corte').classList.remove('hidden');
 }
@@ -6224,7 +6253,45 @@ function ordenCorteRefreshTotals(){
   const tg=document.getElementById('oc-total-general'); if(tg) tg.textContent=totalGeneral;
 }
 function sanitizeTalle(t){ return String(t).replace(/[^a-zA-Z0-9]/g,'_'); }
+function renderOrdenCorteModalReadOnly(){
+  const{talles,curvaValores,colores}=ordenCtx;
+  const curvaResumen=talles.map(t=>`${t}:${curvaValores[t]||0}`).join(' · ');
+  const headerCols=talles.map(t=>`<th>${t}</th>`).join('');
+  const bodyRows=colores.map(row=>{
+    const capas=parseInt(row.capas)||0;
+    const cells=talles.map(t=>`<td>${capas*(parseInt(curvaValores[t])||0)}</td>`).join('');
+    return `<tr><td>${(row.color||'').replace(/</g,'&lt;')}</td><td>${capas}</td>${cells}</tr>`;
+  }).join('');
+  const totalPorTalle=talles.map(t=>colores.reduce((s,r)=>s+((parseInt(r.capas)||0)*(parseInt(curvaValores[t])||0)),0));
+  const totalCells=talles.map((t,i)=>`<td>${totalPorTalle[i]}</td>`).join('');
+  const totalCapas=colores.reduce((s,r)=>s+(parseInt(r.capas)||0),0);
+  const totalGeneral=totalPorTalle.reduce((a,b)=>a+b,0);
+  const tableHtml=colores.length?`<div class="oc-table-wrap">
+    <table class="oc-table">
+      <thead><tr><th>Color</th><th>Capas</th>${headerCols}</tr></thead>
+      <tbody>${bodyRows}</tbody>
+      <tfoot><tr><td>Total</td><td>${totalCapas}</td>${totalCells}</tr></tfoot>
+    </table>
+    <div class="oc-hint">Total general: <strong>${totalGeneral}</strong> prendas</div>
+  </div>`:`<div class="oc-hint">Todavía no hay colores cargados.</div>`;
+  document.getElementById('modal-orden-corte-body').innerHTML=`
+    <div class="oc-field-block" style="margin-bottom:10px">
+      <label>Talles y curva</label>
+      <div class="chip-box" style="background:var(--surface2)">
+        <span style="font-size:12px;color:var(--text2)">${curvaResumen||'Sin curva definida'}</span>
+      </div>
+    </div>
+    ${tableHtml}
+    ${ordenCtx.dtf?`<div style="font-size:12px;color:var(--text2);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">🎨 Este corte va a estampado DTF</div>`:''}
+    ${ordenCtx.liquidar?`<div style="font-size:12px;color:var(--text2);margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">🏷️ Esta orden es para liquidar tela (agotar stock)
+      ${ordenCtx.liquidarFotos.length?`<div class="diseno-fotos-grid" style="margin-top:6px">
+        ${ordenCtx.liquidarFotos.map(f=>`<div class="diseno-foto-item"><img src="${f.url}" onclick="openPhotoModal('${f.url}')"></div>`).join('')}
+      </div>`:''}
+    </div>`:''}
+  `;
+}
 function renderOrdenCorteModal(){
+  if(ordenCtx.readOnly){ renderOrdenCorteModalReadOnly(); return; }
   const{talles,curvaValores,colores}=ordenCtx;
   const chipsHtml=colores.length
     ? colores.map(c=>`<span class="chip">${(c.color||'').replace(/</g,'&lt;')}<span class="chip-x" onclick="ordenCorteRemoveColor('${c.id}')">✕</span></span>`).join('')
@@ -7656,7 +7723,7 @@ const TAB_VISIBILITY={
   stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-actividad'],
   emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
-  arimoron:['tab-btn-fabrica','tab-btn-pendientes'],
+  arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
   noemi:['tab-btn-logistica'],
 };

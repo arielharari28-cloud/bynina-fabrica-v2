@@ -6064,6 +6064,9 @@ function setTizaHecha(secId,itemId,val){
 }
 
 function setOrdenCorteCargada(secId,itemId,val){
+  // Deshacer una orden de corte ya cargada es exclusivo de Ariel — igual que cargarla/editarla.
+  // Este chequeo es la barrera real (el botón ya está oculto para el resto, esto es por las dudas).
+  if(!val&&currentUser!=='ariel'){ showToast('⛔ Solo Ariel puede deshacer una orden de corte'); return; }
   const item=sectionsData[secId].items[itemId];
   const corteKey=corteKeyFrom(item.numero_corte);
   if(!corteKey) return;
@@ -6379,6 +6382,7 @@ function renderOrdenCorteModal(){
   `;
 }
 function saveOrdenCorte(){
+  if(currentUser!=='ariel'){ showToast('⛔ Solo Ariel puede cargar o editar la orden de corte'); return; }
   ordenCorteSyncCapasFromDOM();
   const{secId,itemId,talles,curvaValores,colores,corteKey}=ordenCtx;
   const item=sectionsData[secId].items[itemId];
@@ -6399,8 +6403,15 @@ function saveOrdenCorte(){
     // Pre-corte: el N° de corte todavía puede compartirse entre varios artículos (misma tela
     // física sin cortar todavía), así que las capas/colores viven en el nodo compartido
     // fabrica_v5/grupos_corte — se consolidan ahí hasta que se marca "Corte realizado".
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
     const grupo=gruposCorteData[corteKey]||{};
+    // Freno de seguridad: si ya había colores cargados y ahora se está por guardar vacío,
+    // frenamos y pedimos confirmación explícita — esto es lo que borró el Corte 119 sin querer.
+    const habiaColores=Object.keys(grupo.capas||{}).length>0;
+    const quedaVacio=Object.keys(capasGrupoObj).length===0;
+    if(habiaColores&&quedaVacio){
+      if(!confirm('⚠️ Esta orden de corte ya tenía colores cargados y estás por guardarla VACÍA — se borrarían todos los colores/capas existentes.\n\n¿Confirmás que querés borrarlos?')) return;
+    }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
     const grupoUpdates={};
     grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/capas`]=capasGrupoObj;
     grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=true;

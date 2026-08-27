@@ -596,11 +596,21 @@
         </div>
         <div class="logi-layout">
           <div class="logi-main-col">
-            <div class="logi-section-title">🕓 Pendiente de conteo</div>
+            <div class="logi-section-title" onclick="logiToggleColapso('conteo')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+              <span id="logi-caret-conteo">▾</span> 🕓 Pendiente de conteo
+            </div>
             <div id="logi-conteo-list"></div>
-            <div class="logi-section-title">🟡 Pendiente de control</div>
+            <div class="logi-section-title" onclick="logiToggleColapso('control')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+              <span id="logi-caret-control">▾</span> 🟡 Pendiente de control
+            </div>
             <div id="logi-control-list"></div>
-            <div class="logi-section-title">✅ Finalizados</div>
+            <div class="logi-section-title" onclick="logiToggleColapso('dividir')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+              <span id="logi-caret-dividir">▾</span> 🔀 Pendiente dividir (local / depósito-mayorista)
+            </div>
+            <div id="logi-dividir-list"></div>
+            <div class="logi-section-title" onclick="logiToggleColapso('finalizado')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
+              <span id="logi-caret-finalizado">▾</span> ✅ Finalizados
+            </div>
             <div id="logi-done-list"></div>
           </div>
           <div class="logi-sidebar-col">
@@ -8482,6 +8492,7 @@ function logiBackfillCorteTaller(){
 // en OK/Detalle/Fallado (o alguien lo marcó manualmente) es "control"; si está cerrado, "finalizado".
 function logiEstadoColumna(it){
   if(it.estado==='cerrado') return 'finalizado';
+  if(it.estado==='pendiente_dividir') return 'dividir';
   const filas=Object.values(it.grilla||{});
   if(!filas.length) return 'conteo';
   const totalEsperado=filas.reduce((s,f)=>s+(f.esperado||0),0);
@@ -8538,17 +8549,41 @@ function logiOrdenarLista(lista){
   });
 }
 
+// Colapso de cada sección del tablero de Logística (solo en este celu/navegador).
+let logiColapso={};
+(function(){ try{ logiColapso=JSON.parse(localStorage.getItem('logiColapso')||'{}'); }catch(e){ logiColapso={}; } })();
+function logiSaveColapso(){ try{ localStorage.setItem('logiColapso',JSON.stringify(logiColapso)); }catch(e){} }
+function logiToggleColapso(col){
+  logiColapso[col]=!logiColapso[col];
+  logiSaveColapso();
+  logiAplicarColapso();
+}
+function logiAplicarColapso(){
+  ['conteo','control','dividir','finalizado'].forEach(col=>{
+    const listId = col==='finalizado' ? 'logi-done-list' : `logi-${col}-list`;
+    const listEl=document.getElementById(listId);
+    const caret=document.getElementById(`logi-caret-${col}`);
+    if(!listEl) return;
+    const colapsado=!!logiColapso[col];
+    listEl.style.display=colapsado?'none':'';
+    if(caret) caret.textContent=colapsado?'▸':'▾';
+  });
+}
+
 function logiRenderBoard(){
-  const conteo=[], control=[], done=[];
+  const conteo=[], control=[], dividir=[], done=[];
   Object.entries(logiItemsData).forEach(([id,it])=>{
     const col=logiEstadoColumna(it);
     if(col==='finalizado') done.push([id,it]);
+    else if(col==='dividir') dividir.push([id,it]);
     else if(col==='control') control.push([id,it]);
     else conteo.push([id,it]);
   });
 
   document.getElementById('logi-conteo-list').innerHTML = conteo.length ? logiOrdenarLista(conteo).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de conteo 🎉</div>';
   document.getElementById('logi-control-list').innerHTML = control.length ? logiOrdenarLista(control).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
+  const dividirOrdenados = dividir.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
+  document.getElementById('logi-dividir-list').innerHTML = dividirOrdenados.length ? dividirOrdenados.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de dividir 🎉</div>';
   // Finalizados: siempre ordenado por N° de corte (no usa el selector "Ordenar por" de arriba,
   // que aplica solo a conteo/control) para que sea fácil ubicar un corte puntual.
   const doneOrdenados = done.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
@@ -8556,6 +8591,7 @@ function logiRenderBoard(){
   document.getElementById('logi-done-list').innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : '<div class="empty">Todavía no se cerró ningún conteo</div>';
   logiRenderResumenLateral(conteo, control);
   logiRenderStatsPorPersona();
+  logiAplicarColapso();
 }
 
 // Resumen chico a un costado: un renglón por corte pendiente (conteo o control), con
@@ -8625,12 +8661,8 @@ function logiSetPrecioTaller(itemId,val){
   logActivity('Cargó precio de taller',`${logiItemsData[itemId]?.code||itemId}: $${n}`);
 }
 
-// --- Finalizados: mercadería ya dividida entre local y depósito/mayorista ---
-function logiToggleDividido(itemId,checked){
-  db.ref(`fabrica_v5/logistica/items/${itemId}/dividido`).set(!!checked);
-  logActivity(checked?'Marcó mercadería dividida (local/depósito)':'Desmarcó mercadería dividida',logiItemsData[itemId]?.code||itemId);
-  showToast(checked?'✓ Marcado como dividido':'↩ Desmarcado');
-}
+// (El toggle manual de "dividido" se reemplazó por logiMarcarDividido, que además mueve
+// el corte de "Pendiente dividir" a "Finalizado" — ver más abajo, junto a logiCerrarConteo.)
 
 // ===== Pestaña Web: tildar color por color si ya está subido a byninamayorista.com.ar =====
 // Vive dentro de cada ítem de Logística en fabrica_v5/logistica/items/{id}/web_colores/{slug},
@@ -8731,6 +8763,8 @@ function logiCardHtml(id,it,cerrado){
   let badgeHtml;
   if(cerrado){
     badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
+  } else if(logiEstadoColumna(it)==='dividir'){
+    badgeHtml = '<span class="logi-badge" style="background:#ede9fe;color:#5b21b6">🔀 Pendiente dividir</span>';
   } else if(it.marcado_pendiente_controlar || logiEstadoColumna(it)==='control'){
     badgeHtml = '<span class="logi-badge logi-controlar">🟡 Pendiente controlar</span>';
   } else {
@@ -8739,27 +8773,31 @@ function logiCardHtml(id,it,cerrado){
   const quienes=logiQuienes(it);
   const quienesHtml=(quienes.contadoPor.length||quienes.controladoPor.length)?`<div class="logi-fecha">${quienes.contadoPor.length?`🧍 Contó: ${quienes.contadoPor.join(', ')}`:''}${quienes.contadoPor.length&&quienes.controladoPor.length?' · ':''}${quienes.controladoPor.length?`🔍 Controló: ${quienes.controladoPor.join(', ')}`:''}</div>`:'';
   let extraCerradoHtml='';
-  if(cerrado){
+  const enDividir = !cerrado && logiEstadoColumna(it)==='dividir';
+  if(cerrado||enDividir){
     const filas=Object.values(it.grilla||{});
     const totalOk=filas.reduce((s,f)=>s+(f.ok||0),0);
     const totalDetalle=filas.reduce((s,f)=>s+(f.detalle||0),0);
     const puedeVerPlata=(currentUser==='ariel'||currentUser==='stef');
-    const puedeDividir=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
-    const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
-    const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
-    const webBadge = !colores.length ? '' : (coloresSubidos===colores.length
-      ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">🌐 Subido a la web</span>`
-      : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">🌐 Faltan colores (${coloresSubidos}/${colores.length})</span>`);
     const plataHtml = puedeVerPlata ? `
       <div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:6px;margin-top:4px">
         💵 Precio taller: $<input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetPrecioTaller('${id}',this.value)">
         ${it.precio_taller?`<span style="font-weight:700;color:var(--accent)">→ Se le debe: $${(it.precio_taller*(totalOk+totalDetalle)).toLocaleString('es-AR')} (${totalOk+totalDetalle} u.)</span>`:''}
       </div>` : '';
-    const dividirHtml = `
-      <label class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:5px;margin-top:4px;cursor:${puedeDividir?'pointer':'default'}">
-        <input type="checkbox" ${it.dividido?'checked':''} ${puedeDividir?'':'disabled'} onchange="logiToggleDividido('${id}',this.checked)"> Dividido (local / depósito-mayorista)
-      </label>`;
-    extraCerradoHtml = `<div style="margin-top:4px">${webBadge}</div>${plataHtml}${dividirHtml}`;
+    if(cerrado){
+      const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
+      const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
+      const webBadge = !colores.length ? '' : (coloresSubidos===colores.length
+        ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">🌐 Subido a la web</span>`
+        : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">🌐 Faltan colores (${coloresSubidos}/${colores.length})</span>`);
+      const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}</div>`;
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge}</div>${plataHtml}${dividioInfo}`;
+    } else {
+      const dividirBtn = currentUser==='ariel'
+        ? `<button class="btn-sm" onclick="event.stopPropagation();logiMarcarDividido('${id}')" style="margin-top:6px;border-color:#5b21b6;color:#5b21b6">🔀 Marcar dividido → Finalizado</button>`
+        : `<div class="logi-fecha" style="margin-top:4px">⏳ Esperando que Ariel marque dividido</div>`;
+      extraCerradoHtml = `${plataHtml}${dividirBtn}`;
+    }
   }
   return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
     ${foto}
@@ -8927,7 +8965,7 @@ function logiRenderDetail(id){
       : '';
     html += avisoControl + yaMarcado + `<div class="logi-summary-bar">
       <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
-      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar conteo</button></div>
+      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar control → Pendiente dividir</button></div>
     </div>`;
   }
   document.getElementById('logi-final-summary').innerHTML = html;
@@ -8983,11 +9021,25 @@ function logiConfirmarNota(){
 }
 
 function logiCerrarConteo(itemId){
-  if(!confirm('¿Cerrar el conteo de este corte? Ya no se va a poder editar.')) return;
+  if(!confirm('¿Cerrar el control de este corte? Pasa a "Pendiente dividir" — Ariel tiene que marcarlo dividido para que quede Finalizado.')) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('pendiente_dividir');
+  db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_control_cerrado`).set(Date.now());
+  db.ref(`fabrica_v5/logistica/items/${itemId}/control_cerrado_por`).set(currentUser);
+  showToast('🔀 Control cerrado — pasa a Pendiente dividir');
+}
+
+// --- Pendiente dividir → Finalizado: solo Ariel puede confirmar que ya se dividió la
+// mercadería entre local y depósito/mayorista. Recién ahí el corte queda "cerrado" (Finalizado)
+// y aparece en la pestaña Web y con el resto de datos de Finalizados. ---
+function logiMarcarDividido(itemId){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede marcar como dividido'); return; }
+  if(!confirm('¿Confirmás que ya se dividió la mercadería (local / depósito-mayorista)? Esto lo pasa a Finalizado.')) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/dividido`).set(true);
   db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('cerrado');
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_cerrado`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/cerrado_por`).set(currentUser);
-  showToast('✅ Conteo cerrado');
+  logActivity('Marcó dividido — pasa a Finalizado',logiItemsData[itemId]?.code||itemId);
+  showToast('✅ Dividido — pasó a Finalizados');
 }
 
 // Guarda el conteo "tal cual está" (ya se guarda solo, no hace falta esto para no perder

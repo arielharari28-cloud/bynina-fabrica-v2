@@ -2771,7 +2771,7 @@ function backfillPasosCorte(){
 let gruposCorteMigradoDone=false;
 function backfillGruposCorte(){
   if(gruposCorteMigradoDone) return;
-  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  if(!(currentUser==='ariel'||currentUser==='stef'||currentUser==='arimoron')) return;
   const sec=sectionsData['s3'];
   if(!sec||!sec.items) return;
   const updates={};
@@ -4592,7 +4592,11 @@ function renderSections(board){
     if(currentUser==='arimoron'&&secId==='s3'){
       items=items.filter(([,item])=>{
         const g=grupoCorteOf(item);
-        return !!(g&&g.orden_corte_cargada)&&!item.sin_confirmar;
+        // Ojo: grupos_corte a veces todavía no tiene migrado el dato viejo (esa migración
+        // solo corre cuando entra Ariel/Stef) — por eso también miramos el flag legacy
+        // directo del ítem, para no dejar afuera cortes que en realidad sí están cargados.
+        const cargada=!!(g&&g.orden_corte_cargada)||!!item.orden_corte_cargada;
+        return cargada&&!item.sin_confirmar;
       });
     }
     const count=items.length;

@@ -2321,6 +2321,12 @@ function getResponsable(sec,item,secId){
   if(tipo==='muestra_en_taller') return 'Peque';
   if(tipo==='revision_final') return 'Ariel y Stef';
   if(tipo==='en_estampado_taller') return item.estampado_taller_entregado?null:'Emir';
+  if(tipo==='en_terminacion'){
+    const pend=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+    if(!pend.length) return null;
+    const talleres=[...new Set(pend.map(p=>p.taller).filter(Boolean))];
+    return talleres.length===1?talleres[0]:'Emir';
+  }
   if(tipo==='producto_perfecto'||tipo==='muestra_cancelada') return null;
 
   // --- Flujo de cortes (s3, s4, s5, sLT, sFIN) y cualquier sección "normal" custom
@@ -2438,6 +2444,7 @@ const POST_S3_SECS = ['s3','s3b','s4','s5','sLT','s6','sFIN'];
 const SEC_DISENO = 'muestra_diseno';
 const SEC_CANCEL = 'muestra_cancelada';
 const SEC_ESTAMPADO_TALLER = 'fabrica_estampado_taller';
+const SEC_TALLER_TERMINACION = 'fabrica_taller_terminacion';
 
 // Nombre visible de cada login
 const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí'};
@@ -2518,6 +2525,7 @@ const INITIAL_SECTIONS = {
   sLT:{title:'Cortes listo para taller',color:'green',order:6.5,items:{}},
   s6:{title:'Pendiente recibir avío — corte en taller',color:'danger',order:6.8,items:{}},
   [SEC_ESTAMPADO_TALLER]:{title:'Cortes — en taller de estampado (Plancha Nina)',color:'purple',order:6.9,tipo:'en_estampado_taller',items:{}},
+  [SEC_TALLER_TERMINACION]:{title:'Cortes — en taller de terminación (pasos extra)',color:'purple',order:6.95,tipo:'en_terminacion',items:{}},
   sFIN:{title:'Cortes Finalizados',color:'purple',order:7,items:{}},
 };
 
@@ -2541,7 +2549,7 @@ function estadoCorteVinculado(numero){
       if(corteKeyFrom(item.numero_corte)===key){
         let label,cls;
         if(!item.fecha_corte){ label='⏳ Pendiente corte'; cls='pendiente-corte'; }
-        else if(secId==='sFIN'||secId===SEC_ESTAMPADO_TALLER){ label='🧵 En taller'; cls='en-taller'; }
+        else if(secId==='sFIN'||secId===SEC_ESTAMPADO_TALLER||secId===SEC_TALLER_TERMINACION){ label='🧵 En taller'; cls='en-taller'; }
         else { label='📦 Pendiente sacar a taller'; cls='pendiente-taller'; } // sLT/s4/s5/s6: ya cortado, esperando salir
         return {secId,itemId,item,label,cls};
       }
@@ -2703,6 +2711,7 @@ function startListening(){
         });
         if(!data.sections[SEC_DISENO]) db.ref(`fabrica_v5/sections/${SEC_DISENO}`).set(INITIAL_SECTIONS[SEC_DISENO]);
         if(!data.sections[SEC_ESTAMPADO_TALLER]) db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}`).set(INITIAL_SECTIONS[SEC_ESTAMPADO_TALLER]);
+        if(!data.sections[SEC_TALLER_TERMINACION]) db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}`).set(INITIAL_SECTIONS[SEC_TALLER_TERMINACION]);
         if(!data.sections[SEC_CANCEL]) db.ref(`fabrica_v5/sections/${SEC_CANCEL}`).set(INITIAL_SECTIONS[SEC_CANCEL]);
         if(!data.sections[SEC_PREP]) db.ref(`fabrica_v5/sections/${SEC_PREP}`).set(INITIAL_SECTIONS[SEC_PREP]);
         else db.ref(`fabrica_v5/sections/${SEC_PREP}/title`).set(INITIAL_SECTIONS[SEC_PREP].title);
@@ -3482,14 +3491,16 @@ function buildTelaBaseLineHtml(item){
 }
 
 // PASOS EXTRA: terminaciones que se hacen en otro taller aparte del de armado
-// (plancha, ojal, broche, etc). No bloquean nada — es solo un checklist libre que
-// viaja con la prenda, visible en cualquier etapa de corte, incluso ya en Finalizados.
+// (plancha, ojal, broche, etc). Mientras haya alguno sin tildar, la entrega desde el taller
+// de armado (o desde el propio taller de terminación) queda bloqueada: el corte se manda a
+// "Cortes — en taller de terminación" hasta que estén todos hechos. Viaja con la prenda,
+// visible en cualquier etapa de corte, incluso ya en Finalizados.
 function buildPasosExtraHtml(secId,itemId,item,canEdit){
   const pasos=Object.entries(item.pasos_extra||{});
   const canDel=(currentUser==='ariel'||currentUser==='stef');
   const rows=pasos.map(([pasoId,p])=>`<div class="avio-item">
       <div class="c-check ${p.hecho?'checked':''}" style="cursor:${canEdit?'pointer':'default'}" onclick="${canEdit?`togglePasoExtra('${secId}','${itemId}','${pasoId}')`:''}">${p.hecho?'✓':''}</div>
-      <span class="avio-name" style="${p.hecho?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}</span>
+      <span class="avio-name" style="${p.hecho?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}${p.taller?` — <span style="color:var(--accent)">${p.taller}</span>`:''}</span>
       ${canDel?`<button class="avio-btn" onclick="deletePasoExtra('${secId}','${itemId}','${pasoId}')">🗑</button>`:''}
     </div>`).join('');
   return `<div style="margin-top:6px">
@@ -3503,10 +3514,11 @@ function addPasoExtra(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const nombre=prompt('Paso extra (ej: Plancha, Ojal, Broche):');
   if(!nombre||!nombre.trim()) return;
+  const taller=prompt('¿En qué taller se hace este paso? (opcional, dejar vacío si no aplica):','');
   const id='p'+Date.now();
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pasos_extra/${id}`).set({nombre:nombre.trim(),hecho:false});
-  logActivity('Agregó paso extra',`${nombre.trim()} — ${item.code}`);
-  showToast('✓ Paso agregado');
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pasos_extra/${id}`).set({nombre:nombre.trim(),taller:(taller||'').trim(),hecho:false});
+  logActivity('Agregó paso extra',`${nombre.trim()}${taller&&taller.trim()?' — '+taller.trim():''} — ${item.code}`);
+  showToast('✓ Paso agregado — bloquea la entrega hasta que se tilde');
 }
 
 function togglePasoExtra(secId,itemId,pasoId){
@@ -3786,14 +3798,34 @@ function calcularGrillaEsperada(item){
 // --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  // Si el corte lleva estampado (Plancha Nina) y todavía no pasó por ahí, va primero
-  // al taller de estampado en vez de directo a Revisión Final.
-  if(item.estampado_dtf && !item.estampado_taller_entregado){
-    const hoy=new Date();
-    const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
-    const fecha=prompt('¿Qué fecha se entregó (taller de costura)?',fechaDefault);
+  const hoy=new Date();
+  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  // Si tiene pasos extra sin terminar (plancha, ojal, broche...), va primero al taller de
+  // terminación en vez de a Estampado/Revisión — recién cuando estén todos tildados sigue.
+  const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+  if(pasosPendientes.length){
+    const nombres=pasosPendientes.map(p=>p.nombre+(p.taller?` (${p.taller})`:'')).join(', ');
+    const fecha=prompt(`¿Qué fecha salió del taller? (pasa a terminación: ${nombres})`,fechaDefault);
     if(fecha===null) return;
     const fechaFinal=fecha.trim()||fechaDefault;
+    const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_armado:Date.now(),fecha_etapa:Date.now()};
+    db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}/items`).push(newItem);
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity('Entregado — pasa a taller de terminación',`${item.code}: ${fechaFinal} (${nombres})`);
+    showToast(`🧵 ${item.code} pasó a taller de terminación (${nombres})`);
+    return;
+  }
+  const fecha=prompt('¿Qué fecha se entregó?',fechaDefault);
+  if(fecha===null) return;
+  const fechaFinal=fecha.trim()||fechaDefault;
+  continuarDespuesDeTaller(secId,itemId,fechaFinal);
+}
+
+// --- Después de armado (y, si tenía, terminación): sigue a Estampado si tiene DTF pendiente,
+// o si no, directo a Revisión Final, creando ahí el registro espejo en Logística para conteo. ---
+function continuarDespuesDeTaller(secId,itemId,fechaFinal){
+  const item=sectionsData[secId].items[itemId];
+  if(item.estampado_dtf && !item.estampado_taller_entregado){
     const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_costura:Date.now(),fecha_etapa:Date.now()};
     db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}/items`).push(newItem);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -3803,11 +3835,6 @@ function marcarEntregadoCorte(secId,itemId){
   }
   const revSecId=getSectionIdByTipo('revision_final');
   if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
-  const hoy=new Date();
-  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
-  const fecha=prompt('¿Qué fecha se entregó?',fechaDefault);
-  if(fecha===null) return;
-  const fechaFinal=fecha.trim()||fechaDefault;
   const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${revSecId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -3830,6 +3857,23 @@ function marcarEntregadoCorte(secId,itemId){
     grilla:grillaObj
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
+}
+
+// --- TALLER DE TERMINACIÓN (pasos extra: plancha, ojal, broche...) — bloquea hasta que estén
+// todos los pasos tildados; recién ahí sigue a Estampado o Revisión Final. ---
+function marcarEntregadoTerminacion(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+  if(pasosPendientes.length){
+    showToast(`⏳ Faltan pasos: ${pasosPendientes.map(p=>p.nombre).join(', ')}`);
+    return;
+  }
+  const hoy=new Date();
+  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fecha=prompt('¿Qué fecha se entregó (terminación)?',fechaDefault);
+  if(fecha===null) return;
+  const fechaFinal=fecha.trim()||fechaDefault;
+  continuarDespuesDeTaller(secId,itemId,fechaFinal);
 }
 
 // --- TALLER DE ESTAMPADO (Plancha Nina) → recién ahí sigue a Revisión Final ---
@@ -4492,6 +4536,7 @@ function umbralAtraso(sec,item,secId){
   if(tipo==='muestra_diseno') return 5;    // Ariel y Stef
   if(tipo==='revision_final') return 5;    // Ariel y Stef
   if(tipo==='en_estampado_taller') return 5; // Emir/Plancha Nina: entregar estampado
+  if(tipo==='en_terminacion') return 5;    // Taller de terminación (plancha/ojal/broche): entregar
   if(secId==='s4') return 2;               // Peque: pedir avío
   if(secId==='s5') return 7;               // Peque: esperando que llegue el avío
   if(secId==='sLT') return 2;              // Emir: sacar a taller
@@ -5530,7 +5575,33 @@ function buildItem(secId,itemId,item,sec,idx,total){
     </div>`;
   }
 
-  // --- REVISIÓN FINAL: llegó el corte del taller, comparar contra la muestra ---
+  // --- TALLER DE TERMINACIÓN: pasos extra (plancha, ojal, broche...) antes de seguir ---
+  if(tipo==='en_terminacion'){
+    const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
+      <div class="item-with-photo" style="flex:2;min-width:280px">
+        ${buildPhotoHtml(secId,itemId,item,canEdit)}
+        <div class="item-body">
+          ${buildCodeHtml(secId,itemId,item,canEdit)}
+          ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${buildTelaBaseLineHtml(item)}
+          ${procesoInfoHtml(item,secId,itemId)}
+          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
+          ${buildNotasHtml(secId,itemId,item,canEdit)}
+          <div style="font-size:12px;color:var(--text2);margin-bottom:6px">🧵 En taller de terminación — todavía no pasa a Estampado/Revisión Final.</div>
+          ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Salió del taller de armado: <strong>${item.fecha_entregado}</strong></div>`:''}
+          ${buildPasosExtraHtml(secId,itemId,item,canEdit)}
+          <div class="item-actions">
+            ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoTerminacion('${secId}','${itemId}')" ${pasosPendientes.length?'title="Faltan pasos por tildar"':''}>✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
+            ${moveOpts}
+            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
+          </div>
+        </div>
+      </div>
+      ${buildDemoraPanelHtml(sec,item,secId)}
+    </div>`;
+  }
   if(tipo==='revision_final'){
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
@@ -5928,7 +5999,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
-          ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
+          ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}

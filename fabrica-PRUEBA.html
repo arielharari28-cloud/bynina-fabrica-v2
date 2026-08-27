@@ -636,6 +636,7 @@
             <div style="font-size:11px;color:var(--text3)" id="logi-detail-fecha"></div>
             <div style="font-size:11px;color:var(--text3)" id="logi-detail-quienes"></div>
             <div style="margin-top:6px" id="logi-detail-prioridad"></div>
+            <div style="margin-top:6px" id="logi-detail-etapa-ariel"></div>
           </div>
         </div>
         <div id="logi-rows-container"></div>
@@ -8870,6 +8871,18 @@ function logiRenderDetail(id){
        </select>`
     : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
 
+  // Mover a cualquier etapa a mano (solo Ariel) — para destrabar cortes viejos que no
+  // respetan el flujo normal (conteo → control → pendiente dividir → finalizado/web).
+  const etapaActual = logiEstadoColumna(it);
+  document.getElementById('logi-detail-etapa-ariel').innerHTML = currentUser==='ariel' ? `
+    <label style="font-size:11px;color:var(--text2);margin-right:6px">🔧 Forzar etapa (Ariel):</label>
+    <select class="logi-prio-select" onchange="logiForzarEtapa('${id}',this.value)">
+      <option value="conteo" ${etapaActual==='conteo'?'selected':''}>🕓 Pendiente de conteo</option>
+      <option value="control" ${etapaActual==='control'?'selected':''}>🟡 Pendiente de control</option>
+      <option value="dividir" ${etapaActual==='dividir'?'selected':''}>🔀 Pendiente dividir</option>
+      <option value="finalizado" ${etapaActual==='finalizado'?'selected':''}>✅ Finalizado (habilita Web)</option>
+    </select>` : '';
+
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';
   const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel');
@@ -9041,6 +9054,37 @@ function logiMarcarDividido(itemId){
   logActivity('Marcó dividido — pasa a Finalizado',logiItemsData[itemId]?.code||itemId);
   showToast('✅ Dividido — pasó a Finalizados');
 }
+
+// --- Forzar cualquier etapa a mano (solo Ariel) — para cortes viejos que quedaron mal
+// clasificados y no respetan el flujo normal de Logística (conteo/control/dividir/finalizado). ---
+function logiForzarEtapa(itemId,etapa){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede forzar la etapa'); return; }
+  const it=logiItemsData[itemId];
+  if(!it){ showToast('No encontré el corte'); return; }
+  if(!confirm(`¿Forzar "${it.code||itemId}" a la etapa "${etapa}"? Esto salta los controles normales.`)) return;
+  const updates={};
+  const base=`fabrica_v5/logistica/items/${itemId}`;
+  if(etapa==='conteo'){
+    updates[`${base}/estado`]=null;
+    updates[`${base}/marcado_pendiente_controlar`]=null;
+  } else if(etapa==='control'){
+    updates[`${base}/estado`]=null;
+    updates[`${base}/marcado_pendiente_controlar`]=true;
+    updates[`${base}/marcado_pendiente_controlar_por`]=currentUser;
+    updates[`${base}/fecha_marcado_pendiente_controlar`]=Date.now();
+  } else if(etapa==='dividir'){
+    updates[`${base}/estado`]='pendiente_dividir';
+  } else if(etapa==='finalizado'){
+    updates[`${base}/estado`]='cerrado';
+    updates[`${base}/dividido`]=true;
+    updates[`${base}/fecha_cerrado`]=Date.now();
+    updates[`${base}/cerrado_por`]=currentUser;
+  }
+  db.ref().update(updates);
+  logActivity(`Forzó etapa → ${etapa}`,it.code||itemId);
+  showToast(`🔧 Etapa forzada: ${etapa}`);
+}
+
 
 // Guarda el conteo "tal cual está" (ya se guarda solo, no hace falta esto para no perder
 // datos) y lo marca visiblemente como pendiente de controlar, para que quien haga el

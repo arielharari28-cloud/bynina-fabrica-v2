@@ -5823,7 +5823,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const avioPendiente=(secId==='s4'||secId==='s5');
   const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
-  const listaSalidaTaller=(secId==='sLT'&&avios.length&&item.lleva_avios!==false)?!!item.taller_avios_entregados:true;
+  const listaSalidaTaller=(secId==='sLT'&&avios.length&&item.lleva_avios!==false)?(aviosSinRecibir.length===0):true;
   const puedeSacarTaller=secId!=='sLT'||(!!item.taller_muestra_entregada&&!!item.taller_ficha_entregada&&!!item.taller_ninox_salida&&listaSalidaTaller);
   const checklistTitle=puedeSacarTaller?'':'Falta completar el checklist: Muestra, Ficha, Ninox y Avíos (si lleva)';
   let sacarTallerHtml='';
@@ -5845,7 +5845,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       <div class="cortada-row"><div class="c-check ${item.taller_muestra_entregada?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_muestra_entregada')`:''}">${item.taller_muestra_entregada?'✓':''}</div><span class="c-label ${item.taller_muestra_entregada?'done':''}">Muestra entregada</span></div>
       <div class="cortada-row"><div class="c-check ${item.taller_ficha_entregada?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_ficha_entregada')`:''}">${item.taller_ficha_entregada?'✓':''}</div><span class="c-label ${item.taller_ficha_entregada?'done':''}">Ficha entregada</span></div>
       <div class="cortada-row"><div class="c-check ${item.taller_ninox_salida?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_ninox_salida')`:''}">${item.taller_ninox_salida?'✓':''}</div><span class="c-label ${item.taller_ninox_salida?'done':''}">Salida en Ninox realizada</span></div>
-      ${(avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${item.taller_avios_entregados?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_avios_entregados')`:''}">${item.taller_avios_entregados?'✓':''}</div><span class="c-label ${item.taller_avios_entregados?'done':''}">Avíos entregados</span></div>`:''}
+      ${(avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${aviosSinRecibir.length===0?'checked':''}" title="Se completa solo cuando todos los avíos figuren Recibido — no se puede tildar a mano">${aviosSinRecibir.length===0?'✓':''}</div><span class="c-label ${aviosSinRecibir.length===0?'done':''}">Avíos entregados${aviosSinRecibir.length?` — faltan: ${aviosSinRecibir.map(([,a])=>a.nombre).join(', ')}`:''}</span></div>`:''}
     </div>`:'';
   const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
@@ -7008,7 +7008,7 @@ function sacarATaller(secId,itemId){
   // (sLT) — en s4/s5 esos checkboxes ni siquiera se muestran, así que no corresponde exigirlos
   // ahí; el único requisito en s4/s5 es la autorización de Ariel/Stef para saltear el avío.
   if(secId==='sLT'){
-    const faltaAvios=(item.avios&&Object.keys(item.avios).length&&item.lleva_avios!==false)&&!item.taller_avios_entregados;
+    const faltaAvios=(item.avios&&Object.keys(item.avios).length&&item.lleva_avios!==false)&&!Object.values(item.avios).every(a=>a.recibido);
     if(!item.taller_muestra_entregada||!item.taller_ficha_entregada||!item.taller_ninox_salida||faltaAvios){
       showToast('Falta completar el checklist antes de sacar a taller');
       return;
@@ -7718,16 +7718,29 @@ function saveEditItem(){
       fecha_pedido:(document.getElementById(`af-${avioId}`)?.value||'').trim(),
     });
   });
+  const nuevosAviosGuardados={};
   for(let i=1;i<=newAvioCount;i++){
     const n=document.getElementById(`an-new${i}`);
-    if(n&&n.value.trim()) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios`).push({
-      nombre:n.value.trim(),
-      proveedor:(document.getElementById(`ap-new${i}`)?.value||'').trim(),
-      cantidad:(document.getElementById(`aq-new${i}`)?.value||'').trim(),
-      precio:(document.getElementById(`apr-new${i}`)?.value||'').trim(),
-      fecha_pedido:(document.getElementById(`af-new${i}`)?.value||'').trim(),
-      recibido:false
-    });
+    if(n&&n.value.trim()){
+      const nuevoId='av'+Date.now()+i;
+      const nuevoAvio={
+        nombre:n.value.trim(),
+        proveedor:(document.getElementById(`ap-new${i}`)?.value||'').trim(),
+        cantidad:(document.getElementById(`aq-new${i}`)?.value||'').trim(),
+        precio:(document.getElementById(`apr-new${i}`)?.value||'').trim(),
+        fecha_pedido:(document.getElementById(`af-new${i}`)?.value||'').trim(),
+        recibido:false
+      };
+      nuevosAviosGuardados[nuevoId]=nuevoAvio;
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${nuevoId}`).set(nuevoAvio);
+    }
+  }
+  // Si el corte ya estaba en "Listo para taller" o "Finalizados" y se le acaba de cargar un
+  // avío nuevo sin recibir, lo devuelve a bloqueado — antes esto solo pasaba al DESmarcar un
+  // avío ya existente, no al agregar uno nuevo, así que un corte podía quedar "listo" con un
+  // avío pendiente sin que nada lo frenara.
+  if(Object.keys(nuevosAviosGuardados).length){
+    checkCorteVuelveABloqueado(secId,itemId,{...(item.avios||{}),...nuevosAviosGuardados});
   }
   logActivity('Editó ítem',document.getElementById('e-code').value.trim());
   document.getElementById('modal-edit').classList.add('hidden');

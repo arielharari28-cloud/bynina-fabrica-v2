@@ -3950,6 +3950,32 @@ function enviarMejoraANuevosDesarrollos(secId,itemId){
   showToast('📤 Se creó un nuevo desarrollo a partir de esta mejora');
 }
 
+// --- Forzar aparición en Logística/conteo sin mover de etapa (solo Ariel, para arreglar ítems que quedaron afuera) ---
+function forzarApareceEnConteo(secId,itemId){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede hacer esto'); return; }
+  const item=sectionsData[secId].items[itemId];
+  if(!item){ showToast('No encontré el ítem'); return; }
+  const yaExiste=Object.values(logiItemsData||{}).some(it=>it.code===item.code && it.numero_corte===(item.numero_corte||''));
+  if(yaExiste && !confirm(`Ya hay un registro en Logística para ${item.code||'este ítem'} (Corte ${item.numero_corte||'?'}). ¿Crear uno de todos modos?`)) return;
+  const filas=calcularGrillaEsperada(item);
+  const grillaObj={};
+  filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
+  const logisticaItem={
+    code:item.code||'',
+    name:item.name||'',
+    foto:item.foto||'',
+    numero_corte:item.numero_corte||'',
+    taller:item.taller_corte||'',
+    fecha_entregado:item.fecha_entregado||'',
+    fecha_creado:Date.now(),
+    estado:'pendiente_conteo',
+    grilla:grillaObj
+  };
+  db.ref('fabrica_v5/logistica/items').push(logisticaItem);
+  logActivity('Forzó aparición en conteo (Logística)',item.code);
+  showToast(`📦 ${item.code||'Ítem'} agregado a Logística — pendiente de conteo`);
+}
+
 // --- PRODUCTO PERFECTO → volver a Mejora (por si aparece un error después de darlo por bueno) ---
 function volverAMejora(secId,itemId){
   const item=sectionsData[secId].items[itemId];
@@ -5604,6 +5630,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div class="item-actions">
             ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="volverAMejora('${secId}','${itemId}')">↩ Volver a Mejora</button>`:''}
+            ${currentUser==='ariel'?`<button class="btn-sm" style="border-color:#2563eb;color:#2563eb" onclick="forzarApareceEnConteo('${secId}','${itemId}')">📦 Forzar aparición en conteo</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
         </div>

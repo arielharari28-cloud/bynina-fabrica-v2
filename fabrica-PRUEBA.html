@@ -3834,6 +3834,23 @@ function marcarEntregadoEstampadoTaller(secId,itemId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Estampado entregado por Plancha Nina — pasa a Revisión Final',item.code);
   showToast(`✅ ${item.code} pasó a Revisión Final`);
+
+  // --- Registro espejo en Logística (pendiente de conteo) ---
+  const filas=calcularGrillaEsperada(item);
+  const grillaObj={};
+  filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
+  const logisticaItem={
+    code:item.code||'',
+    name:item.name||'',
+    foto:item.foto||'',
+    numero_corte:item.numero_corte||'',
+    taller:item.taller_corte||'',
+    fecha_entregado:item.fecha_entregado||'',
+    fecha_creado:Date.now(),
+    estado:'pendiente_conteo',
+    grilla:grillaObj
+  };
+  db.ref('fabrica_v5/logistica/items').push(logisticaItem);
 }
 
 // --- REVISIÓN FINAL (llegó el corte del taller) ---

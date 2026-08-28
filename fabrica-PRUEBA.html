@@ -541,6 +541,7 @@
     <div class="tabs">
       <button class="tab active" id="tab-btn-diseno">Diseño</button>
       <button class="tab" id="tab-btn-fabrica">Fábrica</button>
+      <button class="tab" id="tab-btn-talleres">Talleres</button>
       <button class="tab" id="tab-btn-pendientes">Pendientes</button>
       <button class="tab" id="tab-btn-galeria">Galería</button>
       <button class="tab" id="tab-btn-actividad">Actividad</button>
@@ -562,6 +563,10 @@
       <div id="marca-filter-bar-fabrica" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
       <div id="sections-container-fabrica"><div class="loading">Conectando...</div></div>
       <button class="add-sec-btn hidden" id="add-sec-btn-fabrica">+ Nueva sección</button>
+    </div>
+    <div id="tab-talleres" class="hidden">
+      <input type="text" class="search-input" id="search-input-talleres" placeholder="Buscador por código, nombre o N° de corte" oninput="onSearchInput('talleres',this.value)">
+      <div id="sections-container-talleres"><div class="loading">Conectando...</div></div>
     </div>
     <div id="tab-pendientes" class="hidden">
       <div id="marca-filter-bar-pendientes" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
@@ -2472,6 +2477,12 @@ const SEC_DISENO = 'muestra_diseno';
 const SEC_CANCEL = 'muestra_cancelada';
 const SEC_ESTAMPADO_TALLER = 'fabrica_estampado_taller';
 const SEC_TALLER_TERMINACION = 'fabrica_taller_terminacion';
+// Secciones que Ariel quiere ver aparte, en su propia pestaña "Talleres" (cortes que ya están
+// afuera cortándose/terminándose o volviendo de eso), en vez de mezcladas con el resto de Fábrica.
+const TALLERES_TAB_SECS = ['sFIN', SEC_ESTAMPADO_TALLER, SEC_TALLER_TERMINACION];
+function esSeccionTalleres(secId,sec){
+  return TALLERES_TAB_SECS.includes(secId) || ['revision_final','mejora','producto_perfecto'].includes(sec&&sec.tipo);
+}
 
 // Nombre visible de cada login
 const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí'};
@@ -4846,9 +4857,14 @@ function extractCorteNumber(item){
 }
 
 function renderSections(board){
-  const containerId = board==='diseno' ? 'sections-container-diseno' : 'sections-container-fabrica';
+  const containerId = board==='diseno' ? 'sections-container-diseno' : (board==='talleres' ? 'sections-container-talleres' : 'sections-container-fabrica');
   const c=document.getElementById(containerId);c.innerHTML='';
-  let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===board).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  const boardParaDatos = board==='talleres' ? 'fabrica' : board;
+  let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===boardParaDatos).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  // "Talleres" es un recorte del tablero Fábrica: mismas secciones y datos, solo que separadas
+  // en otra pestaña para no scrollear tanto — y por eso se excluyen de la pestaña Fábrica normal.
+  if(board==='talleres') entries=entries.filter(([secId,sec])=>esSeccionTalleres(secId,sec));
+  else if(board==='fabrica') entries=entries.filter(([secId,sec])=>!esSeccionTalleres(secId,sec));
   // Ari Morón (cortador): vista acotada — solo "Cortes próximos a sacar" (y ahí, solo lo
   // confirmado y con orden de corte ya cargada) y "Muestras — pendiente corte" en Diseño.
   if(currentUser==='arimoron'){
@@ -4950,6 +4966,9 @@ function renderSections(board){
       </div>`;
     c.appendChild(div);
   });
+  // "Talleres" muestra un recorte de los mismos datos de Fábrica — se refresca solo cada vez
+  // que se refresca Fábrica, así no hace falta duplicar cada llamada existente en el código.
+  if(board==='fabrica'&&!document.getElementById('tab-talleres').classList.contains('hidden')) renderSections('talleres');
 }
 
 function moveSectionOrder(secId,dir){
@@ -8066,15 +8085,15 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'],
-  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'],
-  peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-actividad'],
-  emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'],
+  peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-actividad'],
+  emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
   noemi:['tab-btn-logistica'],
@@ -8621,8 +8640,9 @@ function irAItem(secId,itemId){
   const sec=sectionsData[secId];
   if(!sec) return;
   const board=getBoard(sec);
-  const tabId = board==='diseno'?'tab-diseno':'tab-fabrica';
-  const btnId = board==='diseno'?'tab-btn-diseno':'tab-btn-fabrica';
+  const enTalleres=board==='fabrica'&&esSeccionTalleres(secId,sec);
+  const tabId = board==='diseno'?'tab-diseno':(enTalleres?'tab-talleres':'tab-fabrica');
+  const btnId = board==='diseno'?'tab-btn-diseno':(enTalleres?'tab-btn-talleres':'tab-btn-fabrica');
   ocultarTabsMenosActiva(tabId);
   document.getElementById(btnId).classList.add('active');
   if(isSecCollapsed(secId)){
@@ -8631,6 +8651,7 @@ function irAItem(secId,itemId){
   }
   renderSections('diseno');
   renderSections('fabrica');
+  if(enTalleres) renderSections('talleres');
   setTimeout(()=>{
     const el=document.getElementById(`item-${secId}-${itemId}`);
     if(!el){ showToast('No encontré ese ítem (puede que ya se haya movido o eliminado)'); return; }
@@ -9976,7 +9997,7 @@ function deleteCosteo(key){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -9988,6 +10009,11 @@ document.getElementById('tab-btn-diseno').onclick=function(){
 document.getElementById('tab-btn-fabrica').onclick=function(){
   ocultarTabsMenosActiva('tab-fabrica');
   this.classList.add('active');
+};
+document.getElementById('tab-btn-talleres').onclick=function(){
+  ocultarTabsMenosActiva('tab-talleres');
+  this.classList.add('active');
+  renderSections('talleres');
 };
 document.getElementById('tab-btn-pendientes').onclick=function(){
   ocultarTabsMenosActiva('tab-pendientes');

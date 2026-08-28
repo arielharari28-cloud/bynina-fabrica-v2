@@ -747,6 +747,22 @@
   </div>
 </div>
 
+<div class="logi-modal-bg" id="fab-entrega-modal">
+  <div class="logi-modal" style="max-height:90vh;overflow-y:auto;max-width:640px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px">Nueva entrega del taller</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Cargá lo que trajo el taller en esta tanda, por color y talle. El número chico debajo de cada casillero es lo que todavía queda pendiente de esa combinación.</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="font-size:12px;color:var(--text2)">Fecha:</span>
+      <input type="text" id="fab-entrega-fecha" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:13px;flex:1">
+    </div>
+    <div id="fab-entrega-grid-wrap" style="overflow-x:auto"></div>
+    <div class="logi-mbtns" style="margin-top:14px">
+      <button class="logi-cancel" onclick="fabCerrarEntregaModal()">Cancelar</button>
+      <button class="logi-save" onclick="fabEntregaConfirmar()">Guardar entrega</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal editar ítem -->
 <!-- Modal Estampado DTF (manda el corte a la app de Estampas & Bordados vía Airtable) -->
 <!-- Modales del módulo Estampas DTF -->
@@ -3806,6 +3822,146 @@ function calcularGrillaEsperada(item){
   return filas;
 }
 
+// ===== Entregas parciales del taller =====
+// Un corte puede volver del taller en varias tandas. Cada tanda queda como una entrega
+// independiente (fecha, quién la cargó, grilla color/talle) sin pisar las anteriores; el
+// acumulado de todas las entregas es lo que hoy se ve como "contado" hacia adelante.
+function resumenEntregasFabrica(item){
+  const filas=calcularGrillaEsperada(item);
+  const totalEsperado=filas.reduce((s,f)=>s+(f.esperado||0),0);
+  const entregas=Object.entries(item.entregas||{}).sort((a,b)=>(a[1].timestamp||0)-(b[1].timestamp||0));
+  const totalEntregado=entregas.reduce((s,[,e])=>s+Object.values(e.grilla||{}).reduce((s2,f)=>s2+(parseInt(f.cantidad)||0),0),0);
+  const totalFaltante=parseInt(item.faltante_total)||0;
+  const enTaller=Math.max(0,totalEsperado-totalEntregado-totalFaltante);
+  return {filas,totalEsperado,entregas,totalEntregado,totalFaltante,enTaller};
+}
+
+function buildEntregasFabricaHtml(secId,itemId,item,canEdit){
+  const {totalEsperado,entregas,totalEntregado,totalFaltante,enTaller}=resumenEntregasFabrica(item);
+  if(!totalEsperado) return '';
+  const filasHtml=entregas.map(([eid,e])=>{
+    const cant=Object.values(e.grilla||{}).reduce((s,f)=>s+(parseInt(f.cantidad)||0),0);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:6px">
+      <div>
+        <div style="font-size:12px;font-weight:700">${(e.fecha||'').replace(/</g,'&lt;')}</div>
+        <div style="font-size:11px;color:var(--text3)">Cargó: ${USER_DISPLAY[e.usuario]||e.usuario||''}</div>
+      </div>
+      <div style="font-size:13px;font-weight:700">${cant} u.</div>
+    </div>`;
+  }).join('');
+  return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin:6px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2)">📦 Entregas del taller</div>
+      ${canEdit?`<button class="btn-sm" onclick="fabAbrirEntregaModal('${secId}','${itemId}')">+ Nueva entrega</button>`:''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center">
+      <div><div style="font-size:10px;color:var(--text3)">TOTAL</div><div style="font-weight:700">${totalEsperado}</div></div>
+      <div><div style="font-size:10px;color:var(--warn-text)">EN TALLER</div><div style="font-weight:700;color:var(--warn-text)">${enTaller}</div></div>
+      <div><div style="font-size:10px;color:#177a3e">ENTREGADO</div><div style="font-weight:700;color:#177a3e">${totalEntregado}</div></div>
+      <div>
+        <div style="font-size:10px;color:var(--danger)">FALTANTE</div>
+        <div style="font-weight:700;color:var(--danger)">${totalFaltante}</div>
+        ${canEdit?`<button class="btn-sm" style="margin-top:2px;font-size:10px;padding:1px 6px" onclick="editFaltanteCorte('${secId}','${itemId}')">✏️</button>`:''}
+      </div>
+    </div>
+    ${filasHtml?`<div style="margin-top:4px">${filasHtml}</div>`:'<div style="font-size:11px;color:var(--text3);margin-top:6px">Todavía no se cargó ninguna entrega</div>'}
+  </div>`;
+}
+
+function editFaltanteCorte(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const val=prompt('¿Cuántas unidades no pudo armar el taller (faltante)?',item.faltante_total||0);
+  if(val===null) return;
+  const n=Math.max(0,parseInt(val)||0);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/faltante_total`).set(n);
+  logActivity('Editó faltante del taller',`${item.code||''}: ${n}`);
+  showToast('💾 Guardado');
+}
+
+// ===== Modal: cargar una entrega parcial (matriz color x talle) =====
+let fabEntregaCtx=null; // {secId,itemId}
+
+function fabAbrirEntregaModal(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const {filas,entregas}=resumenEntregasFabrica(item);
+  if(!filas.length){ showToast('Este corte todavía no tiene talles/colores cargados'); return; }
+  fabEntregaCtx={secId,itemId};
+  const entregadoPorCombo={};
+  entregas.forEach(([,e])=>{
+    Object.values(e.grilla||{}).forEach(f=>{
+      const k=`${f.color||''}__${f.talle||''}`;
+      entregadoPorCombo[k]=(entregadoPorCombo[k]||0)+(parseInt(f.cantidad)||0);
+    });
+  });
+  const colores=[...new Set(filas.map(f=>f.color||''))].sort((a,b)=>a.localeCompare(b));
+  const talles=[...new Set(filas.map(f=>f.talle||''))].sort(compareTalles);
+  const porCombo={};
+  filas.forEach(f=>{ porCombo[`${f.color||''}__${f.talle||''}`]=f; });
+  const headerCols=talles.map(t=>`<th>${(t||'—').replace(/</g,'&lt;')}</th>`).join('');
+  const rows=colores.map(c=>{
+    const cells=talles.map(t=>{
+      const key=`${c}__${t}`;
+      const f=porCombo[key];
+      if(!f) return `<td style="color:var(--text3)">—</td>`;
+      const yaEntregado=entregadoPorCombo[key]||0;
+      const pendiente=Math.max(0,(f.esperado||0)-yaEntregado);
+      return `<td style="text-align:center">
+        <input type="number" min="0" placeholder="0" data-color="${c.replace(/"/g,'&quot;')}" data-talle="${t.replace(/"/g,'&quot;')}" style="width:56px">
+        <div style="font-size:9px;color:var(--text3)">de ${pendiente}</div>
+      </td>`;
+    }).join('');
+    return `<tr>
+      <td>
+        <div style="font-weight:700;margin-bottom:4px">${(c||'(sin color)').replace(/</g,'&lt;')}</div>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" min="0" placeholder="Nº" class="fab-entrega-apply-fila" style="width:52px">
+          <button class="logi-note-btn" style="font-size:10px;padding:2px 6px" onclick="fabAplicarFilaEntrega(this)">➡ aplicar a fila</button>
+        </div>
+      </td>
+      ${cells}
+    </tr>`;
+  }).join('');
+  document.getElementById('fab-entrega-grid-wrap').innerHTML=(colores.length&&talles.length)
+    ? `<table class="logi-gen-table"><thead><tr><th>Color</th>${headerCols}</tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">Este corte todavía no tiene talles/colores cargados.</div>';
+  const hoy=new Date();
+  document.getElementById('fab-entrega-fecha').value=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  document.getElementById('fab-entrega-modal').classList.add('logi-show');
+}
+
+function fabAplicarFilaEntrega(btnEl){
+  const row=btnEl.closest('tr');
+  const input=row.querySelector('.fab-entrega-apply-fila');
+  const val=Math.max(0,parseInt(input.value)||0);
+  row.querySelectorAll('td input[data-color]').forEach(inp=>{ inp.value=val; });
+}
+
+function fabCerrarEntregaModal(){
+  document.getElementById('fab-entrega-modal').classList.remove('logi-show');
+  fabEntregaCtx=null;
+}
+
+function fabEntregaConfirmar(){
+  if(!fabEntregaCtx) return;
+  const {secId,itemId}=fabEntregaCtx;
+  const wrap=document.getElementById('fab-entrega-grid-wrap');
+  const inputs=[...wrap.querySelectorAll('input[data-color]')];
+  const grilla={};
+  let total=0,i=0;
+  inputs.forEach(inp=>{
+    const n=Math.max(0,parseInt(inp.value)||0);
+    if(n>0){ grilla['f'+(i++)]={color:inp.dataset.color,talle:inp.dataset.talle,cantidad:n}; total+=n; }
+  });
+  if(!total){ showToast('Cargá al menos una cantidad'); return; }
+  const fecha=(document.getElementById('fab-entrega-fecha').value||'').trim();
+  const item=sectionsData[secId].items[itemId];
+  const newRef=db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/entregas`).push();
+  newRef.set({fecha:fecha||'',timestamp:Date.now(),usuario:currentUser,grilla});
+  logActivity('Registró entrega parcial del taller',`${item.code||''}: ${total} u. (${fecha})`);
+  showToast(`✓ Entrega registrada — ${total} unidades`);
+  fabCerrarEntregaModal();
+}
+
 // --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
@@ -5999,6 +6155,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${flujoCorteHtml}
         ${fechaCorteHtml}
         ${fechaSalidaHtml}
+        ${secId==='sFIN'?buildEntregasFabricaHtml(secId,itemId,item,canEdit):''}
         ${avioPendienteBannerHtml}
         ${notaHtml}
         ${liquidarBadgeHtml}

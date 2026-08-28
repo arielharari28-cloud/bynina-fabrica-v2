@@ -9028,7 +9028,16 @@ function logiCardHtml(id,it,cerrado){
   } else if(logiEstadoColumna(it)==='dividir'){
     badgeHtml = '<span class="logi-badge" style="background:#ede9fe;color:#5b21b6">🔀 Pendiente dividir</span>';
   } else if(it.marcado_pendiente_controlar || logiEstadoColumna(it)==='control'){
-    badgeHtml = '<span class="logi-badge logi-controlar">🟡 Pendiente controlar</span>';
+    // Si quedó marcado "pendiente controlar" sin llegar a lo esperado, no es que falte
+    // contar o controlar acá — es que el taller todavía no entregó el resto. Se aclara así
+    // en vez de decir "Pendiente controlar", que sugiere una acción pendiente en Logística.
+    const filasB=Object.values(it.grilla||{});
+    const espB=filasB.reduce((s,f)=>s+(f.esperado||0),0);
+    const contB=filasB.reduce((s,f)=>s+(f.contado||0),0);
+    const faltanB=Math.max(0,espB-contB);
+    badgeHtml = faltanB>0
+      ? `<span class="logi-badge" style="background:#fef3c7;color:#92400e">🚚 Faltan ${faltanB} por entregar del taller</span>`
+      : '<span class="logi-badge logi-controlar">🟡 Pendiente controlar</span>';
   } else {
     badgeHtml = '<span class="logi-badge logi-pend">Pendiente</span>';
   }

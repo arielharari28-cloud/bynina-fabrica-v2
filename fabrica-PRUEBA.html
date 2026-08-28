@@ -6714,20 +6714,28 @@ function saveOrdenCorte(){
     // Pre-corte: el N° de corte todavía puede compartirse entre varios artículos (misma tela
     // física sin cortar todavía), así que las capas/colores viven en el nodo compartido
     // fabrica_v5/grupos_corte — se consolidan ahí hasta que se marca "Corte realizado".
-    const grupo=gruposCorteData[corteKey]||{};
-    // Freno de seguridad: si ya había colores cargados y ahora se está por guardar vacío,
-    // frenamos y pedimos confirmación explícita — esto es lo que borró el Corte 119 sin querer.
-    const habiaColores=Object.keys(grupo.capas||{}).length>0;
-    const quedaVacio=Object.keys(capasGrupoObj).length===0;
-    if(habiaColores&&quedaVacio){
-      if(!confirm('⚠️ Esta orden de corte ya tenía colores cargados y estás por guardarla VACÍA — se borrarían todos los colores/capas existentes.\n\n¿Confirmás que querés borrarlos?')) return;
-    }
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
-    const grupoUpdates={};
-    grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/capas`]=capasGrupoObj;
-    grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=true;
-    if(!grupo.fecha_paso_orden) grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
-    db.ref().update(grupoUpdates);
+    // Leemos el estado REAL del servidor (no el caché local gruposCorteData, que puede estar
+    // desactualizado por otro dispositivo/pestaña guardando casi al mismo tiempo) justo antes
+    // de decidir — esto es lo que produjo el Corte 119 marcado "Cargada" con la tabla vacía:
+    // el chequeo anterior comparaba contra un caché viejo que todavía no veía los colores.
+    db.ref(`fabrica_v5/grupos_corte/${corteKey}`).once('value').then(snap=>{
+      const grupoReal=snap.val()||{};
+      const habiaColores=Object.keys(grupoReal.capas||{}).length>0;
+      const quedaVacio=Object.keys(capasGrupoObj).length===0;
+      if(habiaColores&&quedaVacio){
+        if(!confirm('⚠️ Esta orden de corte ya tenía colores cargados y estás por guardarla VACÍA — se borrarían todos los colores/capas existentes.\n\n¿Confirmás que querés borrarlos?')) return;
+      }
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles});
+      const grupoUpdates={};
+      grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/capas`]=capasGrupoObj;
+      // Nunca se marca "Cargada" si al final no quedó ningún color — así la tarjeta no puede
+      // mostrar "Cargada" con la tabla vacía, pase lo que pase con confirmaciones o carreras.
+      grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=!quedaVacio;
+      if(!grupoReal.fecha_paso_orden&&!quedaVacio) grupoUpdates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
+      db.ref().update(grupoUpdates);
+      finalizarGuardadoOrdenCorte(secId,itemId,item,capasObj,corteKey);
+    });
+    return;
   } else {
     // Ya cortado (o corte viejo cargado directo en una etapa posterior, ej. Finalizados sin
     // haber pasado nunca por el nodo compartido): acá las capas ya son individuales de este
@@ -6736,6 +6744,11 @@ function saveOrdenCorte(){
     // directo en el ítem, que es de donde la tarjeta lee (buildCapasHtml -> item.capas).
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({capas_talles:talles,capas:capasObj});
   }
+  finalizarGuardadoOrdenCorte(secId,itemId,item,capasObj,corteKey);
+}
+// Cola común de saveOrdenCorte (DTF, liquidar tela, cerrar modal) — separada porque la rama de
+// s3 ahora necesita esperar una lectura fresca del servidor antes de llegar acá.
+function finalizarGuardadoOrdenCorte(secId,itemId,item,capasObj,corteKey){
   const totalGeneral=Object.values(capasObj).reduce((s,r)=>s+Object.values(r.cant).reduce((a,b)=>a+b,0),0);
   logActivity('Orden de corte',`Corte ${item.numero_corte}: ${Object.keys(capasObj).length} color(es), ${totalGeneral} prendas (${item.code})`);
   // Definir acá si va a estampado DTF es el momento ideal (recién se cargaron los colores/capas).

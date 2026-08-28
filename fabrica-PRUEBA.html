@@ -2635,6 +2635,19 @@ function toggleCorteItemCollapse(key){
   renderSections('fabrica');
 }
 
+// "Ver detalle del corte" — colapsa Ficha/Curva/Capas/Rollos una vez que el corte ya salió a
+// taller (sFIN en adelante), porque esos datos ya cumplieron su función al armar el corte.
+// Colapsado por defecto en esas etapas; el usuario puede desplegarlo si lo necesita.
+const DETAIL_COLLAPSE_SECS = ['sFIN', SEC_ESTAMPADO_TALLER, SEC_TALLER_TERMINACION];
+let corteDetalleExpanded = {};
+try{ corteDetalleExpanded = JSON.parse(localStorage.getItem('fabrica_corte_detalle_expanded_v1')||'{}'); }catch(e){ corteDetalleExpanded = {}; }
+function isDetalleCorteExpanded(key){ return !!corteDetalleExpanded[key]; }
+function toggleDetalleCorte(key){
+  corteDetalleExpanded[key]=!corteDetalleExpanded[key];
+  try{ localStorage.setItem('fabrica_corte_detalle_expanded_v1', JSON.stringify(corteDetalleExpanded)); }catch(e){}
+  renderSections('fabrica');
+}
+
 function showToast(msg){
   const t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
@@ -6078,6 +6091,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
               ${canFicha?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
             </div>`}
         ${baseHtml}
+        ${(()=>{
+          if(!DETAIL_COLLAPSE_SECS.includes(secId)) return '';
+          const expandido=isDetalleCorteExpanded(itemId);
+          return `<div style="margin:4px 0"><button class="btn-sm" onclick="toggleDetalleCorte('${itemId}')">${expandido?'▾ Ocultar detalle del corte':'▸ Ver detalle del corte (ficha, curva, capas, rollos)'}</button></div>`;
+        })()}
+        <div class="${DETAIL_COLLAPSE_SECS.includes(secId)&&!isDetalleCorteExpanded(itemId)?'hidden':''}">
         ${fichaHtml}
         <div class="specs-line">
           <span class="spec-chip">
@@ -6151,6 +6170,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${sinConfirmarHtml}
         ${capasHtml}
         ${rollosHtml}
+        </div>
         ${realesHtml}
         ${flujoCorteHtml}
         ${fechaCorteHtml}

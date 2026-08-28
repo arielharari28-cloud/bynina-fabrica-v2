@@ -643,6 +643,7 @@
             <div style="font-size:11px;color:var(--text3)" id="logi-detail-quienes"></div>
             <div style="margin-top:6px" id="logi-detail-prioridad"></div>
             <div style="margin-top:6px" id="logi-detail-etapa-ariel"></div>
+            <div style="margin-top:6px" id="logi-detail-eliminar"></div>
           </div>
         </div>
         <div id="logi-rows-container"></div>
@@ -9052,6 +9053,19 @@ function logiCloseDetail(){
   document.getElementById('logi-board-screen').classList.remove('hidden');
 }
 
+// Borra el movimiento entero de Logística (una entrega cargada de prueba, por error, etc.).
+// Si esta entrega estaba enlazada a un corte de Fábrica (fabrica_item_id), al borrarla ese
+// corte vuelve a mostrar el saldo "En taller" como si nunca se hubiera abierto.
+function logiEliminarItem(id){
+  const it=logiItemsData[id];
+  if(!it) return;
+  if(!confirm(`¿Eliminar este movimiento de Logística (${it.code||'sin código'} — Corte ${it.numero_corte||'?'})? No se puede deshacer.`)) return;
+  db.ref(`fabrica_v5/logistica/items/${id}`).remove();
+  logActivity('Eliminó un movimiento de Logística',`${it.code||''} — Corte ${it.numero_corte||'?'}`);
+  showToast('🗑 Movimiento eliminado');
+  logiCloseDetail();
+}
+
 function logiRenderDetail(id){
   const it = logiItemsData[id];
   if(!it){ logiCloseDetail(); return; }
@@ -9091,6 +9105,8 @@ function logiRenderDetail(id){
       <option value="dividir" ${etapaActual==='dividir'?'selected':''}>🔀 Pendiente dividir</option>
       <option value="finalizado" ${etapaActual==='finalizado'?'selected':''}>✅ Finalizado (habilita Web)</option>
     </select>` : '';
+  document.getElementById('logi-detail-eliminar').innerHTML = (currentUser==='ariel'||currentUser==='stef') ? `
+    <button class="btn-sm" style="border-color:var(--danger);color:var(--danger)" onclick="logiEliminarItem('${id}')">🗑 Eliminar este movimiento (era una prueba, etc.)</button>` : '';
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';

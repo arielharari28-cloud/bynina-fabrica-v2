@@ -5696,6 +5696,26 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // --- TALLER DE TERMINACIÓN: pasos extra (plancha, ojal, broche...) antes de seguir ---
   if(tipo==='en_terminacion'){
     const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+    const aviosTerm=Object.entries(item.avios||{});
+    let aviosTermHtml='';
+    if(aviosTerm.length){
+      const canCostoTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='arimoron';
+      aviosTermHtml='<div class="avios-normal" style="margin-bottom:6px">'+aviosTerm.map(([avioId,avio])=>{
+        const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
+        const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
+        const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
+          :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
+          :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
+        const canPedirTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
+        const canRecibirTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
+        const btns=`${(!rec&&!hasDate&&canPedirTerm)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibirTerm)
+          ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
+          :(rec&&canRecibirTerm)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
+        return `<div class="avio-row-n"><div class="avio-dot" style="background:${dot}"></div>
+          <span style="font-size:11px;color:var(--text2)">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
+          ${badge}${btns}</div>`;
+      }).join('')+'</div>';
+    }
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
         ${buildPhotoHtml(secId,itemId,item,canEdit)}
@@ -5709,9 +5729,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNotasHtml(secId,itemId,item,canEdit)}
           <div style="font-size:12px;color:var(--text2);margin-bottom:6px">🧵 En taller de terminación — todavía no pasa a Estampado/Revisión Final.</div>
           ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Salió del taller de armado: <strong>${item.fecha_entregado}</strong></div>`:''}
+          ${aviosTermHtml}
           ${buildPasosExtraHtml(secId,itemId,item,canEdit)}
           <div class="item-actions">
             ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoTerminacion('${secId}','${itemId}')" ${pasosPendientes.length?'title="Faltan pasos por tildar"':''}>✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
+            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar (avíos y más)</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>

@@ -5729,6 +5729,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildNotasHtml(secId,itemId,item,canEdit)}
           <div style="font-size:12px;color:var(--text2);margin-bottom:6px">🧵 En taller de terminación — todavía no pasa a Estampado/Revisión Final.</div>
           ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Salió del taller de armado: <strong>${item.fecha_entregado}</strong></div>`:''}
+          <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+            <div class="c-check ${item.salio_plancha?'checked':''}" onclick="${canEdit?`toggleSalioPlancha('${secId}','${itemId}')`:''}">${item.salio_plancha?'✓':''}</div>
+            <span class="c-label ${item.salio_plancha?'done':''}" style="font-size:11px">🧺 Salió a plancha</span>
+            ${item.salio_plancha?`<span style="font-size:11px;color:var(--text2)">el <strong>${item.fecha_salio_plancha||''}</strong></span>${canEdit?`<button class="btn-sm" onclick="editFechaSalioPlancha('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}`:''}
+          </div>
           ${aviosTermHtml}
           ${buildPasosExtraHtml(secId,itemId,item,canEdit)}
           <div class="item-actions">
@@ -7185,6 +7190,30 @@ function sacarATaller(secId,itemId){
 
 // Deja corregir la fecha de salida a taller de un artículo ya entregado (por si se marcó
 // entregado un día pero en realidad salió otro).
+// "Salió a plancha" (taller de terminación) — tilde simple con fecha, para saber si ya está
+// afuera terminándose o si sigue esperando (ej. por avíos) antes de poder salir.
+function toggleSalioPlancha(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item.salio_plancha||false);
+  const updates={};
+  updates[`fabrica_v5/sections/${secId}/items/${itemId}/salio_plancha`]=nv;
+  if(nv){
+    const hoy=new Date();
+    updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_salio_plancha`]=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  }
+  db.ref().update(updates);
+  logActivity(nv?'Salió a plancha':'Deshizo salida a plancha',item.code||item.name||'');
+  showToast(nv?'🧺 Marcado: salió a plancha':'↩ Deshecho');
+}
+function editFechaSalioPlancha(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const fecha=prompt('¿Qué fecha salió a plancha?',item.fecha_salio_plancha||'');
+  if(fecha===null) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_salio_plancha`).set(fecha.trim()||null);
+  logActivity('Editó fecha de salida a plancha',`${item.code||item.name||''}: ${fecha.trim()}`);
+  showToast('💾 Guardado');
+}
+
 function editFechaSalidaTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const fecha=prompt('¿Qué fecha salió a taller?',fmtFecha(item.fecha_salida_taller));

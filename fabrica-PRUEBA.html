@@ -2833,7 +2833,13 @@ function backfillPasosCorte(){
 // propio ítem) pasan a vivir en fabrica_v5/grupos_corte/{N° de corte}, compartido entre artículos
 // del mismo corte. Si dos ítems del mismo N° de corte tenían datos viejos distintos, se toma el
 // del primero que aparezca (después de la migración ya queda todo unificado).
-let gruposCorteMigradoDone=false;
+// DESACTIVADA: corre cada vez que cambia `sections` y compara contra gruposCorteData (que llega
+// por una escucha de Firebase separada) — si un corte tenía datos viejos sueltos en el ítem,
+// esta migración podía correr justo en el instante en que alguien guarda una orden de corte
+// nueva y pisarla con el dato viejo (vacío), por una carrera entre las dos escuchas. Es lo que
+// le pasó al Corte 119. Como esta migración ya cumplió su función para los cortes viejos que
+// hacía falta pasar, se apaga del todo para no arriesgar más datos en vivo.
+let gruposCorteMigradoDone=true;
 function backfillGruposCorte(){
   if(gruposCorteMigradoDone) return;
   if(!(currentUser==='ariel'||currentUser==='stef'||currentUser==='arimoron')) return;

@@ -3382,8 +3382,12 @@ function coloresParaTela(telaNombre,telaProveedor){
   Object.values(sectionsData||{}).forEach(sec=>{
     Object.values((sec&&sec.items)||{}).forEach(it=>{
       if(!it) return;
-      const itTela=norm(it.tela_nombre||it.tela);
-      const itProv=norm(it.tela_proveedor);
+      // Mismo orden de prioridad que se usa para el ítem actual (tela = desplegable de
+      // Fábrica, tela_nombre = texto libre que quedó de la etapa de Diseño) — antes estaban
+      // invertidos entre el ítem actual y los demás, así que comparaba peras con manzanas y
+      // terminaba trayendo colores de telas que en los hechos no son la misma.
+      const itTela=norm(it.tela||it.tela_nombre);
+      const itProv=norm(it.proveedor||it.tela_proveedor);
       if(tn&&itTela!==tn) return;
       if(tp&&itProv!==tp) return;
       if(it.color&&it.color.trim()) set.add(it.color.trim());
@@ -3404,8 +3408,8 @@ function coloresParaTela(telaNombre,telaProveedor){
 let colorModalCtx=null;
 function openColorModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const telaNombre=item.tela_nombre||item.tela||'';
-  const telaProveedor=item.tela_proveedor||'';
+  const telaNombre=item.tela||item.tela_nombre||'';
+  const telaProveedor=item.proveedor||item.tela_proveedor||'';
   const sugeridos=coloresParaTela(telaNombre,telaProveedor);
   colorModalCtx={secId,itemId};
   const label=document.getElementById('color-modal-suggest-label');
@@ -6372,7 +6376,7 @@ function buildOrdenCtx(secId,itemId){
   const curvaValores=item.curva_valores||{};
   const corteKey=corteKeyFrom(item.numero_corte);
   const ctx={secId,itemId,talles,curvaValores,corteKey};
-  ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.tela_proveedor);
+  ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor);
   const grupo=gruposCorteData[corteKey];
   const capasGrupo=grupo?grupo.capas:(item.capas||null);
   const filasExistentes=Object.entries(capasGrupo||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));

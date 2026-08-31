@@ -4529,13 +4529,17 @@ function aplicarFiltroYOrdenCorte(items){
   return out;
 }
 
-// Observación automática: por ahora el único dato que el sistema puede inferir solo es el
-// faltante que reportó el taller (item.faltante_total). Todo lo demás lo escribe Ariel/Stef/Peque
-// a mano en el mismo campo — si hay texto manual guardado, ese gana y ya no se pisa con el automático.
+// Observación automática: por ahora el sistema puede inferir dos cosas solo — avíos que
+// todavía figuran sin recibir (item.avios) y el faltante que reportó el taller (item.faltante_total).
+// Todo lo demás lo escribe Ariel/Stef/Peque a mano en el mismo campo — si hay texto manual
+// guardado, ese gana y ya no se pisa con el automático.
 function autoObservacionCorte(item){
+  const partes=[];
+  const aviosSinRecibir=Object.values(item.avios||{}).filter(a=>a&&!a.recibido);
+  if(aviosSinRecibir.length) partes.push(`⏳ Falta avío: ${aviosSinRecibir.map(a=>a.nombre).join(', ')}`);
   const falt=parseInt(item.faltante_total)||0;
-  if(falt>0) return `⚠️ Taller reportó faltante de ${falt} unidad${falt===1?'':'es'}`;
-  return '';
+  if(falt>0) partes.push(`⚠️ Taller reportó faltante de ${falt} unidad${falt===1?'':'es'}`);
+  return partes.join(' · ');
 }
 function setObservacionCorte(secId,itemId,val){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/observacion_taller`).set(val&&val.trim()?val.trim():null);

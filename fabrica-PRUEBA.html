@@ -165,22 +165,21 @@
   .deuda-taller-detalle{display:none;padding:0 0 8px 4px}
   .deuda-taller-group.open .deuda-taller-detalle{display:block}
   .deuda-taller-item{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:11px;color:var(--text2)}
-  /* --- Resumen de talleres (tabla por corte) --- */
+  /* --- Resumen de talleres (tabla compacta por corte) --- */
   .rt-box{margin:2px 18px 14px}
-  .rt-title{font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--text2);margin-bottom:8px}
-  .rt-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px}
-  .rt-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px}
-  .rt-corte-num{background:var(--accent);color:#fff;font-weight:700;font-size:12px;border-radius:8px;padding:2px 9px}
-  .rt-taller{font-size:12px;font-weight:600;color:var(--text2)}
-  .rt-articulo{font-size:13px;font-weight:600;margin-bottom:8px}
-  .rt-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin-bottom:8px}
-  .rt-metric-label{display:block;font-size:9px;color:var(--text3);text-transform:uppercase}
-  .rt-metric-val{display:block;font-size:14px;font-weight:700}
-  .rt-metric-val.urgente{color:var(--danger)}
-  .rt-obs-input{width:100%;border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12px;margin-bottom:6px;background:var(--surface)}
+  .rt-title{font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--text2);margin-bottom:6px}
+  .rt-row{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 9px;margin-bottom:5px}
+  .rt-row-top{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  .rt-corte-num{background:var(--accent);color:#fff;font-weight:700;font-size:10.5px;border-radius:6px;padding:1px 7px;flex-shrink:0}
+  .rt-articulo{font-size:12px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rt-taller{font-size:11px;color:var(--text2);flex-shrink:0;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rt-row-bottom{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .rt-stats{display:flex;gap:8px;flex-shrink:0;font-size:11px;color:var(--text2);white-space:nowrap}
+  .rt-stats b{color:var(--text)}
+  .rt-stats .urgente{color:var(--danger);font-weight:700}
+  .rt-obs-input{flex:1;min-width:110px;border:1px solid var(--border);border-radius:6px;padding:3px 7px;font-size:11px;background:var(--surface)}
   .rt-obs-input.rt-obs-auto{color:var(--warn-text);font-style:italic}
-  .rt-fecha-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2)}
-  .rt-fecha-row input{border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:12px;background:var(--surface)}
+  .rt-fecha-input{border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:11px;background:var(--surface);width:120px;flex-shrink:0}
   .rt-empty{font-size:12px;color:var(--text3);padding:10px 0;text-align:center}
   .dti-corte{font-weight:700;color:var(--text);min-width:70px}
   .dti-articulo{flex:1}
@@ -2520,7 +2519,7 @@ let coloresList = [];
 let filtroMarca = '';
 let searchQuery = '';
 // Filtros y orden de la sección Cortes Finalizados
-let filtroCorteTaller='', filtroCorteTela='', filtroCorteCategoria='', filtroCorteNumero='', ordenCortePor='';
+let filtroCorteTaller='', filtroCorteTela='', filtroCorteCategoria='', filtroCorteNumero='', filtroCorteArticulo='', ordenCortePor='';
 // Orden personalizado (arrastrar y soltar) de la Galería, guardado por tablero
 let galeriaOrden = {diseno:[], fabrica:[]};
 let filtroGaleriaMarca='', filtroGaleriaTela='', filtroGaleriaCategoria='', filtroGaleriaTablero='', ordenGaleriaPor='';
@@ -4506,6 +4505,7 @@ function buildFiltroCorteBarHtml(items){
       <option value="">Categoría: todas</option>${opt(categorias,filtroCorteCategoria)}
     </select>
     <input class="filtro-corte-input" type="text" placeholder="N° de corte..." value="${filtroCorteNumero}" oninput="filtroCorteNumero=this.value;renderSections('fabrica')">
+    <input class="filtro-corte-input" type="text" placeholder="Artículo (código o nombre)..." value="${filtroCorteArticulo}" oninput="filtroCorteArticulo=this.value;renderSections('fabrica')">
     <select class="filtro-corte-select" onchange="ordenCortePor=this.value;renderSections('fabrica')">
       <option value="">Ordenar por…</option>
       <option value="taller" ${ordenCortePor==='taller'?'selected':''}>Taller</option>
@@ -4513,7 +4513,7 @@ function buildFiltroCorteBarHtml(items){
       <option value="categoria" ${ordenCortePor==='categoria'?'selected':''}>Categoría</option>
       <option value="numero_corte" ${ordenCortePor==='numero_corte'?'selected':''}>N° de corte</option>
     </select>
-    ${(filtroCorteTaller||filtroCorteTela||filtroCorteCategoria||filtroCorteNumero||ordenCortePor)?`<button class="btn-sm" onclick="filtroCorteTaller='';filtroCorteTela='';filtroCorteCategoria='';filtroCorteNumero='';ordenCortePor='';renderSections('fabrica')">✕ Limpiar</button>`:''}
+    ${(filtroCorteTaller||filtroCorteTela||filtroCorteCategoria||filtroCorteNumero||filtroCorteArticulo||ordenCortePor)?`<button class="btn-sm" onclick="filtroCorteTaller='';filtroCorteTela='';filtroCorteCategoria='';filtroCorteNumero='';filtroCorteArticulo='';ordenCortePor='';renderSections('fabrica')">✕ Limpiar</button>`:''}
   </div>`;
 }
 function aplicarFiltroYOrdenCorte(items){
@@ -4521,7 +4521,8 @@ function aplicarFiltroYOrdenCorte(items){
     (!filtroCorteTaller||it.taller_corte===filtroCorteTaller) &&
     (!filtroCorteTela||it.tela===filtroCorteTela) &&
     (!filtroCorteCategoria||it.categoria===filtroCorteCategoria) &&
-    (!filtroCorteNumero||(it.numero_corte||'').toLowerCase().includes(filtroCorteNumero.toLowerCase()))
+    (!filtroCorteNumero||(it.numero_corte||'').toLowerCase().includes(filtroCorteNumero.toLowerCase())) &&
+    (!filtroCorteArticulo||((it.code||'')+' '+(it.name||'')).toLowerCase().includes(filtroCorteArticulo.toLowerCase()))
   );
   if(ordenCortePor){
     out=out.slice().sort((a,b)=>String(a[1][ordenCortePor]||'zzz').localeCompare(String(b[1][ordenCortePor]||'zzz')));
@@ -4561,23 +4562,18 @@ function buildResumenTalleresHtml(secId,items){
     const obsManual=item.observacion_taller||'';
     const obsMostrar=obsManual||obsAuto;
     const esAuto=!obsManual&&obsAuto;
-    return `<div class="rt-card">
-      <div class="rt-card-top">
+    return `<div class="rt-row">
+      <div class="rt-row-top">
         <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
-        <span class="rt-taller">🧵 ${item.taller_corte||'Sin taller asignado'}</span>
+        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
       </div>
-      <div class="rt-articulo">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</div>
-      <div class="rt-metrics">
-        <div><span class="rt-metric-label">Cortado</span><span class="rt-metric-val">${resumen.totalEsperado}</span></div>
-        <div><span class="rt-metric-label">Entregado</span><span class="rt-metric-val">${resumen.totalEntregado}</span></div>
-        <div><span class="rt-metric-label">Demora</span><span class="rt-metric-val${urgente?' urgente':''}">${dias!=null?dias+'d':'—'}</span></div>
-      </div>
-      <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación (por qué tiene demora)..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
-        onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
-        onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
-      <div class="rt-fecha-row">
-        <label>📅 Entrega aprox.:</label>
-        <input type="date" value="${item.fecha_estimada_entrega||''}" onchange="setFechaEntregaEstimadaCorte('${secId}','${itemId}',this.value)">
+      <div class="rt-row-bottom">
+        <span class="rt-stats"><b>${resumen.totalEsperado}</b> cort. · <b>${resumen.totalEntregado}</b> entr. · <span class="${urgente?'urgente':''}">${dias!=null?dias+'d':'—'}</span></span>
+        <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
+          onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
+          onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
+        <input class="rt-fecha-input" type="date" value="${item.fecha_estimada_entrega||''}" onchange="setFechaEntregaEstimadaCorte('${secId}','${itemId}',this.value)">
       </div>
     </div>`;
   }).join('');

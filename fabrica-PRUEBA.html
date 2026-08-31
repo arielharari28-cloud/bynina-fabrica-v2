@@ -165,6 +165,23 @@
   .deuda-taller-detalle{display:none;padding:0 0 8px 4px}
   .deuda-taller-group.open .deuda-taller-detalle{display:block}
   .deuda-taller-item{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:11px;color:var(--text2)}
+  /* --- Resumen de talleres (tabla por corte) --- */
+  .rt-box{margin:2px 18px 14px}
+  .rt-title{font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--text2);margin-bottom:8px}
+  .rt-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+  .rt-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px}
+  .rt-corte-num{background:var(--accent);color:#fff;font-weight:700;font-size:12px;border-radius:8px;padding:2px 9px}
+  .rt-taller{font-size:12px;font-weight:600;color:var(--text2)}
+  .rt-articulo{font-size:13px;font-weight:600;margin-bottom:8px}
+  .rt-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center;margin-bottom:8px}
+  .rt-metric-label{display:block;font-size:9px;color:var(--text3);text-transform:uppercase}
+  .rt-metric-val{display:block;font-size:14px;font-weight:700}
+  .rt-metric-val.urgente{color:var(--danger)}
+  .rt-obs-input{width:100%;border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12px;margin-bottom:6px;background:var(--surface)}
+  .rt-obs-input.rt-obs-auto{color:var(--warn-text);font-style:italic}
+  .rt-fecha-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text2)}
+  .rt-fecha-row input{border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:12px;background:var(--surface)}
+  .rt-empty{font-size:12px;color:var(--text3);padding:10px 0;text-align:center}
   .dti-corte{font-weight:700;color:var(--text);min-width:70px}
   .dti-articulo{flex:1}
   .dti-tela{color:var(--text3);font-style:italic}
@@ -4512,41 +4529,55 @@ function aplicarFiltroYOrdenCorte(items){
   return out;
 }
 
-function buildDeudaTallerHtml(items){
-  const porTaller={};
-  items.forEach(([,item])=>{
-    const t=item.taller_corte||'Sin taller asignado';
-    if(!porTaller[t]) porTaller[t]=[];
-    porTaller[t].push(item);
-  });
-  const talleres=Object.keys(porTaller).sort((a,b)=>porTaller[b].length-porTaller[a].length);
-  if(!talleres.length) return '';
-  const filas=talleres.map(t=>{
-    const lista=porTaller[t];
-    const diasList=lista.map(it=>diasEntre(it.fecha_etapa)).filter(d=>d!=null);
-    const diasMax=diasList.length?Math.max(...diasList):null;
-    const urgente=diasMax!=null&&diasMax>=7;
-    const detalle=lista.slice().sort((a,b)=>(a.numero_corte||'').localeCompare(b.numero_corte||'')).map(it=>{
-      const d=diasEntre(it.fecha_etapa);
-      const urg=d!=null&&d>=7;
-      return `<div class="deuda-taller-item">
-        <span class="dti-corte">${it.numero_corte||'s/n°'}</span>
-        <span class="dti-articulo">${it.name||it.code||'(sin nombre)'}</span>
-        <span class="dti-tela">${it.tela||'—'}</span>
-        <span class="dti-dias${urg?' urgente':''}">${d!=null?d+' día'+(d!==1?'s':''):'—'}</span>
-      </div>`;
-    }).join('');
-    return `<div class="deuda-taller-group">
-      <div class="deuda-taller-row" onclick="this.parentElement.classList.toggle('open')" style="cursor:pointer">
-        <span class="deuda-taller-nombre">${t}</span>
-        <span class="deuda-taller-cant">${lista.length} corte${lista.length!==1?'s':''}</span>
-        ${diasMax!=null?`<span class="deuda-taller-dias${urgente?' urgente':''}">hasta ${diasMax} día${diasMax!==1?'s':''} esperando</span>`:''}
-        <span class="deuda-taller-caret">▾</span>
+// Observación automática: por ahora el único dato que el sistema puede inferir solo es el
+// faltante que reportó el taller (item.faltante_total). Todo lo demás lo escribe Ariel/Stef/Peque
+// a mano en el mismo campo — si hay texto manual guardado, ese gana y ya no se pisa con el automático.
+function autoObservacionCorte(item){
+  const falt=parseInt(item.faltante_total)||0;
+  if(falt>0) return `⚠️ Taller reportó faltante de ${falt} unidad${falt===1?'':'es'}`;
+  return '';
+}
+function setObservacionCorte(secId,itemId,val){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/observacion_taller`).set(val&&val.trim()?val.trim():null);
+}
+function setFechaEntregaEstimadaCorte(secId,itemId,val){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega`).set(val||null);
+}
+
+// Resumen por corte: un registro por artículo/corte en taller, con lo cortado, lo entregado,
+// hace cuántos días está esperando, observación (auto o manual) y fecha aproximada de entrega.
+// Reemplaza al viejo resumen agrupado "qué debe cada taller".
+function buildResumenTalleresHtml(secId,items){
+  if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
+  const filas=items.slice().sort((a,b)=>String(a[1].taller_corte||'zzz').localeCompare(String(b[1].taller_corte||'zzz'))).map(([itemId,item])=>{
+    const resumen=resumenEntregasFabrica(item,itemId);
+    const dias=diasEntre(item.fecha_etapa);
+    const urgente=dias!=null&&dias>=7;
+    const obsAuto=autoObservacionCorte(item);
+    const obsManual=item.observacion_taller||'';
+    const obsMostrar=obsManual||obsAuto;
+    const esAuto=!obsManual&&obsAuto;
+    return `<div class="rt-card">
+      <div class="rt-card-top">
+        <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
+        <span class="rt-taller">🧵 ${item.taller_corte||'Sin taller asignado'}</span>
       </div>
-      <div class="deuda-taller-detalle">${detalle}</div>
+      <div class="rt-articulo">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</div>
+      <div class="rt-metrics">
+        <div><span class="rt-metric-label">Cortado</span><span class="rt-metric-val">${resumen.totalEsperado}</span></div>
+        <div><span class="rt-metric-label">Entregado</span><span class="rt-metric-val">${resumen.totalEntregado}</span></div>
+        <div><span class="rt-metric-label">Demora</span><span class="rt-metric-val${urgente?' urgente':''}">${dias!=null?dias+'d':'—'}</span></div>
+      </div>
+      <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación (por qué tiene demora)..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
+        onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
+        onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
+      <div class="rt-fecha-row">
+        <label>📅 Entrega aprox.:</label>
+        <input type="date" value="${item.fecha_estimada_entrega||''}" onchange="setFechaEntregaEstimadaCorte('${secId}','${itemId}',this.value)">
+      </div>
     </div>`;
   }).join('');
-  return `<div class="deuda-taller-box"><div class="deuda-taller-title">📦 Qué debe cada taller — pendiente de entregar <span style="font-weight:400;text-transform:none;font-size:10px">(tocá un taller para ver el detalle)</span></div>${filas}</div>`;
+  return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
 }
 
 function buildPasosPanelCorteHtml(item){
@@ -4877,7 +4908,7 @@ function renderSections(board){
       itemsHtml=colaHtml+confHtml;
     } else if(secId==='sFIN'){
       const itemsFiltrados=aplicarFiltroYOrdenCorte(items);
-      itemsHtml=buildDeudaTallerHtml(items)+buildFiltroCorteBarHtml(items)
+      itemsHtml=buildFiltroCorteBarHtml(items)+buildResumenTalleresHtml(secId,itemsFiltrados)
         +(itemsFiltrados.length?itemsFiltrados.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,itemsFiltrados.length)).join(''):`<div class="empty-state">Ningún corte coincide con el filtro</div>`);
     } else {
       itemsHtml=items.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,items.length)).join('');

@@ -9102,7 +9102,18 @@ function calcularDisenoPorSemana(){
 
 // Arma una tabla HTML genérica: filas = períodos (más reciente abajo), columnas = personas
 // detectadas en los datos + una columna "Todos juntos" con el total del campo principal.
-function rendTablaHtml(porPeriodo, periodos, fmtPeriodo, campos, campoLabels, personasOrden){
+function rendTablaHtml(porPeriodo, periodos, fmtPeriodo, campos, campoLabels, personasOrden, soloTotal){
+  if(soloTotal){
+    const header=`<tr><th style="text-align:left">Período</th>${campos.map(c=>`<th>${campoLabels[c]}</th>`).join('')}</tr>`;
+    const filas=periodos.map(per=>{
+      const datosPer=porPeriodo[per]||{};
+      const totales={}; campos.forEach(c=>totales[c]=0);
+      Object.values(datosPer).forEach(d=>campos.forEach(c=>totales[c]+=parseInt(d[c])||0));
+      const sinDatos=campos.every(c=>!totales[c]);
+      return `<tr${sinDatos?' style="color:var(--text3)"':''}><td>${fmtPeriodo(per)}</td>${campos.map(c=>`<td style="text-align:center;font-weight:700">${totales[c]||''}</td>`).join('')}</tr>`;
+    }).join('');
+    return `<table class="rend-tabla">${header}${filas}</table>`;
+  }
   const personasSet=new Set();
   Object.values(porPeriodo).forEach(p=>Object.keys(p).forEach(u=>personasSet.add(u)));
   let personas=Array.from(personasSet);
@@ -9149,12 +9160,12 @@ function renderRendimientoTab(){
       ${rendTablaHtml(logi, dias, rendFmtDia, ['contadas','controladas'], {contadas:'Contó',controladas:'Controló'}, ['noemi','nahuel','emir'])}
     </div>
     <div class="rend-seccion">
-      <div class="rend-titulo">✂️ Cortadores — prendas y muestras cortadas por día</div>
-      ${rendTablaHtml(cort, dias, rendFmtDia, ['prendas','muestras'], {prendas:'Prendas',muestras:'Muestras'}, ['arimoron','emir'])}
+      <div class="rend-titulo">✂️ Cortadores — total del equipo, prendas y muestras cortadas por día</div>
+      ${rendTablaHtml(cort, dias, rendFmtDia, ['prendas','muestras'], {prendas:'Prendas',muestras:'Muestras'}, null, true)}
     </div>
     <div class="rend-seccion">
-      <div class="rend-titulo">📐 Diseño — prendas aprobadas por semana</div>
-      ${rendTablaHtml(dis, semanas, rendFmtSemana, ['aprobadas'], {aprobadas:'Aprobó'}, ['stef','peque'])}
+      <div class="rend-titulo">📐 Diseño — total del equipo, prendas aprobadas por semana</div>
+      ${rendTablaHtml(dis, semanas, rendFmtSemana, ['aprobadas'], {aprobadas:'Aprobó'}, null, true)}
     </div>`;
 }
 

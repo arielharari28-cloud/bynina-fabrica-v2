@@ -309,6 +309,12 @@
   .logi-gen-table td:first-child,.logi-gen-table th:first-child{text-align:left;font-weight:700;white-space:nowrap}
   .logi-gen-table input{width:52px;padding:4px;border:1px solid var(--border);border-radius:6px;text-align:center;font-size:12px}
   .logi-count-table{border-collapse:collapse;width:100%;font-size:12px;min-width:600px}
+  /* --- Rendimiento --- */
+  .rend-seccion{margin-bottom:26px;overflow-x:auto}
+  .rend-titulo{font-size:13px;font-weight:700;margin-bottom:8px}
+  .rend-tabla{border-collapse:collapse;font-size:12px;min-width:520px}
+  .rend-tabla th,.rend-tabla td{border:1px solid var(--border);padding:4px 8px}
+  .rend-tabla th{background:var(--surface2);white-space:nowrap}
   .logi-count-table th,.logi-count-table td{border:1px solid var(--border);padding:6px 8px;text-align:center}
   .logi-count-table th{background:var(--surface2);font-size:10px;color:var(--text2);text-transform:uppercase}
   .logi-count-table td:first-child,.logi-count-table td:nth-child(2){text-align:left;font-weight:700}
@@ -566,6 +572,7 @@
       <button class="tab" id="tab-btn-logistica">📦 Logística</button>
       <button class="tab hidden" id="tab-btn-web">🌐 Web</button>
       <button class="tab hidden" id="tab-btn-costeo">💰 Costeo</button>
+      <button class="tab hidden" id="tab-btn-rendimiento">📊 Rendimiento</button>
     </div>
     <div id="tab-diseno">
       <div id="alert-banner"></div>
@@ -679,6 +686,10 @@
         <div id="costeo-list"><div class="loading">Cargando...</div></div>
       </div>
       <div id="costeo-detail-screen" class="hidden"></div>
+    </div>
+    <div id="tab-rendimiento" class="hidden">
+      <p style="font-size:11px;color:var(--text3);margin-bottom:14px">Se empieza a contar desde que se agregó esta pestaña — no hay forma de reconstruir quién hizo qué en fechas anteriores.</p>
+      <div id="rendimiento-board"><div class="loading">Cargando...</div></div>
     </div>
   </div>
 </div>
@@ -3203,7 +3214,7 @@ function moverACortada(secId,itemId){
   const fecha=prompt('¿Qué fecha se cortó esta muestra?',fechaDefault);
   if(fecha===null) return;
   const fechaFinal=fecha.trim()||fechaDefault;
-  const newItem={...item,ficha:false,lleva_avios:null,avios:item.avios||{},fecha_corte:fechaFinal,fecha_etapa:Date.now()};
+  const newItem={...item,ficha:false,lleva_avios:null,avios:item.avios||{},fecha_corte:fechaFinal,fecha_corte_ts:Date.now(),cortado_por:currentUser,fecha_etapa:Date.now()};
   db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra cortada',`${item.code}: ${fechaFinal}`);
@@ -4331,7 +4342,7 @@ function marcarAprobada(secId,itemId){
     // se vea en el tablero (no se queda escondido en Diseño).
     const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
     if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
-    const newItemDig={...item, molde_aprobado:true, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), ...fichaUpdates};
+    const newItemDig={...item, molde_aprobado:true, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), ...fichaUpdates};
     delete newItemDig.estado;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -4341,7 +4352,7 @@ function marcarAprobada(secId,itemId){
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
-  const newItem={...item, fecha_aprobada:Date.now(), fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios), ...fichaUpdates};
+  const newItem={...item, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios), ...fichaUpdates};
   delete newItem.estado;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -4380,6 +4391,7 @@ function marcarCorregirSinMuestra(secId,itemId){
     const newItemDig={...item,
       molde_aprobado:true,
       fecha_aprobada:Date.now(),
+      aprobado_por:currentUser,
       fecha_etapa:Date.now(),
       nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
       ...(tocaFicha?{ficha_control_pendiente:true}:{})};
@@ -4396,6 +4408,7 @@ function marcarCorregirSinMuestra(secId,itemId){
   const newItem={...item,
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
     fecha_aprobada:Date.now(),
+    aprobado_por:currentUser,
     fecha_etapa:Date.now(),
     avios:resetAviosParaCorte(item.avios),
     ...(tocaFicha?{ficha_control_pendiente:true}:{})};
@@ -7119,7 +7132,7 @@ function marcarCorteRealizado(secId,itemId){
       if(a) costeoAvios.push({nombre:a.nombre||'',proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||''});
     });
     const newItem={...mItem,
-      fecha_corte:fechaFinal, done:true,
+      fecha_corte:fechaFinal, fecha_corte_ts:Date.now(), cortado_por:currentUser, done:true,
       capas:capasCongeladas,
       rollos:grupo.rollos||mItem.rollos||{},
       largo_capa:(grupo.largo_capa!==undefined&&grupo.largo_capa!==null&&grupo.largo_capa!=='')?grupo.largo_capa:mItem.largo_capa,
@@ -8148,13 +8161,13 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'],
-  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
   peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-actividad'],
   emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
@@ -9000,6 +9013,151 @@ function logiRenderStatsPorPersona(){
     : '<div class="empty" style="font-size:11px">Todavía no hay datos cargados</div>';
 }
 
+// =================== RENDIMIENTO (Logística / Cortadores / Diseño, por persona) ===================
+// Todo esto se arma con marcas de fecha (_at / _ts) que se empezaron a guardar recién ahora —
+// no hay forma de reconstruir esto para fechas anteriores a que se agregó esta pestaña.
+function rendDiaKey(ts){
+  const d=new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function rendMondayOf(ts){
+  const d=new Date(ts);
+  const day=d.getDay();
+  const diff=(day===0?-6:1)-day;
+  d.setDate(d.getDate()+diff);
+  d.setHours(0,0,0,0);
+  return d;
+}
+function rendSemanaKey(ts){ return rendDiaKey(rendMondayOf(ts).getTime()); }
+function rendUltimosDias(n){
+  const out=[];
+  const hoy=new Date();
+  for(let i=n-1;i>=0;i--){ const d=new Date(hoy); d.setDate(hoy.getDate()-i); out.push(rendDiaKey(d.getTime())); }
+  return out;
+}
+function rendUltimasSemanas(n){
+  const out=[];
+  const lunes=rendMondayOf(Date.now());
+  for(let i=n-1;i>=0;i--){ const d=new Date(lunes); d.setDate(lunes.getDate()-7*i); out.push(rendDiaKey(d.getTime())); }
+  return out;
+}
+function rendFmtDia(key){ const d=new Date(key+'T00:00:00'); return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}); }
+function rendFmtSemana(key){ const d=new Date(key+'T00:00:00'); return 'Sem. '+d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}); }
+
+function calcularLogisticaPorDia(){
+  const out={};
+  Object.values(logiItemsData||{}).forEach(it=>{
+    Object.values(it.grilla||{}).forEach(f=>{
+      if(f.contado_set_by&&f.contado_set_at&&f.contado){
+        const dia=rendDiaKey(f.contado_set_at);
+        out[dia]=out[dia]||{};
+        out[dia][f.contado_set_by]=out[dia][f.contado_set_by]||{contadas:0,controladas:0};
+        out[dia][f.contado_set_by].contadas+=parseInt(f.contado)||0;
+      }
+      ['ok','detalle','fallado'].forEach(campo=>{
+        const by=f[campo+'_set_by'], at=f[campo+'_set_at'], val=parseInt(f[campo])||0;
+        if(by&&at&&val){
+          const dia=rendDiaKey(at);
+          out[dia]=out[dia]||{};
+          out[dia][by]=out[dia][by]||{contadas:0,controladas:0};
+          out[dia][by].controladas+=val;
+        }
+      });
+    });
+  });
+  return out;
+}
+
+function calcularCortadoresPorDia(){
+  const out={};
+  Object.values(sectionsData||{}).forEach(sec=>{
+    Object.values(sec.items||{}).forEach(it=>{
+      if(!it.cortado_por||!it.fecha_corte_ts) return;
+      const dia=rendDiaKey(it.fecha_corte_ts);
+      out[dia]=out[dia]||{};
+      out[dia][it.cortado_por]=out[dia][it.cortado_por]||{prendas:0,muestras:0};
+      if(it.capas&&Object.keys(it.capas).length){
+        const total=Object.values(it.capas).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
+        out[dia][it.cortado_por].prendas+=total;
+      } else {
+        out[dia][it.cortado_por].muestras+=1;
+      }
+    });
+  });
+  return out;
+}
+
+function calcularDisenoPorSemana(){
+  const out={};
+  Object.values(sectionsData||{}).forEach(sec=>{
+    Object.values(sec.items||{}).forEach(it=>{
+      if(!it.aprobado_por||!it.fecha_aprobada) return;
+      const sem=rendSemanaKey(it.fecha_aprobada);
+      out[sem]=out[sem]||{};
+      out[sem][it.aprobado_por]=(out[sem][it.aprobado_por]||0)+1;
+    });
+  });
+  return out;
+}
+
+// Arma una tabla HTML genérica: filas = períodos (más reciente abajo), columnas = personas
+// detectadas en los datos + una columna "Todos juntos" con el total del campo principal.
+function rendTablaHtml(porPeriodo, periodos, fmtPeriodo, campos, campoLabels, personasOrden){
+  const personasSet=new Set();
+  Object.values(porPeriodo).forEach(p=>Object.keys(p).forEach(u=>personasSet.add(u)));
+  let personas=Array.from(personasSet);
+  if(personasOrden) personas=[...personasOrden.filter(p=>personas.includes(p)), ...personas.filter(p=>!personasOrden.includes(p))];
+  if(!personas.length) return '<div class="empty" style="font-size:12px">Todavía no hay datos cargados.</div>';
+  const nombre=u=>USER_DISPLAY[u]||u;
+  const header=`<tr><th style="text-align:left">Período</th>${personas.map(u=>`<th colspan="${campos.length}">${nombre(u)}</th>`).join('')}<th colspan="${campos.length}" style="border-left:2px solid var(--border)">Todos juntos</th></tr>
+    <tr><th></th>${personas.map(()=>campos.map(c=>`<th style="font-weight:400;font-size:10px">${campoLabels[c]}</th>`).join('')).join('')}${campos.map((c,i)=>`<th style="font-weight:400;font-size:10px${i===0?';border-left:2px solid var(--border)':''}">${campoLabels[c]}</th>`).join('')}</tr>`;
+  const filas=periodos.map(per=>{
+    const datosPer=porPeriodo[per]||{};
+    const totales={}; campos.forEach(c=>totales[c]=0);
+    const celdasPersonas=personas.map(u=>{
+      const d=datosPer[u]||{};
+      return campos.map(c=>{ const v=parseInt(d[c])||0; totales[c]+=v; return `<td style="text-align:center">${v||''}</td>`; }).join('');
+    }).join('');
+    const celdasTotal=campos.map((c,i)=>`<td style="text-align:center;font-weight:700${i===0?';border-left:2px solid var(--border)':''}">${totales[c]||''}</td>`).join('');
+    const sinDatos=personas.every(u=>!datosPer[u]);
+    return `<tr${sinDatos?' style="color:var(--text3)"':''}><td>${fmtPeriodo(per)}</td>${celdasPersonas}${celdasTotal}</tr>`;
+  }).join('');
+  return `<table class="rend-tabla">${header}${filas}</table>`;
+}
+
+function renderRendimientoTab(){
+  const el=document.getElementById('rendimiento-board');
+  if(!el) return;
+  const dias=rendUltimosDias(14);
+  const semanas=rendUltimasSemanas(8);
+
+  const logi=calcularLogisticaPorDia();
+  const cort=calcularCortadoresPorDia();
+  const disCrudo=calcularDisenoPorSemana(); // {semana: {persona: cantidad}}
+
+  // rendTablaHtml espera un objeto por persona (para poder mostrar varios campos a la vez) —
+  // Diseño solo tiene un número suelto por persona, así que lo envolvemos en {aprobadas: n}.
+  const dis={};
+  Object.entries(disCrudo).forEach(([sem,porPersona])=>{
+    dis[sem]={};
+    Object.entries(porPersona).forEach(([u,n])=>{ dis[sem][u]={aprobadas:n}; });
+  });
+
+  el.innerHTML=`
+    <div class="rend-seccion">
+      <div class="rend-titulo">📦 Logística — contadas y controladas por día</div>
+      ${rendTablaHtml(logi, dias, rendFmtDia, ['contadas','controladas'], {contadas:'Contó',controladas:'Controló'}, ['noemi','nahuel','emir'])}
+    </div>
+    <div class="rend-seccion">
+      <div class="rend-titulo">✂️ Cortadores — prendas y muestras cortadas por día</div>
+      ${rendTablaHtml(cort, dias, rendFmtDia, ['prendas','muestras'], {prendas:'Prendas',muestras:'Muestras'}, ['arimoron','emir'])}
+    </div>
+    <div class="rend-seccion">
+      <div class="rend-titulo">📐 Diseño — prendas aprobadas por semana</div>
+      ${rendTablaHtml(dis, semanas, rendFmtSemana, ['aprobadas'], {aprobadas:'Aprobó'}, ['stef','peque'])}
+    </div>`;
+}
+
 // Prioridad manual — un corte marcado como alta o media prioridad sube al principio de
 // su columna sin importar el criterio de orden elegido (fecha o N° de corte).
 function logiSetPrioridad(itemId, prioridad){
@@ -9391,6 +9549,7 @@ function logiSetConteo(itemId,rowKey,tipo,valor){
   }
   db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}`).set(n);
   db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}_set_by`).set(currentUser);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/${tipo}_set_at`).set(Date.now());
   logiRenderDetail(itemId); // refleja el valor recortado al toque, sin esperar el ida y vuelta de Firebase
 }
 
@@ -10162,7 +10321,7 @@ function deleteCosteo(key){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -10215,6 +10374,11 @@ document.getElementById('tab-btn-costeo').onclick=function(){
   this.classList.add('active');
   closeCosteoDetail();
   renderCosteoTab();
+};
+document.getElementById('tab-btn-rendimiento').onclick=function(){
+  ocultarTabsMenosActiva('tab-rendimiento');
+  this.classList.add('active');
+  renderRendimientoTab();
 };
 document.getElementById('close-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');
 document.getElementById('cancel-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');

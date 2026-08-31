@@ -8778,6 +8778,14 @@ function irAItem(secId,itemId){
     localCollapsed[secId]=false;
     saveLocalCollapsed();
   }
+  // Hay un solo buscador global compartido entre Diseño/Fábrica/Talleres — si quedó texto
+  // tipeado en el de OTRA pestaña, filtraba el ítem al que estamos saltando y parecía que
+  // "no existía". Se limpia acá para que ir a un ítem puntual nunca falle por esto.
+  searchQuery='';
+  ['search-input-diseno','search-input-fabrica','search-input-talleres'].forEach(id=>{
+    const inp=document.getElementById(id);
+    if(inp) inp.value='';
+  });
   renderSections('diseno');
   renderSections('fabrica');
   if(enTalleres) renderSections('talleres');

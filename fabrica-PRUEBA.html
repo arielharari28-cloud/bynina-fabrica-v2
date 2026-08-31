@@ -315,6 +315,7 @@
   .logi-count-table input{width:48px;padding:4px;border:1px solid var(--border);border-radius:6px;text-align:center;font-size:13px;font-weight:700}
   .logi-count-table input.logi-in-ok{color:#2e7d4f;border-color:#2e7d4f}
   .logi-count-table input.logi-in-contado{color:#1a5276;border-color:#1a5276;background:#eaf2f8}
+  .logi-count-table input.logi-in-esperado{color:#7a4a00;border-color:#c98f1f;background:#fdf3d0}
   .logi-count-table input.logi-in-detalle{color:#b8860b;border-color:#b8860b}
   .logi-count-table input.logi-in-fallado{color:#b0392f;border-color:#b0392f}
   .logi-count-table tr.logi-row-complete{background:#e3f3e8}
@@ -9212,6 +9213,10 @@ function logiRenderDetail(id){
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';
   const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel');
+  // El "esperado" viene de las capas/rollos que se cargaron en Orden de corte para ese ítem —
+  // si hubo un error de carga (ej: quedó el total del corte entero en vez de la parte de esa
+  // estampa), Ariel/Stef lo corrigen acá directo, sin tener que tocar el ítem original en Fábrica.
+  const canEditarEsperado = !cerrado && (currentUser==='ariel' || currentUser==='stef');
 
   let rowsHtml='';
   let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalSaldo=0, totalPorControlar=0;
@@ -9238,7 +9243,7 @@ function logiRenderDetail(id){
       return `<tr class="${completo?'logi-row-complete':''}">
         <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
         <td>${(f.talle||'—').replace(/</g,'&lt;')}</td>
-        <td>${f.esperado||'—'}</td>
+        <td>${canEditarEsperado?`<input type="number" min="0" class="logi-in-esperado" value="${f.esperado||0}" onchange="logiSetEsperado('${id}','${key}',this.value)">`:(f.esperado||'—')}</td>
         <td><input type="number" min="0" class="logi-in-contado" value="${contado}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','contado',this.value)"></td>
         <td style="font-weight:700;color:${porControlar<0?'#b0392f':porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
         <td><input type="number" min="0" class="logi-in-ok" value="${f.ok||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','ok',this.value)"></td>
@@ -9313,6 +9318,13 @@ function logiRenderDetail(id){
 // Edición directa: escribe el valor tal cual (no suma de a uno), así se puede corregir un error
 // de tipeo sin tener que resetear todo. Para OK/Detalle/Fallado, no deja que la suma de los tres
 // supere lo Contado en esa fila — si te pasás, lo recorta al máximo posible y avisa.
+function logiSetEsperado(itemId,rowKey,valor){
+  const n=Math.max(0,parseInt(valor)||0);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/esperado`).set(n);
+  logActivity('Corrigió cantidad esperada',`Ítem ${itemId} — fila ${rowKey}: ${n}`);
+  logiRenderDetail(itemId);
+}
+
 function logiSetConteo(itemId,rowKey,tipo,valor){
   const it = logiItemsData[itemId];
   const f = (it && it.grilla && it.grilla[rowKey]) || {};

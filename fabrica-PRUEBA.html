@@ -4603,7 +4603,8 @@ function buildPasosPanelCorteHtml(item){
   const pasos=[
     { label:'Confirmar corte', resp:'Ariel', start:item.fecha_etapa, end:item.fecha_paso_confirmado },
     { label:'Cargar orden de corte', resp:'Ariel', start:item.fecha_paso_confirmado, end:grupo.fecha_paso_orden },
-    { label:'Encimado', resp:'Cortador', start:grupo.fecha_paso_orden, end:grupo.fecha_paso_encimado },
+    { label:'Imprimir tiza', resp:'Emir', start:grupo.fecha_paso_orden, end:grupo.fecha_paso_tiza },
+    { label:'Encimado', resp:'Cortador', start:grupo.fecha_paso_tiza, end:grupo.fecha_paso_encimado },
     { label:'Marcar cortado', resp:'Cortador', start:grupo.fecha_paso_encimado, end:null }
   ];
   let activaEncontrada=false;
@@ -6303,6 +6304,20 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       ${canRollosEncimado?`<button class="btn-sm" onclick="openRollosModal('${secId}','${itemId}')">${rollosCount?'✏️ Editar rollos':'+ Cargar rollos'}</button>`:''}
     </div>`;
 
+  // Una vez cargada la orden de corte, Emir tiene que imprimir la tiza (el molde/marker en papel)
+  // antes de que se pueda arrancar el encimado — sin la tiza impresa, no hay sobre qué encimar la tela.
+  const tizaImpresa=!!grupo.tiza_impresa;
+  const canMarcarTiza=currentUser==='emir'||currentUser==='ariel'||currentUser==='stef';
+  const tizaRow = !tizaImpresa
+    ? `<div class="cortada-row" style="background:var(--warn-bg)">
+        <span class="c-label" style="font-weight:600;color:var(--warn-text)">🖨️ Pendiente imprimir tiza <span style="font-weight:400;font-size:10px">(Emir)</span></span>
+        ${canMarcarTiza?`<button class="btn-advance" onclick="setTizaImpresa('${secId}','${itemId}',true)">🖨️ Tiza impresa</button>`:''}
+      </div>`
+    : `<div class="cortada-row">
+        <span class="c-label">🖨️ Tiza: <strong style="color:var(--green-text)">Impresa</strong></span>
+        ${canMarcarTiza&&!encimadoTerm?`<button class="btn-sm" onclick="setTizaImpresa('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
+      </div>`;
+
   // En un corte de liquidación de tela, Ariel/Stef no cargan capas por color (usan lo que
   // quede del rollo hasta agotarlo), así que no hay nada contra qué "matchear" — alcanza con
   // que Emir cargue al menos un rollo para poder marcar el encimado terminado.
@@ -6325,7 +6340,11 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const canAutorizarCapas=(currentUser==='ariel'||currentUser==='stef');
   const pedidoCapas=grupo.pedido_capas_incompletas||null;
   let encimadoBtnHtml='';
-  if(!rollosCompletos&&!esLiquidar){
+  if(!tizaImpresa){
+    encimadoBtnHtml=canRollosEncimado
+      ? `<button class="btn-advance" disabled title="Falta que Emir marque la tiza como impresa" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>`
+      : '';
+  } else if(!rollosCompletos&&!esLiquidar){
     if(pedidoCapas){
       encimadoBtnHtml=canAutorizarCapas
         ? `<button class="btn-advance" onclick="autorizarCapasIncompletas('${secId}','${itemId}')">✅ Autorizar y marcar encimado terminado</button>
@@ -6347,7 +6366,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const encimadoRow = !encimadoTerm
     ? `<div class="cortada-row">
         <span class="c-label" style="font-weight:500;color:var(--warn-text)">⏳ Pendiente encimado</span>
-        ${rollosCompletos&&canRollosEncimado
+        ${rollosCompletos&&tizaImpresa&&canRollosEncimado
           ? `<button class="btn-advance" onclick="setEncimadoTerminado('${secId}','${itemId}',true)">🧷 Encimado terminado</button>`
           : encimadoBtnHtml}
       </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}${(!rollosCompletos&&esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Cargá al menos un rollo (tela a liquidar) para poder marcar el encimado terminado.</div>`:''}`
@@ -6357,7 +6376,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       </div>`;
 
   // Orden de corte cargada, encimado pendiente o recién terminado (acá ya puede aparecer Marcar cortado).
-  return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${liquidarHtml}${ordenRow}${rollosRow}${encimadoRow}</div>`;
+  return `<div class="cortada-panel" style="margin:8px 0 4px">${avisoGrupo}${liquidarHtml}${ordenRow}${tizaRow}${rollosRow}${encimadoRow}</div>`;
 }
 
 // Pide autorización a Ariel/Stef para marcar el encimado como terminado aunque falten
@@ -6410,6 +6429,7 @@ function setOrdenCorteCargada(secId,itemId,val){
   const updates={};
   updates[`fabrica_v5/grupos_corte/${corteKey}/orden_corte_cargada`]=val;
   if(!val) updates[`fabrica_v5/grupos_corte/${corteKey}/encimado_terminado`]=false;
+  if(!val) updates[`fabrica_v5/grupos_corte/${corteKey}/tiza_impresa`]=false;
   if(val&&!grupo.fecha_paso_orden) updates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_orden`]=Date.now();
   db.ref().update(updates);
   logActivity('Orden de corte',`Corte ${item.numero_corte}: ${val?'cargada':'deshecho'}`);
@@ -7003,6 +7023,19 @@ function saveRollos(){
 document.getElementById('close-modal-rollos').onclick=()=>document.getElementById('modal-rollos').classList.add('hidden');
 document.getElementById('cancel-modal-rollos').onclick=()=>document.getElementById('modal-rollos').classList.add('hidden');
 document.getElementById('save-modal-rollos').onclick=saveRollos;
+
+function setTizaImpresa(secId,itemId,val){
+  const item=sectionsData[secId].items[itemId];
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(!corteKey) return;
+  const grupo=gruposCorteData[corteKey]||{};
+  const updates={};
+  updates[`fabrica_v5/grupos_corte/${corteKey}/tiza_impresa`]=val;
+  if(val&&!grupo.fecha_paso_tiza) updates[`fabrica_v5/grupos_corte/${corteKey}/fecha_paso_tiza`]=Date.now();
+  db.ref().update(updates);
+  logActivity('Tiza impresa',`Corte ${item.numero_corte}: ${val?'impresa':'deshecho'}`);
+  showToast(val?'🖨️ Tiza impresa — ya se puede empezar a encimar':'↩ Tiza deshecha');
+}
 
 function setEncimadoTerminado(secId,itemId,val){
   const item=sectionsData[secId].items[itemId];

@@ -2241,6 +2241,22 @@ function onRepoPerfectoChange(secId,itemId,sel){
 // (mismo código de un producto existente), acá el corte es un código NUEVO que usa el molde
 // de un producto ya aprobado como base — solo lo vinculamos como referencia, no autocompleta
 // código/nombre porque esos los tiene que asignar Peque.
+// Banner para ítems que llegaron solos desde el Dashboard (botón "Mandar a Fábrica" en
+// Reposición): muestra qué colores priorizar y por qué, y si todavía falta cargarle el
+// código de Fábrica (no se puede derivar solo del SKU de Tiendanube, así que queda pendiente).
+function buildReposicionBannerHtml(item){
+  const colores=(item.colores_reponer||[]).map(c=>{
+    const urgente=c.prioridad==='Reponer urgente';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;background:${urgente?'#fee2e2':'#fef3c7'};color:${urgente?'#991b1b':'#92400e'};font-size:11px;font-weight:600;border-radius:6px;padding:2px 8px;margin:2px 4px 2px 0">${urgente?'🔴':'🟡'} ${c.color} (${c.unidades}u)</span>`;
+  }).join('');
+  return `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:8px 10px;margin:6px 0">
+    <div style="font-size:11px;font-weight:700;color:#4338ca;margin-bottom:5px">🔁 REPOSICIÓN AUTOMÁTICA — pedida desde el Dashboard</div>
+    ${item.codigo_pendiente?'<div style="font-size:11px;color:#991b1b;font-weight:600;margin-bottom:5px">⚠️ Falta cargar el código de Fábrica de este artículo</div>':''}
+    <div style="font-size:11px;color:#4338ca;margin-bottom:4px">Priorizar estos colores al armar la curva:</div>
+    <div>${colores||'<span style="font-size:11px;color:var(--text3)">(sin detalle de colores)</span>'}</div>
+  </div>`;
+}
+
 function buildBaseTizadaHtml(secId,itemId,item,canEdit){
   const opts=buildProductosPerfectosOptions();
   const optsHtml=opts.map(o=>`<option value="${o.secId}::${o.itemId}" ${(item.base_ref_sec===o.secId&&item.base_ref_id===o.itemId)?'selected':''}>${o.label}</option>`).join('');
@@ -5942,6 +5958,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
   const esArmarTizada = (sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
   const baseHtml = (esArmarTizada&&item.base_aprobada) ? buildBaseTizadaHtml(secId,itemId,item,canFicha) : '';
+  const reposicionHtml = (esArmarTizada && item.origen_reposicion) ? buildReposicionBannerHtml(item) : '';
   const checkHtml = secId==='s3'
     ? '' // en s3 no hay checkbox, se usa botón Marcar cortado
     : `<div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>`;
@@ -6097,6 +6114,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
               ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
               ${canFicha?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
             </div>`}
+        ${reposicionHtml}
         ${baseHtml}
         ${(()=>{
           if(!DETAIL_COLLAPSE_SECS.includes(secId)) return '';

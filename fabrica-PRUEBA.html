@@ -8694,6 +8694,7 @@ function pendExpandirTodo(abrir){
 
 function renderPendientes(){
   const cont=document.getElementById('pendientes-list');
+  const BOARD_ORDEN={diseno:0,fabrica:1};
   const filas=[];
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
@@ -8705,7 +8706,8 @@ function renderPendientes(){
       const umbral=umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
       const accion=getProximaAccion(sec,item,secId)||'Sin acción definida';
-      filas.push({item,secTitle:sec.title,secId,itemId,dias,atrasado,resp,accion});
+      const procesoOrden=(BOARD_ORDEN[getBoard(sec)]||0)*1000+(sec.order||0);
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,atrasado,resp,accion,procesoOrden});
     });
   });
 
@@ -8723,12 +8725,12 @@ function renderPendientes(){
     grupos[k].push(f);
   });
 
-  // Los grupos con más atrasados arriba, para ver primero lo más urgente.
+  // Orden por proceso: cada grupo se ubica donde cae su ítem más "temprano" en la cadena
+  // (Diseño antes que Fábrica, y dentro de cada tablero, en el orden real de las columnas).
   const claves=Object.keys(grupos).sort((a,b)=>{
-    const atA=grupos[a].filter(x=>x.atrasado).length;
-    const atB=grupos[b].filter(x=>x.atrasado).length;
-    if(atA!==atB) return atB-atA;
-    return grupos[b].length-grupos[a].length;
+    const ordA=Math.min(...grupos[a].map(x=>x.procesoOrden));
+    const ordB=Math.min(...grupos[b].map(x=>x.procesoOrden));
+    return ordA-ordB;
   });
 
   let html='';

@@ -222,6 +222,18 @@
   .pendientes-group-title{font-size:13px;font-weight:700;margin:18px 0 8px;color:var(--text);display:flex;align-items:center;gap:8px}
   .pendientes-group-title:first-child{margin-top:0}
   .pendientes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+  /* --- Pendientes: filas compactas + grupos colapsables --- */
+  .pend-group{margin-bottom:10px}
+  .pend-group summary::-webkit-details-marker{display:none}
+  .pend-group summary:before{content:'▾ ';font-size:11px}
+  .pend-group:not([open]) summary:before{content:'▸ '}
+  .pend-rows{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+  .pend-row{display:flex;align-items:center;gap:10px;background:var(--surface2);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+  .pend-row:hover{background:var(--surface)}
+  .pend-row-code{font-weight:700;flex-shrink:0}
+  .pend-row-name{color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pend-row-tag{color:var(--text2);font-size:11px;flex-shrink:0;white-space:nowrap}
+  .pend-row-dias{flex-shrink:0;font-size:11px;white-space:nowrap;min-width:44px;text-align:right}
   .pendientes-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:0}
   .pendientes-etapa{font-size:11px;color:var(--text2);margin-top:2px}
   .pendientes-accion{font-size:12px;font-weight:600;color:var(--accent);margin-top:4px;line-height:1.3}
@@ -594,6 +606,17 @@
     </div>
     <div id="tab-pendientes" class="hidden">
       <div id="marca-filter-bar-pendientes" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2)">Agrupar por:</span>
+        <div style="display:flex;gap:6px" id="pend-agrupar-selector">
+          <button class="btn-sm active" data-modo="tarea" onclick="pendSetAgrupar('tarea')">👉 Tarea pendiente</button>
+          <button class="btn-sm" data-modo="empleado" onclick="pendSetAgrupar('empleado')">🧍 Empleado</button>
+          <button class="btn-sm" data-modo="sector" onclick="pendSetAgrupar('sector')">🗂️ Sector</button>
+        </div>
+        <span style="flex:1"></span>
+        <button class="btn-sm" onclick="pendExpandirTodo(true)">⬇ Desplegar todo</button>
+        <button class="btn-sm" onclick="pendExpandirTodo(false)">⬆ Colapsar todo</button>
+      </div>
       <div id="pendientes-list"><div class="loading">Cargando...</div></div>
     </div>
     <div id="tab-galeria" class="hidden">
@@ -8659,9 +8682,19 @@ function publishPendientesResumen(){
   db.ref('fabrica_v5/pendientes_resumen').set(resumen);
 }
 
+let pendAgrupar='tarea';
+function pendSetAgrupar(m){
+  pendAgrupar=m;
+  document.querySelectorAll('#pend-agrupar-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo===m));
+  renderPendientes();
+}
+function pendExpandirTodo(abrir){
+  document.querySelectorAll('#pendientes-list details').forEach(d=>{ d.open=abrir; });
+}
+
 function renderPendientes(){
   const cont=document.getElementById('pendientes-list');
-  const grupos={};
+  const filas=[];
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       if(item.done) return;
@@ -8671,45 +8704,59 @@ function renderPendientes(){
       const dias=diasEntre(fechaInicioResponsableActual(sec,item,secId));
       const umbral=umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
-      if(!grupos[resp]) grupos[resp]=[];
-      grupos[resp].push({item,secTitle:sec.title,secId,itemId,dias,atrasado});
+      const accion=getProximaAccion(sec,item,secId)||'Sin acción definida';
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,atrasado,resp,accion});
     });
   });
+
   const esAriel=(currentUser==='ariel'||currentUser==='stef');
   const miNombre=USER_DISPLAY[currentUser];
-  let nombres=esAriel?Object.keys(grupos).sort():[miNombre];
-  // Ordenar: quien tiene más atrasados primero, para dar un panorama claro de quién está más complicado
-  if(esAriel){
-    nombres=nombres.sort((a,b)=>{
-      const atA=(grupos[a]||[]).filter(x=>x.atrasado).length;
-      const atB=(grupos[b]||[]).filter(x=>x.atrasado).length;
-      if(atA!==atB) return atB-atA;
-      return a.localeCompare(b);
-    });
-  }
+  const filasVisibles=esAriel?filas:filas.filter(f=>f.resp===miNombre);
+
+  // Clave de agrupamiento según el modo elegido arriba.
+  const claveDe = f => pendAgrupar==='empleado' ? f.resp : pendAgrupar==='sector' ? f.secTitle : f.accion;
+
+  const grupos={};
+  filasVisibles.forEach(f=>{
+    const k=claveDe(f);
+    if(!grupos[k]) grupos[k]=[];
+    grupos[k].push(f);
+  });
+
+  // Los grupos con más atrasados arriba, para ver primero lo más urgente.
+  const claves=Object.keys(grupos).sort((a,b)=>{
+    const atA=grupos[a].filter(x=>x.atrasado).length;
+    const atB=grupos[b].filter(x=>x.atrasado).length;
+    if(atA!==atB) return atB-atA;
+    return grupos[b].length-grupos[a].length;
+  });
+
   let html='';
-  nombres.forEach(nombre=>{
-    const lista=(grupos[nombre]||[]).slice().sort((a,b)=>{
+  claves.forEach(clave=>{
+    const lista=grupos[clave].slice().sort((a,b)=>{
       if(a.atrasado!==b.atrasado) return a.atrasado?-1:1;
       return (b.dias||0)-(a.dias||0);
     });
-    if(!lista.length) return;
-    const color=colorForPersonName(nombre);
     const numAtrasados=lista.filter(x=>x.atrasado).length;
-    html+=`<div class="pendientes-group-title" style="color:${color}">${nombre}<span class="sec-count" style="background:${color}22;color:${color}">${lista.length}</span>${numAtrasados?`<span class="sec-count" style="background:#fee2e2;color:#991b1b">⚠️ ${numAtrasados} atrasado${numAtrasados!==1?'s':''}</span>`:''}</div>`;
-    html+=`<div class="pendientes-grid">`;
-    lista.forEach(({item,secTitle,secId,itemId,dias,atrasado})=>{
-      const sec=sectionsData[secId];
-      const accion=sec?getProximaAccion(sec,item,secId):null;
-      html+=`<div class="pendientes-card" style="border-left:4px solid ${atrasado?'#dc2626':color};cursor:pointer" onclick="irAItem('${secId}','${itemId}')">
-        <div class="item-code">${item.code||item.name||'(sin código)'}</div>
-        ${item.name&&item.code?`<div class="item-name">${item.name}</div>`:''}
-        <div class="pendientes-etapa">${secTitle}</div>
-        ${accion?`<div class="pendientes-accion">👉 ${accion}</div>`:''}
-        ${dias!==null?`<div class="pendientes-etapa" style="font-weight:700;margin-top:2px;color:${atrasado?'#dc2626':'var(--text3)'}">${atrasado?'⚠️ ':''}${dias} día${dias!==1?'s':''} en esta etapa</div>`:''}
+    const colorTitulo = pendAgrupar==='empleado' ? colorForPersonName(clave) : 'var(--text)';
+    html+=`<details class="pend-group" open>
+      <summary class="pendientes-group-title" style="color:${colorTitulo};cursor:pointer;list-style:none">
+        ${clave}
+        <span class="sec-count" style="background:${colorTitulo}22;color:${colorTitulo}">${lista.length}</span>
+        ${numAtrasados?`<span class="sec-count" style="background:#fee2e2;color:#991b1b">⚠️ ${numAtrasados} atrasado${numAtrasados!==1?'s':''}</span>`:''}
+      </summary>
+      <div class="pend-rows">`;
+    lista.forEach(({item,secTitle,secId,itemId,dias,atrasado,resp,accion})=>{
+      html+=`<div class="pend-row" style="border-left:3px solid ${atrasado?'#dc2626':'var(--border)'}" onclick="irAItem('${secId}','${itemId}')">
+        <span class="pend-row-code">${item.code||item.name||'(sin código)'}</span>
+        <span class="pend-row-name">${item.name&&item.code?item.name:''}</span>
+        ${pendAgrupar!=='sector'?`<span class="pend-row-tag">${secTitle}</span>`:''}
+        ${pendAgrupar!=='tarea'?`<span class="pend-row-tag">👉 ${accion}</span>`:''}
+        ${pendAgrupar!=='empleado'?`<span class="pend-row-tag">🧍 ${resp}</span>`:''}
+        <span class="pend-row-dias" style="color:${atrasado?'#dc2626':'var(--text3)'};font-weight:${atrasado?700:400}">${dias!==null?(atrasado?'⚠️ ':'')+dias+'d':''}</span>
       </div>`;
     });
-    html+=`</div>`;
+    html+=`</div></details>`;
   });
   cont.innerHTML=html||`<div class="empty-state">No hay pendientes por ahora 🎉</div>`;
 }

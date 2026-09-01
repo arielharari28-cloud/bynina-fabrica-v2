@@ -756,7 +756,7 @@
       </div>
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap" id="facturacion-filtro">
         <button class="btn-sm active" data-filtro="pendiente" onclick="facturacionSetFiltro('pendiente')">Pendientes de facturar</button>
-        <button class="btn-sm" data-filtro="facturado" onclick="facturacionSetFiltro('facturado')">Ya facturados</button>
+        <button class="btn-sm" data-filtro="facturado" onclick="facturacionSetFiltro('facturado')">Pagados</button>
         <button class="btn-sm" data-filtro="todos" onclick="facturacionSetFiltro('todos')">Todos</button>
         <input type="text" id="facturacion-buscar" placeholder="Buscar por taller, proveedor, código o N° de corte..." style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" oninput="facturacionBuscar=this.value;renderFacturacionTab()">
       </div>
@@ -9626,6 +9626,12 @@ function logiSetPrioridad(itemId, prioridad){
 // Cortes ya finalizados en Logística, listos para pagarle al taller o proveedor. Cantidad
 // facturable = OK + Detalle + Fallado tela (el Fallado taller NO se factura, es responsabilidad
 // del taller). Siempre queda un botón para corregir la cantidad a mano si algo no cierra.
+//
+// Pagos: se registran por taller/proveedor (no por corte suelto), y se debitan solos contra
+// los cortes pendientes de ESE taller/proveedor, del más viejo al más nuevo (FIFO). Si el pago
+// no alcanza para cubrir un corte entero, ese corte queda con saldo parcial y ahí se corta —
+// el resto del pago no salta a otro corte porque no sobró nada. Si el pago es mayor a lo
+// pendiente, sigue debitando de los siguientes cortes en orden hasta gastarlo todo.
 let facturacionFiltro='pendiente', facturacionBuscar='';
 function facturacionSetFiltro(f){
   facturacionFiltro=f;
@@ -9634,6 +9640,19 @@ function facturacionSetFiltro(f){
 }
 function facturacionCantidadAuto(it){
   return Object.values(it.grilla||{}).reduce((s,f)=>s+(f.ok||0)+(f.detalle||0)+(f.fallado_tela||0),0);
+}
+function facturacionCantidad(it){
+  const auto=facturacionCantidadAuto(it);
+  return it.facturacion_cantidad_manual!=null?it.facturacion_cantidad_manual:auto;
+}
+function facturacionTotal(it){
+  return facturacionCantidad(it)*(it.precio_taller||0);
+}
+function facturacionPagado(it){
+  return Object.values(it.pagos||{}).reduce((s,p)=>s+(p.monto||0),0);
+}
+function facturacionDestino(it){
+  return it.taller||it.proveedor||'Sin destino';
 }
 function facturacionSetCantidadManual(itemId,val){
   const n=Math.max(0,parseInt(val)||0);
@@ -9650,83 +9669,205 @@ function facturacionSetPrecio(itemId,val){
   db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).set(n);
   renderFacturacionTab();
 }
-function facturacionToggleFacturado(itemId,val){
-  db.ref(`fabrica_v5/logistica/items/${itemId}/facturado`).set(!!val);
-  if(val) db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_facturado`).set(Date.now());
-  logActivity(val?'Marcó facturado':'Desmarcó facturado',itemId);
-  renderFacturacionTab();
-}
 function facturacionItemsFiltrados(){
   const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado');
   let out=items.filter(([,it])=>{
-    if(facturacionFiltro==='pendiente') return !it.facturado;
-    if(facturacionFiltro==='facturado') return !!it.facturado;
+    const saldo=facturacionTotal(it)-facturacionPagado(it);
+    if(facturacionFiltro==='pendiente') return saldo>0.009||!it.precio_taller;
+    if(facturacionFiltro==='facturado') return saldo<=0.009&&!!it.precio_taller;
     return true;
   });
   const q=(facturacionBuscar||'').trim().toLowerCase();
   if(q){
     out=out.filter(([,it])=>[it.taller,it.proveedor,it.code,it.numero_corte,it.name].some(v=>String(v||'').toLowerCase().includes(q)));
   }
-  out.sort((a,b)=>(b[1].fecha_entregado_ts||b[1].fecha_cerrado||0)-(a[1].fecha_entregado_ts||a[1].fecha_cerrado||0));
+  out.sort((a,b)=>(a[1].fecha_entregado_ts||a[1].fecha_cerrado||0)-(b[1].fecha_entregado_ts||b[1].fecha_cerrado||0));
   return out;
+}
+// Todos los cortes finalizados con saldo pendiente para un taller/proveedor puntual, en orden
+// del más viejo al más nuevo — es contra esta lista que se debita un pago nuevo.
+function facturacionPendientesDeDestino(destino){
+  return Object.entries(logiItemsData||{})
+    .filter(([,it])=>it.estado==='cerrado' && facturacionDestino(it)===destino && (facturacionTotal(it)-facturacionPagado(it))>0.009)
+    .sort((a,b)=>(a[1].fecha_entregado_ts||a[1].fecha_cerrado||0)-(b[1].fecha_entregado_ts||b[1].fecha_cerrado||0));
+}
+function facturacionListaDestinos(){
+  const set=new Set();
+  Object.values(logiItemsData||{}).forEach(it=>{ if(it.estado==='cerrado') set.add(facturacionDestino(it)); });
+  return Array.from(set).sort();
+}
+function facturacionRegistrarPago(){
+  const destino=document.getElementById('facturacion-pago-destino').value.trim();
+  const monto=parseFloat(document.getElementById('facturacion-pago-monto').value);
+  const fecha=document.getElementById('facturacion-pago-fecha').value||new Date().toLocaleDateString('es-AR');
+  if(!destino){ showToast('Elegí a quién le estás pagando'); return; }
+  if(!monto||monto<=0){ showToast('Cargá un monto válido'); return; }
+  const pendientes=facturacionPendientesDeDestino(destino);
+  if(!pendientes.length){ showToast(`${destino} no tiene cortes con saldo pendiente`); return; }
+  let restante=monto;
+  const pagoId='pago_'+Date.now();
+  const updates={};
+  const aplicaciones={};
+  const detalle=[];
+  for(const [id,it] of pendientes){
+    if(restante<=0.009) break;
+    const saldoCorte=facturacionTotal(it)-facturacionPagado(it);
+    const aplicado=Math.min(restante,saldoCorte);
+    updates[`fabrica_v5/logistica/items/${id}/pagos/${pagoId}`]={monto:aplicado,fecha,registrado_por:currentUser};
+    aplicaciones[id]={monto:aplicado,code:it.code||'',numero_corte:it.numero_corte||''};
+    detalle.push(`${it.code||it.numero_corte||id}: $${aplicado.toLocaleString('es-AR')}`);
+    restante-=aplicado;
+  }
+  updates[`fabrica_v5/pagos_taller/${pagoId}`]={destino,monto,fecha,registrado_por:currentUser,fecha_registro:Date.now(),aplicaciones,sobrante:restante>0.009?restante:0};
+  db.ref().update(updates);
+  logActivity('Registró pago',`${destino}: $${monto.toLocaleString('es-AR')} → ${detalle.join(' · ')}`);
+  document.getElementById('facturacion-pago-monto').value='';
+  const resumen=restante>0.009
+    ? `✓ Pago aplicado. Sobraron $${restante.toLocaleString('es-AR')} sin poder debitar (no había más saldo pendiente de ${destino}).`
+    : `✓ Pago de $${monto.toLocaleString('es-AR')} debitado en: ${detalle.join(' · ')}`;
+  alert(resumen);
+  renderFacturacionTab();
+}
+function facturacionVerPagos(destino){
+  const pagos=Object.entries(fabricaPagosTallerData||{}).filter(([,p])=>p.destino===destino).sort((a,b)=>(b[1].fecha_registro||0)-(a[1].fecha_registro||0));
+  if(!pagos.length){ alert(`Todavía no hay pagos registrados para ${destino}.`); return; }
+  const texto=pagos.map(([,p])=>{
+    const aplic=Object.values(p.aplicaciones||{}).map(a=>`${a.code||a.numero_corte}: $${(a.monto||0).toLocaleString('es-AR')}`).join(', ');
+    return `${p.fecha} — $${(p.monto||0).toLocaleString('es-AR')} (por ${USER_DISPLAY[p.registrado_por]||p.registrado_por})\n   → ${aplic}${p.sobrante?`\n   ⚠️ sobrante sin aplicar: $${p.sobrante.toLocaleString('es-AR')}`:''}`;
+  }).join('\n\n');
+  alert(`Pagos a ${destino}:\n\n${texto}`);
+}
+let fabricaPagosTallerData={};
+db.ref('fabrica_v5/pagos_taller').on('value',snap=>{
+  fabricaPagosTallerData=snap.val()||{};
+  if(!document.getElementById('tab-facturacion').classList.contains('hidden')) renderFacturacionTab();
+});
+// Días desde que se entregó el corte — usa fecha_entregado (texto DD/MM/AAAA) si existe,
+// si no cae a fecha_cerrado (timestamp real), para poder mostrar "hace X días" siempre que
+// haya algún dato de fecha disponible.
+function facturacionDiasEntregado(it){
+  const ts=logiParseFechaEntregado(it.fecha_entregado)||it.fecha_cerrado;
+  if(!ts) return null;
+  return Math.max(0,Math.floor((Date.now()-ts)/86400000));
 }
 function renderFacturacionTab(){
   const el=document.getElementById('facturacion-board');
   if(!el) return;
   const items=facturacionItemsFiltrados();
-  if(!items.length){ el.innerHTML='<div class="empty">No hay cortes acá.</div>'; return; }
-  const filas=items.map(([id,it])=>{
-    const auto=facturacionCantidadAuto(it);
-    const manual=it.facturacion_cantidad_manual;
-    const esManual=manual!=null;
-    const cantidad=esManual?manual:auto;
-    const precio=it.precio_taller||0;
-    const total=cantidad*precio;
-    const destino=it.taller||it.proveedor||'—';
-    const fecha=it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):'—');
-    return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px${it.facturado?';opacity:.6':''}">
-      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
-        <div>
-          <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
-          <div class="logi-name">${it.name||''}</div>
-          <div style="font-size:11.5px;color:var(--text2);margin-top:2px">🏭 ${destino} · 📅 Entregado: ${fecha}</div>
+  const destinos=facturacionListaDestinos();
+
+  const formHtml=`<div class="logi-card" style="display:block;padding:12px;margin-bottom:14px;background:var(--surface2)">
+    <div style="font-weight:700;font-size:13px;margin-bottom:8px">💵 Registrar pago</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Taller / Proveedor</label>
+        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
+        <datalist id="facturacion-destinos-list">${destinos.map(d=>`<option value="${d}">`).join('')}</datalist>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Monto</label>
+        <input type="number" min="0" id="facturacion-pago-monto" placeholder="0" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:110px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Fecha</label>
+        <input type="date" id="facturacion-pago-fecha" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
+      </div>
+      <button class="btn-sm" onclick="facturacionRegistrarPago()">✓ Registrar y debitar</button>
+    </div>
+    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Se descuenta solo del corte más viejo con saldo pendiente de ese taller/proveedor, y sigue con el siguiente si sobra plata.</div>
+  </div>`;
+
+  if(!items.length){ el.innerHTML=formHtml+'<div class="empty">No hay cortes acá.</div>'; return; }
+
+  // Agrupado por taller/proveedor — cada grupo con su saldo total, ordenado por el corte más
+  // atrasado primero (para ver de un vistazo a quién le debés hace más tiempo).
+  const grupos={};
+  items.forEach(([id,it])=>{
+    const destino=facturacionDestino(it);
+    if(!grupos[destino]) grupos[destino]=[];
+    grupos[destino].push([id,it]);
+  });
+  const nombresGrupos=Object.keys(grupos).sort((a,b)=>{
+    const maxDiasA=Math.max(0,...grupos[a].map(([,it])=>facturacionDiasEntregado(it)||0));
+    const maxDiasB=Math.max(0,...grupos[b].map(([,it])=>facturacionDiasEntregado(it)||0));
+    return maxDiasB-maxDiasA;
+  });
+
+  const gruposHtml=nombresGrupos.map(destino=>{
+    const lista=grupos[destino];
+    const saldoTotal=lista.reduce((s,[,it])=>s+(facturacionTotal(it)-facturacionPagado(it)),0);
+    const filas=lista.map(([id,it])=>{
+      const cantidad=facturacionCantidad(it);
+      const auto=facturacionCantidadAuto(it);
+      const esManual=it.facturacion_cantidad_manual!=null;
+      const precio=it.precio_taller||0;
+      const total=facturacionTotal(it);
+      const pagado=facturacionPagado(it);
+      const saldo=total-pagado;
+      const dias=facturacionDiasEntregado(it);
+      const fecha=it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):'—');
+      const diasColor = dias==null?'var(--text3)':dias>=15?'var(--danger)':dias>=7?'#b8860b':'var(--text2)';
+      const diasHtml = dias==null?'':`<span style="color:${diasColor};font-weight:700">· hace ${dias} día${dias!==1?'s':''}</span>`;
+      const estadoBadge = !precio ? `<span class="logi-badge" style="background:#f3f4f6;color:#6b7280">Sin precio cargado</span>`
+        : saldo<=0.009 ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">✓ Pagado</span>`
+        : pagado>0.009 ? `<span class="logi-badge" style="background:#fef3c7;color:#92400e">Pago parcial — falta $${saldo.toLocaleString('es-AR')}</span>`
+        : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">Sin pagar</span>`;
+      return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px${saldo<=0.009&&precio?';opacity:.7':''}">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <div>
+            <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
+            <div class="logi-name">${it.name||''}</div>
+            <div style="font-size:11.5px;color:var(--text2);margin-top:2px">📅 Entregado: ${fecha} ${diasHtml}</div>
+          </div>
+          ${estadoBadge}
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;flex-shrink:0">
-          <input type="checkbox" ${it.facturado?'checked':''} onchange="facturacionToggleFacturado('${id}',this.checked)"> Facturado
-        </label>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px">
+          <span>Cantidad: <input type="number" min="0" value="${cantidad}" title="${esManual?'Corregido a mano (automático daba '+auto+')':'Automático: OK+Detalle+Fallado tela'}" style="width:60px;border:1px solid ${esManual?'#c98f1f':'var(--border)'};border-radius:6px;padding:3px 5px;background:${esManual?'#fdf3d0':'var(--surface)'}" onchange="facturacionSetCantidadManual('${id}',this.value)"> u.
+            ${esManual?`<button class="logi-note-btn" title="Volver al automático (${auto})" onclick="facturacionLimpiarManual('${id}')">↺</button>`:''}
+          </span>
+          <span>Precio: $<input type="number" min="0" value="${precio||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px" onchange="facturacionSetPrecio('${id}',this.value)"></span>
+          <span style="font-weight:700">Total: $${total.toLocaleString('es-AR')}</span>
+          ${pagado>0.009?`<span style="color:#15803d">Pagado: $${pagado.toLocaleString('es-AR')}</span>`:''}
+        </div>
+      </div>`;
+    }).join('');
+    return `<div style="margin-bottom:22px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--surface2);border-radius:8px;margin-bottom:8px">
+        <div style="font-weight:700;font-size:13.5px">🏭 ${destino} <span style="font-weight:400;color:var(--text3);font-size:11.5px">(${lista.length} corte${lista.length!==1?'s':''})</span></div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${saldoTotal>0.009?`<span style="font-weight:700;color:var(--danger)">Saldo total: $${saldoTotal.toLocaleString('es-AR')}</span>`:`<span style="color:#15803d;font-weight:700">✓ Sin saldo pendiente</span>`}
+          <button class="btn-sm" onclick="facturacionVerPagos('${destino.replace(/'/g,"\\'")}')" style="font-size:11px">Historial</button>
+        </div>
       </div>
-      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px">
-        <span>Cantidad: <input type="number" min="0" value="${cantidad}" title="${esManual?'Corregido a mano (automático daba '+auto+')':'Automático: OK+Detalle+Fallado tela'}" style="width:60px;border:1px solid ${esManual?'#c98f1f':'var(--border)'};border-radius:6px;padding:3px 5px;background:${esManual?'#fdf3d0':'var(--surface)'}" onchange="facturacionSetCantidadManual('${id}',this.value)"> u.
-          ${esManual?`<button class="logi-note-btn" title="Volver al automático (${auto})" onclick="facturacionLimpiarManual('${id}')">↺</button>`:''}
-        </span>
-        <span>Precio: $<input type="number" min="0" value="${precio||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px" onchange="facturacionSetPrecio('${id}',this.value)"></span>
-        <span style="font-weight:700;color:var(--accent)">Total: $${total.toLocaleString('es-AR')}</span>
-      </div>
+      ${filas}
     </div>`;
   }).join('');
-  el.innerHTML=filas;
+
+  el.innerHTML=formHtml+gruposHtml;
 }
 function facturacionExportarExcel(){
   const items=facturacionItemsFiltrados();
   const filas=items.map(([,it])=>{
-    const auto=facturacionCantidadAuto(it);
-    const cantidad=it.facturacion_cantidad_manual!=null?it.facturacion_cantidad_manual:auto;
+    const cantidad=facturacionCantidad(it);
     const precio=it.precio_taller||0;
+    const total=cantidad*precio;
+    const pagado=facturacionPagado(it);
     return {
       'Fecha entrega': it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):''),
-      'Taller/Proveedor': it.taller||it.proveedor||'',
+      'Taller/Proveedor': facturacionDestino(it),
       'N° corte': it.numero_corte||'',
       'Código': it.code||'',
       'Artículo': it.name||'',
       'Cantidad': cantidad,
       'Precio unitario': precio,
-      'Total': cantidad*precio,
-      'Facturado': it.facturado?'Sí':'No',
+      'Total': total,
+      'Pagado': pagado,
+      'Saldo': total-pagado,
     };
   });
   if(!filas.length){ showToast('No hay nada para exportar con este filtro'); return; }
   const ws=XLSX.utils.json_to_sheet(filas);
-  ws['!cols']=[{wch:14},{wch:20},{wch:10},{wch:12},{wch:35},{wch:10},{wch:14},{wch:14},{wch:10}];
+  ws['!cols']=[{wch:14},{wch:20},{wch:10},{wch:12},{wch:35},{wch:10},{wch:14},{wch:12},{wch:12},{wch:12}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Facturación');
   const hoy=new Date().toISOString().slice(0,10);

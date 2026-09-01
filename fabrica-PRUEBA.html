@@ -327,6 +327,30 @@
   .rend-tabla{border-collapse:collapse;font-size:12px;min-width:520px}
   .rend-tabla th,.rend-tabla td{border:1px solid var(--border);padding:4px 8px}
   .rend-tabla th{background:var(--surface2);white-space:nowrap}
+  /* --- Objetivo de Diseño --- */
+  .od-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin:2px 18px 14px}
+  .od-title{font-size:12px;font-weight:700;margin-bottom:8px;text-transform:capitalize}
+  .od-row{display:flex;align-items:center;gap:10px;padding:3px 0}
+  .od-label{width:150px;flex-shrink:0;font-size:12px;font-weight:600}
+  .od-nota{color:var(--text3);margin-left:3px;cursor:help;font-weight:400}
+  .od-bar-wrap{flex:1;height:8px;background:var(--surface);border-radius:5px;overflow:hidden}
+  .od-bar{height:100%;border-radius:5px}
+  .od-num{width:60px;text-align:right;font-size:12px;font-weight:700;flex-shrink:0}
+  .od-objetivo-input{width:38px;text-align:center;border:1px solid var(--border);border-radius:4px;font-size:11px;font-weight:700;padding:1px 2px;background:var(--surface)}
+  .od-objetivo-input.od-manual{border-color:#c98f1f;background:#fdf3d0;color:#7a4a00}
+  .od-reset-btn{border:none;background:transparent;color:var(--text3);font-size:12px;cursor:pointer;padding:0 2px}
+  .od-reset-btn:hover{color:var(--accent)}
+  .od-sep{font-size:10.5px;font-weight:700;color:var(--text3);text-transform:uppercase;margin:10px 0 4px;border-top:1px dashed var(--border);padding-top:8px}
+  .od-linea-wrap{margin-bottom:2px}
+  .od-linea-filtro{font-size:10px;color:var(--text3);margin-left:2px;display:flex;align-items:center;gap:6px}
+  .od-borrar-linea{border:none;background:transparent;cursor:pointer;font-size:11px;padding:0}
+  .od-agregar-linea{margin-top:8px;border:1px dashed var(--border);background:transparent;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600;color:var(--accent);cursor:pointer}
+  .od-grilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px;padding:8px 0 4px 0;margin-left:0}
+  .od-mini-card{text-align:center}
+  .od-mini-card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;background:var(--surface)}
+  .od-mini-code{font-size:9.5px;font-weight:700;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .od-mini-empty{font-size:11px;color:var(--text3);padding:6px 0}
+  .od-foot{font-size:10.5px;color:var(--text3);margin-top:8px}
   .logi-count-table th,.logi-count-table td{border:1px solid var(--border);padding:6px 8px;text-align:center}
   .logi-count-table th{background:var(--surface2);font-size:10px;color:var(--text2);text-transform:uppercase}
   .logi-count-table td:first-child,.logi-count-table td:nth-child(2){text-align:left;font-weight:700}
@@ -588,6 +612,7 @@
     </div>
     <div id="tab-diseno">
       <div id="alert-banner"></div>
+      <div id="objetivo-diseno-panel"></div>
       <div class="stats-bar" id="stats-bar"></div>
       <input type="text" class="search-input" id="search-input-diseno" placeholder="Buscador por código o nombre" oninput="onSearchInput('diseno',this.value)">
       <div id="marca-filter-bar" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
@@ -595,6 +620,7 @@
       <button class="add-sec-btn hidden" id="add-sec-btn-diseno">+ Nueva sección</button>
     </div>
     <div id="tab-fabrica" class="hidden">
+      <div id="objetivo-corte-panel"></div>
       <input type="text" class="search-input" id="search-input-fabrica" placeholder="Buscador por código, nombre o N° de corte" oninput="onSearchInput('fabrica',this.value)">
       <div id="marca-filter-bar-fabrica" style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap"></div>
       <div id="sections-container-fabrica"><div class="loading">Conectando...</div></div>
@@ -2095,6 +2121,23 @@ function assignColorMuestra(secId,itemId,nombre){
 }
 
 // Categoría y Temporada: mismo patrón que Marca (lista editable compartida guardada en Firebase)
+// Fecha objetivo de recibir la mercadería terminada — la planifica quien carga el desarrollo
+// en Nuevos Desarrollos, para calcular el tiempo disponible antes de necesitar tener todo listo.
+function buildFechaObjetivoRecibirHtml(secId,itemId,item,canEdit){
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const fechaObj=item.fecha_objetivo_recibir?new Date(item.fecha_objetivo_recibir+'T00:00:00'):null;
+  const vencida=fechaObj&&fechaObj<hoy;
+  return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+    <span class="modelista-label">📅 Objetivo recibir:</span>
+    ${canEdit
+      ? `<input type="date" value="${item.fecha_objetivo_recibir||''}" style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface)${vencida?';color:var(--danger);font-weight:700':''}" onchange="setFechaObjetivoRecibir('${secId}','${itemId}',this.value)">`
+      : (item.fecha_objetivo_recibir?`<strong style="font-size:11px;color:${vencida?'var(--danger)':'var(--text)'}">${fechaObj.toLocaleDateString('es-AR')}${vencida?' ⚠️ vencida':''}</strong>`:'<span style="font-size:11px;color:var(--text3);font-style:italic">Sin definir</span>')}
+  </div>`;
+}
+function setFechaObjetivoRecibir(secId,itemId,val){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_objetivo_recibir`).set(val||null);
+}
+
 function buildCategoriaHtml(secId,itemId,item){
   const opts=(categoriasList||[]).map(n=>`<option value="${n}" ${item.categoria===n?'selected':''}>${n}</option>`).join('');
   return `<div style="display:flex;align-items:center;gap:8px;margin-top:6px">
@@ -2567,7 +2610,7 @@ let costeosData = {};
 // Proveedores de tela (mismo patrón que Telas — se comparte y crece con lo que se va cargando)
 let proveedoresList = [];
 // Categoría y temporada del producto (editable, mismo patrón que Marca/Tela)
-let categoriasList = ['Remera','Top','Buzo','Pantalón','Vestido','Body','Short','Campera'];
+let categoriasList = ['Remera','Top','Buzo','Pantalón','Vestido','Body','Short','Campera','Blazer/Camisa','Accesorio'];
 let temporadasList = ['Verano 2026','Invierno 2026'];
 // Colores ya usados en muestras (editable, mismo patrón que Marca/Tela)
 let coloresList = [];
@@ -4619,10 +4662,14 @@ function buildResumenTalleresHtml(secId,items){
     const obsManual=item.observacion_taller||'';
     const obsMostrar=obsManual||obsAuto;
     const esAuto=!obsManual&&obsAuto;
+    const hoy=new Date(); hoy.setHours(0,0,0,0);
+    const fechaObjRecibir = item.fecha_objetivo_recibir ? new Date(item.fecha_objetivo_recibir+'T00:00:00') : null;
+    const objVencido = fechaObjRecibir && fechaObjRecibir < hoy;
     return `<div class="rt-row">
       <div class="rt-row-top">
         <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
         <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        ${fechaObjRecibir?`<span class="rt-taller" style="${objVencido?'color:var(--danger);font-weight:700':''}" title="Fecha objetivo de recibir mercadería">${objVencido?'⚠️ ':'📅 '}${fechaObjRecibir.toLocaleDateString('es-AR')}</span>`:''}
         <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
       </div>
       <div class="rt-row-bottom">
@@ -4877,6 +4924,8 @@ function extractCorteNumber(item){
 function renderSections(board){
   const containerId = board==='diseno' ? 'sections-container-diseno' : (board==='talleres' ? 'sections-container-talleres' : 'sections-container-fabrica');
   const c=document.getElementById(containerId);c.innerHTML='';
+  if(board==='diseno') renderObjetivoDisenoPanel();
+  if(board==='fabrica') renderObjetivoCortePanel();
   const boardParaDatos = board==='talleres' ? 'fabrica' : board;
   let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===boardParaDatos).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
   // "Talleres" es un recorte del tablero Fábrica: mismas secciones y datos, solo que separadas
@@ -5532,6 +5581,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canStef?buildMarcaHtml(secId,itemId,item):''}
           ${canStef?buildCategoriaHtml(secId,itemId,item):''}
           ${canStef?buildTemporadaHtml(secId,itemId,item):''}
+          ${buildFechaObjetivoRecibirHtml(secId,itemId,item,canStef)}
           ${canStef?buildColorMuestraHtml(secId,itemId,item):(item.color_muestra?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Color de la muestra: <strong>${item.color_muestra}</strong></div>`:'')}
           ${!item.color_muestra?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:6px">⚠️ Falta elegir el color de la muestra (Stef)</div>`:''}
 
@@ -8690,6 +8740,248 @@ function pendSetAgrupar(m){
 }
 function pendExpandirTodo(abrir){
   document.querySelectorAll('#pendientes-list details').forEach(d=>{ d.open=abrir; });
+}
+
+// Objetivo de Diseño: cuántos artículos NUEVOS hay que aprobar por mes en cada categoría, para
+// alimentar el plan de producción de temporada (armado en el Dashboard en base a facturación,
+// precio promedio y 250-300u por corte). Estos son los valores por DEFECTO — Ariel/Stef los
+// pueden editar directo desde el panel (tocando el número), y eso pisa este valor de acá.
+// "Pantalón" y "Short" del selector de categoría de Fábrica se cuentan juntos, porque en el
+// plan de producción son una sola categoría (Pantalones-Shorts).
+// Objetivo de Diseño: un único número total — cuántas bases nuevas (moldes aprobados) hay
+// que sacar por mes, sin desglose por categoría.
+let objetivoDisenoBases = 10;
+db.ref('fabrica_v5/config/objetivo_diseno_bases').on('value', snap => {
+  if(snap.val()!=null) objetivoDisenoBases = snap.val();
+  renderObjetivoDisenoPanel();
+});
+function setObjetivoDisenoBases(valor){
+  const n = Math.max(0, parseInt(valor)||0);
+  db.ref('fabrica_v5/config/objetivo_diseno_bases').set(n);
+  logActivity('Cambió objetivo de bases nuevas de Diseño', n);
+}
+
+function mesKeyActual(){
+  const n=new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+}
+
+// Corrección manual del total aprobado — por si algo se aprobó fuera del sistema. Por mes.
+let disenoBasesManual = {};
+db.ref('fabrica_v5/config/objetivo_diseno_bases_manual').on('value', snap => {
+  disenoBasesManual = snap.val() || {};
+  renderObjetivoDisenoPanel();
+});
+function setDisenoBasesManual(valor){
+  const n = Math.max(0, parseInt(valor)||0);
+  db.ref(`fabrica_v5/config/objetivo_diseno_bases_manual/${mesKeyActual()}`).set(n);
+  logActivity('Corrigió bases aprobadas de Diseño a mano', n);
+}
+function limpiarDisenoBasesManual(){
+  db.ref(`fabrica_v5/config/objetivo_diseno_bases_manual/${mesKeyActual()}`).remove();
+  logActivity('Volvió a conteo automático de bases de Diseño', '');
+}
+
+let objetivoDisenoAbierto = false;
+function toggleObjetivoDisenoGrilla(){
+  objetivoDisenoAbierto = !objetivoDisenoAbierto;
+  renderObjetivoDisenoPanel();
+}
+
+function renderObjetivoDisenoPanel(){
+  const el=document.getElementById('objetivo-diseno-panel');
+  if(!el) return;
+  const canEditar = (currentUser==='ariel'||currentUser==='stef');
+  const now=new Date();
+  const mesKey=mesKeyActual();
+  const itemsMes=[];
+  Object.values(sectionsData||{}).forEach(sec=>{
+    Object.values(sec.items||{}).forEach(it=>{
+      if(!it.aprobado_por||!it.fecha_aprobada) return;
+      const f=new Date(it.fecha_aprobada);
+      if(f.getMonth()!==now.getMonth()||f.getFullYear()!==now.getFullYear()) return;
+      itemsMes.push(it);
+    });
+  });
+  const autoCount = itemsMes.length;
+  const manualVal = disenoBasesManual[mesKey];
+  const esManual = manualVal!=null;
+  const aprobados = esManual ? manualVal : autoCount;
+  const objetivo = objetivoDisenoBases;
+  const pct = objetivo>0 ? Math.min(100,(aprobados/objetivo)*100) : 0;
+  const cumplido = aprobados>=objetivo;
+  const mesNombre=now.toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+  const grilla = objetivoDisenoAbierto ? `<div class="od-grilla">${
+    itemsMes.length ? itemsMes.map(it=>`
+      <div class="od-mini-card">
+        <img src="${it.foto||''}" onerror="this.style.visibility='hidden'" />
+        <div class="od-mini-code">${it.code||'(s/código)'}</div>
+      </div>`).join('')
+    : '<div class="od-mini-empty">Todavía no se aprobó ninguna base este mes.</div>'
+  }</div>` : '';
+  el.innerHTML=`<div class="od-box">
+    <div class="od-title">🎯 Objetivo de Diseño — bases nuevas en ${mesNombre}</div>
+    <div class="od-row" style="cursor:pointer" onclick="toggleObjetivoDisenoGrilla()">
+      <div class="od-label">${objetivoDisenoAbierto?'▾':'▸'} Bases nuevas aprobadas</div>
+      <div class="od-bar-wrap"><div class="od-bar" style="width:${pct}%;background:${cumplido?'#16a34a':'#4f46e5'}"></div></div>
+      <div class="od-num" onclick="event.stopPropagation()">
+        ${canEditar?`<input type="number" min="0" class="od-objetivo-input${esManual?' od-manual':''}" value="${aprobados}" title="${esManual?'Corregido a mano (contado solo: '+autoCount+')':'Contado automático'}" onchange="setDisenoBasesManual(this.value)">`:aprobados}
+        ${esManual&&canEditar?`<button class="od-reset-btn" title="Volver al conteo automático (${autoCount})" onclick="event.stopPropagation();limpiarDisenoBasesManual()">↺</button>`:''}
+        / ${canEditar?`<input type="number" min="0" class="od-objetivo-input" value="${objetivo}" onchange="setObjetivoDisenoBases(this.value)">`:objetivo}
+      </div>
+    </div>
+    ${grilla}
+    <div class="od-foot">Cuenta artículos con el molde aprobado este mes. Tocá la fila para ver las fotos. ${canEditar?'Tocá los números para editarlos a mano.':''}</div>
+  </div>`;
+}
+
+// ============= OBJETIVO DE CORTE (Fábrica) =============
+// Total del mes + líneas libres que arma Ariel/Stef (ej: "Remeras estampadas: 4000"), cada una
+// filtrando por categoría y/o si es estampado. Cada corte marcado ("Marcar cortado") descuenta
+// solo de las líneas cuyo filtro matchea ese ítem.
+function unidadesCortadasDeItem(it){
+  return Object.values(it.capas||{}).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
+}
+function itemsCortadosEsteMes(){
+  const now=new Date();
+  const out=[];
+  Object.values(sectionsData||{}).forEach(sec=>{
+    Object.values(sec.items||{}).forEach(it=>{
+      if(!it.cortado_por||!it.fecha_corte_ts) return;
+      const f=new Date(it.fecha_corte_ts);
+      if(f.getMonth()!==now.getMonth()||f.getFullYear()!==now.getFullYear()) return;
+      out.push(it);
+    });
+  });
+  return out;
+}
+
+let objetivoCorteTotal = 12000;
+db.ref('fabrica_v5/config/objetivo_corte_total').on('value', snap => {
+  if(snap.val()!=null) objetivoCorteTotal = snap.val();
+  renderObjetivoCortePanel();
+});
+function setObjetivoCorteTotal(valor){
+  const n=Math.max(0,parseInt(valor)||0);
+  db.ref('fabrica_v5/config/objetivo_corte_total').set(n);
+  logActivity('Cambió objetivo de corte total', n);
+}
+
+let objetivoCorteLineas = {};
+db.ref('fabrica_v5/config/objetivo_corte_lineas').on('value', snap => {
+  objetivoCorteLineas = snap.val() || {};
+  renderObjetivoCortePanel();
+});
+function agregarLineaObjetivoCorte(){
+  const nombre = prompt('Nombre de la línea (ej: "Remeras estampadas"):');
+  if(!nombre || !nombre.trim()) return;
+  const objetivo = parseInt(prompt('Objetivo en unidades:','0'))||0;
+  const categoria = prompt(`Categoría a filtrar (dejar vacío = todas). Opciones: ${categoriasList.join(', ')}`,'') || '';
+  const soloEstampado = confirm('¿Solo contar los que están marcados para estampado DTF?\n\nAceptar = sí, solo estampados\nCancelar = no filtrar por estampado');
+  const id = 'l'+Date.now();
+  db.ref(`fabrica_v5/config/objetivo_corte_lineas/${id}`).set({ nombre:nombre.trim(), categoria:categoria.trim(), soloEstampado, objetivo });
+  logActivity('Agregó línea de objetivo de corte', nombre);
+}
+function borrarLineaObjetivoCorte(id){
+  if(!confirm('¿Borrar esta línea del objetivo?')) return;
+  db.ref(`fabrica_v5/config/objetivo_corte_lineas/${id}`).remove();
+}
+function editarObjetivoLineaCorte(id, valor){
+  const n=Math.max(0,parseInt(valor)||0);
+  db.ref(`fabrica_v5/config/objetivo_corte_lineas/${id}/objetivo`).set(n);
+}
+
+// Correcciones manuales (por mes), igual patrón que Diseño.
+let objetivoCorteManual = {}; // { totalPorMes: {mesKey:n}, lineasPorMes: {mesKey:{lineaId:n}} }
+db.ref('fabrica_v5/config/objetivo_corte_manual').on('value', snap => {
+  objetivoCorteManual = snap.val() || {};
+  renderObjetivoCortePanel();
+});
+function setCorteTotalManual(valor){
+  const n=Math.max(0,parseInt(valor)||0);
+  db.ref(`fabrica_v5/config/objetivo_corte_manual/total/${mesKeyActual()}`).set(n);
+}
+function limpiarCorteTotalManual(){
+  db.ref(`fabrica_v5/config/objetivo_corte_manual/total/${mesKeyActual()}`).remove();
+}
+function setCorteLineaManual(id, valor){
+  const n=Math.max(0,parseInt(valor)||0);
+  db.ref(`fabrica_v5/config/objetivo_corte_manual/lineas/${mesKeyActual()}/${id}`).set(n);
+}
+function limpiarCorteLineaManual(id){
+  db.ref(`fabrica_v5/config/objetivo_corte_manual/lineas/${mesKeyActual()}/${id}`).remove();
+}
+
+let objetivoCorteAbierto = {}; // total | lineaId → bool
+function toggleObjetivoCorteGrupo(key){
+  objetivoCorteAbierto[key] = !objetivoCorteAbierto[key];
+  renderObjetivoCortePanel();
+}
+
+function renderObjetivoCortePanel(){
+  const el=document.getElementById('objetivo-corte-panel');
+  if(!el) return;
+  const canEditar = (currentUser==='ariel'||currentUser==='stef');
+  const now=new Date();
+  const mesKey=mesKeyActual();
+  const mesNombre=now.toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+  const itemsMes=itemsCortadosEsteMes();
+
+  function filaHtml(key,label,itemsFila,objetivo,manualValores,setManualFn,limpiarFn,setObjFn,soloLectura){
+    const autoCount=itemsFila.reduce((s,it)=>s+unidadesCortadasDeItem(it),0);
+    const manualVal=manualValores[key];
+    const esManual=manualVal!=null;
+    const cortado=esManual?manualVal:autoCount;
+    const pct=objetivo>0?Math.min(100,(cortado/objetivo)*100):0;
+    const cumplido=cortado>=objetivo;
+    const abierto=!!objetivoCorteAbierto[key];
+    const grilla=abierto?`<div class="od-grilla">${
+      itemsFila.length?itemsFila.map(it=>`
+        <div class="od-mini-card">
+          <img src="${it.foto||''}" onerror="this.style.visibility='hidden'" />
+          <div class="od-mini-code">${it.code||'(s/código)'}</div>
+        </div>`).join('')
+      :'<div class="od-mini-empty">Nada cortado todavía este mes.</div>'
+    }</div>`:'';
+    return `<div>
+      <div class="od-row" style="cursor:pointer" onclick="toggleObjetivoCorteGrupo('${key}')">
+        <div class="od-label">${abierto?'▾':'▸'} ${label}</div>
+        <div class="od-bar-wrap"><div class="od-bar" style="width:${pct}%;background:${cumplido?'#16a34a':'#4f46e5'}"></div></div>
+        <div class="od-num" onclick="event.stopPropagation()">
+          ${canEditar&&!soloLectura?`<input type="number" min="0" class="od-objetivo-input${esManual?' od-manual':''}" value="${cortado}" title="${esManual?'Corregido a mano (contado solo: '+autoCount+')':'Contado automático'}" onchange="${setManualFn}(this.value)">`:cortado}
+          ${esManual&&canEditar&&!soloLectura?`<button class="od-reset-btn" title="Volver al conteo automático (${autoCount})" onclick="event.stopPropagation();${limpiarFn}()">↺</button>`:''}
+          / ${canEditar?`<input type="number" min="0" class="od-objetivo-input" value="${objetivo}" onchange="${setObjFn}(this.value)">`:objetivo}
+        </div>
+      </div>
+      ${grilla}
+    </div>`;
+  }
+
+  const manualTotal = (objetivoCorteManual.total||{});
+  const totalRow = filaHtml('total','Total cortado este mes',itemsMes,objetivoCorteTotal,manualTotal,'setCorteTotalManual','limpiarCorteTotalManual','setObjetivoCorteTotal');
+
+  const manualLineas = ((objetivoCorteManual.lineas||{})[mesKey])||{};
+  const lineasHtml = Object.entries(objetivoCorteLineas).map(([id,linea])=>{
+    const itemsLinea = itemsMes.filter(it=>{
+      if(linea.categoria && it.categoria!==linea.categoria) return false;
+      if(linea.soloEstampado && !it.estampado_dtf) return false;
+      return true;
+    });
+    const fila = filaHtml(id, linea.nombre, itemsLinea, linea.objetivo, manualLineas, `(v)=>setCorteLineaManual('${id}',v)`, `()=>limpiarCorteLineaManual('${id}')`, `(v)=>editarObjetivoLineaCorte('${id}',v)`);
+    return `<div class="od-linea-wrap">${fila}
+      <div class="od-linea-filtro">${linea.categoria||'Todas las categorías'}${linea.soloEstampado?' · solo estampados':''}
+        ${canEditar?`<button class="od-borrar-linea" onclick="borrarLineaObjetivoCorte('${id}')" title="Borrar línea">🗑️</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`<div class="od-box">
+    <div class="od-title">🎯 Objetivo de Corte — ${mesNombre}</div>
+    ${totalRow}
+    ${Object.keys(objetivoCorteLineas).length?`<div class="od-sep">Objetivos puntuales</div>${lineasHtml}`:''}
+    ${canEditar?`<button class="od-agregar-linea" onclick="agregarLineaObjetivoCorte()">+ Agregar objetivo puntual</button>`:''}
+    <div class="od-foot">Suma unidades cortadas reales (no artículos). Tocá una fila para ver las fotos.</div>
+  </div>`;
 }
 
 function renderPendientes(){

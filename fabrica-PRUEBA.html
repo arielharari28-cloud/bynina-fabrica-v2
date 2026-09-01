@@ -540,6 +540,7 @@
     <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">N</div><div><div class="uname">Nahuel</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-noemi"><div class="user-avatar" style="background:#be185d">N</div><div><div class="uname">Noemí</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-noelia"><div class="user-avatar" style="background:#7c2d12">N</div><div><div class="uname">Noelia</div><div class="urole">Diseño — acceso total · resto solo lectura</div></div></button>
+    <button class="user-btn" id="btn-meli"><div class="user-avatar" style="background:#0f766e">M</div><div><div class="uname">Meli</div><div class="urole">Administración — facturación a talleres/proveedores</div></div></button>
   </div>
 </div>
 
@@ -610,6 +611,7 @@
       <button class="tab hidden" id="tab-btn-web">🌐 Web</button>
       <button class="tab hidden" id="tab-btn-costeo">💰 Costeo</button>
       <button class="tab hidden" id="tab-btn-rendimiento">📊 Rendimiento</button>
+      <button class="tab hidden" id="tab-btn-facturacion">🧾 Facturación</button>
     </div>
     <div id="tab-diseno">
       <div id="alert-banner"></div>
@@ -746,6 +748,19 @@
         <button class="btn-sm" data-modo="semana" onclick="rendSetModo('semana')">🗓️ Por semana</button>
       </div>
       <div id="rendimiento-board"><div class="loading">Cargando...</div></div>
+    </div>
+    <div id="tab-facturacion" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+        <p style="font-size:11px;color:var(--text3);margin:0">Cortes finalizados, listos para pagarle al taller o proveedor. Cantidad = OK + Detalle + Fallado tela (el fallado de taller no se factura). Podés corregir la cantidad a mano si algo no cierra.</p>
+        <button class="btn-sm" onclick="facturacionExportarExcel()">⬇️ Descargar Excel (backup)</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap" id="facturacion-filtro">
+        <button class="btn-sm active" data-filtro="pendiente" onclick="facturacionSetFiltro('pendiente')">Pendientes de facturar</button>
+        <button class="btn-sm" data-filtro="facturado" onclick="facturacionSetFiltro('facturado')">Ya facturados</button>
+        <button class="btn-sm" data-filtro="todos" onclick="facturacionSetFiltro('todos')">Todos</button>
+        <input type="text" id="facturacion-buscar" placeholder="Buscar por taller, proveedor, código o N° de corte..." style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" oninput="facturacionBuscar=this.value;renderFacturacionTab()">
+      </div>
+      <div id="facturacion-board"><div class="loading">Cargando...</div></div>
     </div>
   </div>
 </div>
@@ -1053,6 +1068,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 firebase.initializeApp({
   apiKey:"AIzaSyBqZ9ZkYfcDfXVEIGVsZM5_cByJkBXhVeA",
@@ -1087,7 +1103,7 @@ db.ref('.info/connected').on('value', snap=>{
 // --- PIN por usuario ---
 // Arranca con estos valores por defecto; se guardan en Firebase la primera vez,
 // y desde ahí Ariel/Stef los pueden cambiar sin tocar código.
-let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', arimoron:'0634', nahuel:'0633', noemi:'0001', noelia:'0002'};
+let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', arimoron:'0634', nahuel:'0633', noemi:'0001', noelia:'0002', meli:'0003'};
 let pinsReady = false;
 db.ref('fabrica_v5/pins').once('value',snap=>{
   if(snap.exists()){
@@ -2602,7 +2618,7 @@ function esSeccionTalleres(secId,sec){
 }
 
 // Nombre visible de cada login
-const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí',noelia:'Noelia'};
+const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí',noelia:'Noelia',meli:'Meli'};
 
 // Lista de modelistas (editable: se puede agregar una nueva directo desde la ficha)
 let modelistasList = ['Peque','Adela','Guada','Paula'];
@@ -2791,6 +2807,7 @@ document.getElementById('btn-arimoron').onclick=()=>attemptLogin('arimoron');
 document.getElementById('btn-nahuel').onclick=()=>attemptLogin('nahuel');
 document.getElementById('btn-noemi').onclick=()=>attemptLogin('noemi');
 document.getElementById('btn-noelia').onclick=()=>attemptLogin('noelia');
+document.getElementById('btn-meli').onclick=()=>attemptLogin('meli');
 document.getElementById('user-chip').onclick=doLogout;
 
 function doLogin(user){
@@ -8252,13 +8269,13 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
-  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion'],
   peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-actividad'],
   emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
@@ -8268,6 +8285,9 @@ const TAB_VISIBILITY={
   // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
   // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
   noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
+  // Meli (administración): solo la pestaña de Facturación, nada más — ni siquiera ve el resto
+  // de Logística, para no exponerle datos operativos que no necesita.
+  meli:['tab-btn-facturacion'],
 };
 function applyTabVisibility(user){
   const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT;
@@ -8288,6 +8308,7 @@ function applyTabVisibility(user){
     else if(contentId==='tab-estampas') renderEstampadosTab();
     else if(contentId==='tab-logistica') logiInit();
     else if(contentId==='tab-costeo'){ closeCosteoDetail(); renderCosteoTab(); }
+    else if(contentId==='tab-facturacion') renderFacturacionTab();
   }
 }
 function getTabOrder(){
@@ -9601,6 +9622,118 @@ function logiSetPrioridad(itemId, prioridad){
 }
 
 // --- Finalizados: precio de taller (por unidad) y a cuánto se le debe (OK + Detalle) ---
+// ============= FACTURACIÓN (Meli — administración) =============
+// Cortes ya finalizados en Logística, listos para pagarle al taller o proveedor. Cantidad
+// facturable = OK + Detalle + Fallado tela (el Fallado taller NO se factura, es responsabilidad
+// del taller). Siempre queda un botón para corregir la cantidad a mano si algo no cierra.
+let facturacionFiltro='pendiente', facturacionBuscar='';
+function facturacionSetFiltro(f){
+  facturacionFiltro=f;
+  document.querySelectorAll('#facturacion-filtro button[data-filtro]').forEach(b=>b.classList.toggle('active',b.dataset.filtro===f));
+  renderFacturacionTab();
+}
+function facturacionCantidadAuto(it){
+  return Object.values(it.grilla||{}).reduce((s,f)=>s+(f.ok||0)+(f.detalle||0)+(f.fallado_tela||0),0);
+}
+function facturacionSetCantidadManual(itemId,val){
+  const n=Math.max(0,parseInt(val)||0);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/facturacion_cantidad_manual`).set(n);
+  logActivity('Corrigió cantidad a facturar a mano',`Ítem ${itemId}: ${n}`);
+  renderFacturacionTab();
+}
+function facturacionLimpiarManual(itemId){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/facturacion_cantidad_manual`).remove();
+  renderFacturacionTab();
+}
+function facturacionSetPrecio(itemId,val){
+  const n=Math.max(0,parseFloat(val)||0);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).set(n);
+  renderFacturacionTab();
+}
+function facturacionToggleFacturado(itemId,val){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/facturado`).set(!!val);
+  if(val) db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_facturado`).set(Date.now());
+  logActivity(val?'Marcó facturado':'Desmarcó facturado',itemId);
+  renderFacturacionTab();
+}
+function facturacionItemsFiltrados(){
+  const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado');
+  let out=items.filter(([,it])=>{
+    if(facturacionFiltro==='pendiente') return !it.facturado;
+    if(facturacionFiltro==='facturado') return !!it.facturado;
+    return true;
+  });
+  const q=(facturacionBuscar||'').trim().toLowerCase();
+  if(q){
+    out=out.filter(([,it])=>[it.taller,it.proveedor,it.code,it.numero_corte,it.name].some(v=>String(v||'').toLowerCase().includes(q)));
+  }
+  out.sort((a,b)=>(b[1].fecha_entregado_ts||b[1].fecha_cerrado||0)-(a[1].fecha_entregado_ts||a[1].fecha_cerrado||0));
+  return out;
+}
+function renderFacturacionTab(){
+  const el=document.getElementById('facturacion-board');
+  if(!el) return;
+  const items=facturacionItemsFiltrados();
+  if(!items.length){ el.innerHTML='<div class="empty">No hay cortes acá.</div>'; return; }
+  const filas=items.map(([id,it])=>{
+    const auto=facturacionCantidadAuto(it);
+    const manual=it.facturacion_cantidad_manual;
+    const esManual=manual!=null;
+    const cantidad=esManual?manual:auto;
+    const precio=it.precio_taller||0;
+    const total=cantidad*precio;
+    const destino=it.taller||it.proveedor||'—';
+    const fecha=it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):'—');
+    return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px${it.facturado?';opacity:.6':''}">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <div>
+          <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
+          <div class="logi-name">${it.name||''}</div>
+          <div style="font-size:11.5px;color:var(--text2);margin-top:2px">🏭 ${destino} · 📅 Entregado: ${fecha}</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;flex-shrink:0">
+          <input type="checkbox" ${it.facturado?'checked':''} onchange="facturacionToggleFacturado('${id}',this.checked)"> Facturado
+        </label>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px">
+        <span>Cantidad: <input type="number" min="0" value="${cantidad}" title="${esManual?'Corregido a mano (automático daba '+auto+')':'Automático: OK+Detalle+Fallado tela'}" style="width:60px;border:1px solid ${esManual?'#c98f1f':'var(--border)'};border-radius:6px;padding:3px 5px;background:${esManual?'#fdf3d0':'var(--surface)'}" onchange="facturacionSetCantidadManual('${id}',this.value)"> u.
+          ${esManual?`<button class="logi-note-btn" title="Volver al automático (${auto})" onclick="facturacionLimpiarManual('${id}')">↺</button>`:''}
+        </span>
+        <span>Precio: $<input type="number" min="0" value="${precio||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px" onchange="facturacionSetPrecio('${id}',this.value)"></span>
+        <span style="font-weight:700;color:var(--accent)">Total: $${total.toLocaleString('es-AR')}</span>
+      </div>
+    </div>`;
+  }).join('');
+  el.innerHTML=filas;
+}
+function facturacionExportarExcel(){
+  const items=facturacionItemsFiltrados();
+  const filas=items.map(([,it])=>{
+    const auto=facturacionCantidadAuto(it);
+    const cantidad=it.facturacion_cantidad_manual!=null?it.facturacion_cantidad_manual:auto;
+    const precio=it.precio_taller||0;
+    return {
+      'Fecha entrega': it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):''),
+      'Taller/Proveedor': it.taller||it.proveedor||'',
+      'N° corte': it.numero_corte||'',
+      'Código': it.code||'',
+      'Artículo': it.name||'',
+      'Cantidad': cantidad,
+      'Precio unitario': precio,
+      'Total': cantidad*precio,
+      'Facturado': it.facturado?'Sí':'No',
+    };
+  });
+  if(!filas.length){ showToast('No hay nada para exportar con este filtro'); return; }
+  const ws=XLSX.utils.json_to_sheet(filas);
+  ws['!cols']=[{wch:14},{wch:20},{wch:10},{wch:12},{wch:35},{wch:10},{wch:14},{wch:14},{wch:10}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Facturación');
+  const hoy=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb,`Facturacion_ByNina_${hoy}.xlsx`);
+}
+
+
 function logiSetPrecioTaller(itemId,val){
   const n=parseFloat(val);
   if(isNaN(n)||n<0){ db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).remove(); return; }
@@ -10780,7 +10913,7 @@ function deleteCosteo(key){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -10838,6 +10971,11 @@ document.getElementById('tab-btn-rendimiento').onclick=function(){
   ocultarTabsMenosActiva('tab-rendimiento');
   this.classList.add('active');
   renderRendimientoTab();
+};
+document.getElementById('tab-btn-facturacion').onclick=function(){
+  ocultarTabsMenosActiva('tab-facturacion');
+  this.classList.add('active');
+  renderFacturacionTab();
 };
 document.getElementById('close-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');
 document.getElementById('cancel-modal-edit').onclick=()=>document.getElementById('modal-edit').classList.add('hidden');

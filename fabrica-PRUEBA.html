@@ -839,7 +839,8 @@
     <select id="logi-clasif-field-select" style="border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin-bottom:12px" onchange="logiRenderClasifGrid()">
       <option value="ok">✓ OK</option>
       <option value="detalle">Detalle</option>
-      <option value="fallado">Fallado</option>
+      <option value="fallado">Fallado taller</option>
+      <option value="fallado_tela">Fallado tela</option>
     </select>
     <div id="logi-clasif-grid-wrap" style="overflow-x:auto"></div>
     <div class="logi-mbtns" style="margin-top:14px">
@@ -2515,6 +2516,8 @@ function getProximaAccion(sec,item,secId){
       if(!item.categoria) falta.push('categoría');
       if(!item.temporada) falta.push('temporada');
       if(!item.color_muestra) falta.push('color de la muestra');
+      if(!item.ref_link) falta.push('link');
+      if(!item.fecha_objetivo_recibir) falta.push('objetivo de recibir');
       return `Falta cargar (Stef): ${falta.join(', ')}`;
     }
     if(item.ficha_estado==='modificar') return 'Falta corregir la ficha técnica pedida';
@@ -4524,7 +4527,7 @@ function diasEntreTs(a,b){
 // usado por el panel de pasos, los backfills y la pestaña Pendientes, para que todos
 // coincidan siempre (antes cada uno tenía su propia copia y se desincronizaban).
 function stefCompletoNuevoDesarrollo(item){
-  return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada&&!!item.color_muestra;
+  return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada&&!!item.color_muestra&&!!item.ref_link&&!!item.fecha_objetivo_recibir;
 }
 function pequeCompletoNuevoDesarrollo(item){
   return !!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
@@ -4982,7 +4985,7 @@ function renderSections(board){
     const canAddPrep=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')&&secId===SEC_PREP;
     const addRow=(canAdd||canAddMold)?`<div class="sec-add"><input type="text" placeholder="Código de muestra..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
     const addRowPrep=canAddPrep?`<div class="sec-add"><input type="text" placeholder="Nombre de la prenda nueva..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
-    const canAddGeneral=currentUser==='ariel'&&!FIXED_SECS.includes(secId);
+    const canAddGeneral=(currentUser==='ariel'||currentUser==='stef')&&!FIXED_SECS.includes(secId);
     const esPendienteArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
     const canAddDesdeBase=esPendienteArmarTizada&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
     const btnDesdeBaseHtml=canAddDesdeBase?`<button class="btn-sm" onclick="openBaseAddModal('${secId}')">🔁 Agregar nuevo artículo desde base</button>`:'';
@@ -9407,7 +9410,7 @@ function logiStatsPorPersona(){
   Object.values(logiItemsData).forEach(it=>{
     Object.values(it.grilla||{}).forEach(f=>{
       add(f.contado_set_by,'contadas',f.contado||0);
-      ['ok','detalle','fallado'].forEach(campo=>add(f[campo+'_set_by'],'controladas',f[campo]||0));
+      ['ok','detalle','fallado','fallado_tela'].forEach(campo=>add(f[campo+'_set_by'],'controladas',f[campo]||0));
     });
   });
   return stats;
@@ -9465,7 +9468,7 @@ function calcularLogistica(modo){
         out[per][f.contado_set_by]=out[per][f.contado_set_by]||{contadas:0,controladas:0};
         out[per][f.contado_set_by].contadas+=parseInt(f.contado)||0;
       }
-      ['ok','detalle','fallado'].forEach(campo=>{
+      ['ok','detalle','fallado','fallado_tela'].forEach(campo=>{
         const by=f[campo+'_set_by'], at=f[campo+'_set_at'], val=parseInt(f[campo])||0;
         if(by&&at&&val){
           const per=keyFn(at);
@@ -9743,13 +9746,22 @@ function logiCardHtml(id,it,cerrado){
       const webBadge = !colores.length ? '' : (coloresSubidos===colores.length
         ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">🌐 Subido a la web</span>`
         : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">🌐 Faltan colores (${coloresSubidos}/${colores.length})</span>`);
-      const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}</div>`;
+      const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}${it.division_avellaneda!=null?` · Avellaneda: <strong>${it.division_avellaneda}</strong> · Depósito: <strong>${it.division_deposito||0}</strong>`:''}</div>`;
       extraCerradoHtml = `<div style="margin-top:4px">${webBadge}</div>${plataHtml}${dividioInfo}`;
     } else {
+      const pool = totalOk + totalDetalle;
+      const avell = it.division_avellaneda;
+      const dep = it.division_deposito;
+      const divisionHtml = currentUser==='ariel' ? `
+        <div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <span>📦 Total a dividir: <strong>${pool}</strong> u.</span>
+          <span>Avellaneda: <input type="number" min="0" max="${pool}" value="${avell??''}" placeholder="0" style="width:60px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetDivision('${id}','avellaneda',this.value,${pool})"></span>
+          <span>Depósito: <input type="number" min="0" max="${pool}" value="${dep??''}" placeholder="0" style="width:60px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetDivision('${id}','deposito',this.value,${pool})"></span>
+        </div>` : (avell!=null||dep!=null ? `<div class="logi-fecha" style="margin-top:4px">📦 Avellaneda: <strong>${avell||0}</strong> · Depósito: <strong>${dep||0}</strong></div>` : '');
       const dividirBtn = currentUser==='ariel'
         ? `<button class="btn-sm" onclick="event.stopPropagation();logiMarcarDividido('${id}')" style="margin-top:6px;border-color:#5b21b6;color:#5b21b6">🔀 Marcar dividido → Finalizado</button>`
         : `<div class="logi-fecha" style="margin-top:4px">⏳ Esperando que Ariel marque dividido</div>`;
-      extraCerradoHtml = `${plataHtml}${dividirBtn}`;
+      extraCerradoHtml = `${plataHtml}${divisionHtml}${dividirBtn}`;
     }
   }
   return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
@@ -9859,7 +9871,7 @@ function logiRenderDetail(id){
   const canEditarEsperado = !cerrado && (currentUser==='ariel' || currentUser==='stef');
 
   let rowsHtml='';
-  let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalSaldo=0, totalPorControlar=0;
+  let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalFalladoTela=0, totalSaldo=0, totalPorControlar=0;
   if(!filas.length){
     rowsHtml = cerrado
       ? '<div class="empty">Este corte se cerró sin talles/colores cargados.</div>'
@@ -9870,15 +9882,16 @@ function logiRenderDetail(id){
     // Ordenamos por color y después por talle (orden lógico S/M/L/XL, no alfabético).
     filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || compareTalles(a[1].talle,b[1].talle));
     const body = filas.map(([key,f])=>{
-      const clasificadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0);
+      const clasificadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0)+(f.fallado_tela||0);
       const contado = f.contado||0;
       const porControlar = contado - clasificadas;
       const saldo = (f.esperado||0) - contado;
       const completo = f.esperado>0 && saldo===0 && porControlar===0;
       const tieneNotaDetalle = f.notas && Object.values(f.notas).some(n=>n.tipo==='detalle');
       const tieneNotaFallado = f.notas && Object.values(f.notas).some(n=>n.tipo==='fallado');
+      const tieneNotaFalladoTela = f.notas && Object.values(f.notas).some(n=>n.tipo==='fallado_tela');
       const inputAttr = cerrado ? 'disabled' : '';
-      totalEsperado+=(f.esperado||0); totalContado+=contado; totalOk+=(f.ok||0); totalDetalle+=(f.detalle||0); totalFallado+=(f.fallado||0);
+      totalEsperado+=(f.esperado||0); totalContado+=contado; totalOk+=(f.ok||0); totalDetalle+=(f.detalle||0); totalFallado+=(f.fallado||0); totalFalladoTela+=(f.fallado_tela||0);
       totalSaldo+=(f.esperado?saldo:0); totalPorControlar+=porControlar;
       return `<tr class="${completo?'logi-row-complete':''}">
         <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
@@ -9895,6 +9908,10 @@ function logiRenderDetail(id){
           <input type="number" min="0" class="logi-in-fallado" value="${f.fallado||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','fallado',this.value)">
           ${cerrado?'':`<button class="logi-note-btn ${tieneNotaFallado?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','fallado')">📝</button>`}
         </td>
+        <td>
+          <input type="number" min="0" class="logi-in-fallado-tela" value="${f.fallado_tela||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','fallado_tela',this.value)">
+          ${cerrado?'':`<button class="logi-note-btn ${tieneNotaFalladoTela?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','fallado_tela')">📝</button>`}
+        </td>
         <td style="font-weight:700;color:${saldo<0?'#b0392f':(saldo===0&&f.esperado?'#2e7d4f':'var(--text2)')}">${f.esperado?saldo:'—'}</td>
         ${canEditarGrilla?`<td><button class="logi-note-btn" title="Borrar fila" onclick="logiBorrarFila('${id}','${key}')">🗑️</button></td>`:''}
       </tr>`;
@@ -9907,12 +9924,13 @@ function logiRenderDetail(id){
       <td>${totalOk}</td>
       <td>${totalDetalle}</td>
       <td>${totalFallado}</td>
+      <td>${totalFalladoTela}</td>
       <td style="color:${totalSaldo<0?'#b0392f':(totalSaldo===0&&totalEsperado?'#2e7d4f':'var(--text2)')}">${totalEsperado?totalSaldo:'—'}</td>
       ${canEditarGrilla?'<td></td>':''}
     </tr>`;
     rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table">
       <thead><tr>
-        <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>Por controlar</th><th>OK</th><th>Detalle</th><th>Fallado</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
+        <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>Por controlar</th><th>OK</th><th>Detalle</th><th title="Fallado por culpa del taller — sí se le descuenta/no se le paga">Fallado taller</th><th title="Fallado por defecto de tela — no es responsabilidad del taller">Fallado tela</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
       </tr></thead>
       <tbody>${body}</tbody>
       <tfoot>${totalRow}</tfoot>
@@ -9923,14 +9941,15 @@ function logiRenderDetail(id){
     (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenContadoGridModal('${id}')">🔢 Cargar conteo por grilla</button>` : '') +
     (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenClasifGridModal('${id}')">🔢 Cargar OK/Detalle/Fallado por grilla</button>` : '');
 
-  const totalClasificadas = totalOk+totalDetalle+totalFallado;
+  const totalClasificadas = totalOk+totalDetalle+totalFallado+totalFalladoTela;
   const puedeCerrar = !cerrado && filas.length>0 && totalContado>0 && totalPorControlar===0;
 
   let html = `<div class="logi-final-summary">
     <div class="logi-line"><span>🔢 Contado</span><strong>${totalContado}</strong></div>
     <div class="logi-line"><span>✅ OK (depósito)</span><strong>${totalOk}</strong></div>
     <div class="logi-line"><span>🟡 Con detalle (local físico)</span><strong>${totalDetalle}</strong></div>
-    <div class="logi-line"><span>❌ Fallado (fuera de venta)</span><strong>${totalFallado}</strong></div>
+    <div class="logi-line"><span>❌ Fallado taller (fuera de venta)</span><strong>${totalFallado}</strong></div>
+    <div class="logi-line"><span>🧵 Fallado tela (fuera de venta)</span><strong>${totalFalladoTela}</strong></div>
   </div>`;
 
   if(cerrado){
@@ -9969,10 +9988,10 @@ function logiSetConteo(itemId,rowKey,tipo,valor){
   const it = logiItemsData[itemId];
   const f = (it && it.grilla && it.grilla[rowKey]) || {};
   let n = Math.max(0, parseInt(valor)||0);
-  if(tipo==='ok'||tipo==='detalle'||tipo==='fallado'){
+  if(tipo==='ok'||tipo==='detalle'||tipo==='fallado'||tipo==='fallado_tela'){
     const contado = f.contado||0;
-    const otrosDosCampos = ['ok','detalle','fallado'].filter(t=>t!==tipo).reduce((s,t)=>s+(f[t]||0),0);
-    const maxPermitido = Math.max(0, contado-otrosDosCampos);
+    const otrosCampos = ['ok','detalle','fallado','fallado_tela'].filter(t=>t!==tipo).reduce((s,t)=>s+(f[t]||0),0);
+    const maxPermitido = Math.max(0, contado-otrosCampos);
     if(n>maxPermitido){
       n=maxPermitido;
       showToast(`⚠️ No podés cargar más de lo Contado (${contado}) entre OK/Detalle/Fallado — quedó en ${n}`);
@@ -10023,6 +10042,15 @@ function logiCerrarConteo(itemId){
 // --- Pendiente dividir → Finalizado: solo Ariel puede confirmar que ya se dividió la
 // mercadería entre local y depósito/mayorista. Recién ahí el corte queda "cerrado" (Finalizado)
 // y aparece en la pestaña Web y con el resto de datos de Finalizados. ---
+function logiSetDivision(itemId,campo,valor,pool){
+  const n=Math.max(0,Math.min(pool,parseInt(valor)||0));
+  const otroCampo = campo==='avellaneda' ? 'deposito' : 'avellaneda';
+  const otroValor = pool - n;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/division_${campo}`).set(n);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/division_${otroCampo}`).set(otroValor);
+  logActivity('Cargó división local/depósito',`Ítem ${itemId}: Avellaneda ${campo==='avellaneda'?n:otroValor} · Depósito ${campo==='deposito'?n:otroValor}`);
+  logiRenderBoard();
+}
 function logiMarcarDividido(itemId){
   if(currentUser!=='ariel'){ showToast('Solo Ariel puede marcar como dividido'); return; }
   if(!confirm('¿Confirmás que ya se dividió la mercadería (local / depósito-mayorista)? Esto lo pasa a Finalizado.')) return;
@@ -10228,7 +10256,7 @@ function logiClasifGridConfirmar(){
     const key = inp.dataset.rowkey;
     const f = (it.grilla && it.grilla[key]) || {};
     const contado = f.contado||0;
-    const otrosDosCampos = ['ok','detalle','fallado'].filter(t=>t!==field).reduce((s,t)=>s+(f[t]||0),0);
+    const otrosDosCampos = ['ok','detalle','fallado','fallado_tela'].filter(t=>t!==field).reduce((s,t)=>s+(f[t]||0),0);
     const maxPermitido = Math.max(0, contado-otrosDosCampos);
     let n = Math.max(0, parseInt(inp.value)||0);
     if(n>maxPermitido){ n=maxPermitido; recortados++; }
@@ -10236,7 +10264,7 @@ function logiClasifGridConfirmar(){
     updates[`fabrica_v5/logistica/items/${itemId}/grilla/${key}/${field}_set_by`] = currentUser;
   });
   db.ref().update(updates);
-  const fieldLabel = field==='ok'?'OK':field==='detalle'?'Detalle':'Fallado';
+  const fieldLabel = field==='ok'?'OK':field==='detalle'?'Detalle':field==='fallado_tela'?'Fallado tela':'Fallado taller';
   showToast(recortados
     ? `✓ ${fieldLabel} guardado — ${recortados} celda${recortados!==1?'s':''} se recortaron para no superar lo Contado`
     : `✓ ${fieldLabel} guardado (${inputs.length} celda${inputs.length!==1?'s':''})`);

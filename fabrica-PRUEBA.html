@@ -8851,8 +8851,25 @@ function renderObjetivoDisenoPanel(){
 // Total del mes + líneas libres que arma Ariel/Stef (ej: "Remeras estampadas: 4000"), cada una
 // filtrando por categoría y/o si es estampado. Cada corte marcado ("Marcar cortado") descuenta
 // solo de las líneas cuyo filtro matchea ese ítem.
+// Unidades REALES cortadas de un ítem — misma cuenta que usa la propia app en "Prendas reales
+// (según corte)": capas realmente usadas por color (cargadas en Rollos) × curva de talles.
+// item.capas NO se usa acá porque ese campo no se llega a poblar en el flujo actual.
+function unidadesRealesDeItem(item){
+  const talles=item.capas_talles||[];
+  const curva=item.curva_valores||{};
+  if(!talles.length||!Object.keys(curva).length) return 0;
+  const rollos=Object.values(item.rollos||{}).filter(r=>r&&r.color&&r.capas);
+  if(!rollos.length) return 0;
+  const capasRealesPorColor={};
+  rollos.forEach(r=>{ capasRealesPorColor[r.color]=(capasRealesPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
+  let total=0;
+  Object.values(capasRealesPorColor).forEach(capas=>{
+    talles.forEach(t=>{ total+=Math.round(capas*(parseFloat(curva[t])||0)); });
+  });
+  return total;
+}
 function unidadesCortadasDeItem(it){
-  return Object.values(it.capas||{}).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
+  return unidadesRealesDeItem(it);
 }
 function itemsCortadosEsteMes(){
   const now=new Date();
@@ -9445,8 +9462,8 @@ function calcularCortadores(modo){
       const per=keyFn(it.fecha_corte_ts);
       out[per]=out[per]||{};
       out[per][it.cortado_por]=out[per][it.cortado_por]||{prendas:0,muestras:0};
-      if(it.capas&&Object.keys(it.capas).length){
-        const total=Object.values(it.capas).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
+      const total=unidadesRealesDeItem(it);
+      if(total>0){
         out[per][it.cortado_por].prendas+=total;
       } else {
         out[per][it.cortado_por].muestras+=1;

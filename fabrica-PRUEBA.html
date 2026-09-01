@@ -691,7 +691,9 @@
             <div class="logi-section-title" onclick="logiToggleColapso('finalizado')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
               <span id="logi-caret-finalizado">▾</span> ✅ Finalizados
             </div>
+            <input type="text" id="logi-finalizados-buscar" placeholder="Buscar en Finalizados por código o N° de corte..." style="width:100%;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;margin-bottom:8px" oninput="logiFinalizadosBuscar=this.value;logiRenderBoard()">
             <div id="logi-done-list"></div>
+            <button class="btn-sm" id="logi-finalizados-vermas" onclick="logiFinalizadosVerTodos=true;logiRenderBoard()" style="display:none;margin-top:6px">Ver más finalizados</button>
           </div>
           <div class="logi-sidebar-col">
             <div class="logi-side-box">
@@ -9335,6 +9337,7 @@ function logiAplicarColapso(){
   });
 }
 
+let logiFinalizadosBuscar='', logiFinalizadosVerTodos=false;
 function logiRenderBoard(){
   const conteo=[], control=[], dividir=[], done=[];
   Object.entries(logiItemsData).forEach(([id,it])=>{
@@ -9352,8 +9355,18 @@ function logiRenderBoard(){
   // Finalizados: siempre ordenado por N° de corte (no usa el selector "Ordenar por" de arriba,
   // que aplica solo a conteo/control) para que sea fácil ubicar un corte puntual.
   const doneOrdenados = done.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
-  const doneShow=doneOrdenados.slice(0,10);
-  document.getElementById('logi-done-list').innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : '<div class="empty">Todavía no se cerró ningún conteo</div>';
+  // Solo se mostraban los primeros 10 sin ninguna forma de ver el resto — un corte recién
+  // dividido podía quedar "escondido" si había 10+ finalizados con número de corte menor.
+  // Ahora: buscador propio (ignora el límite) + botón "Ver más" para el resto.
+  let doneVisibles = doneOrdenados;
+  const buscarFin = (logiFinalizadosBuscar||'').trim().toLowerCase();
+  if(buscarFin){
+    doneVisibles = doneOrdenados.filter(([,it])=>String(it.code||'').toLowerCase().includes(buscarFin)||String(it.numero_corte||'').toLowerCase().includes(buscarFin));
+  }
+  const doneShow = (buscarFin||logiFinalizadosVerTodos) ? doneVisibles : doneVisibles.slice(0,10);
+  document.getElementById('logi-done-list').innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : (buscarFin ? '<div class="empty">No encontré ningún finalizado con eso.</div>' : '<div class="empty">Todavía no se cerró ningún conteo</div>');
+  const btnVerMas=document.getElementById('logi-finalizados-vermas');
+  if(btnVerMas) btnVerMas.style.display = (!buscarFin && !logiFinalizadosVerTodos && doneVisibles.length>10) ? '' : 'none';
   logiRenderResumenLateral(conteo, control);
   logiRenderStatsPorPersona();
   logiAplicarColapso();

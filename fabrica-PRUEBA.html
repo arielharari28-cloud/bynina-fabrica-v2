@@ -8788,6 +8788,17 @@ function toggleObjetivoDisenoGrilla(){
   renderObjetivoDisenoPanel();
 }
 
+// Colapso persistente para los paneles de Objetivo (Diseño/Corte) — se guarda en localStorage
+// para que cada uno recuerde su preferencia sin depender de Firebase.
+function objetivoPanelColapsado(key){
+  return localStorage.getItem('objetivo_panel_colapsado_'+key)==='1';
+}
+function toggleObjetivoPanelColapsado(key){
+  const actual=objetivoPanelColapsado(key);
+  localStorage.setItem('objetivo_panel_colapsado_'+key, actual?'0':'1');
+  if(key==='diseno') renderObjetivoDisenoPanel(); else renderObjetivoCortePanel();
+}
+
 function renderObjetivoDisenoPanel(){
   const el=document.getElementById('objetivo-diseno-panel');
   if(!el) return;
@@ -8820,7 +8831,8 @@ function renderObjetivoDisenoPanel(){
     : '<div class="od-mini-empty">Todavía no se aprobó ninguna base este mes.</div>'
   }</div>` : '';
   el.innerHTML=`<div class="od-box">
-    <div class="od-title">🎯 Objetivo de Diseño — bases nuevas en ${mesNombre}</div>
+    <div class="od-title" style="cursor:pointer" onclick="toggleObjetivoPanelColapsado('diseno')">${objetivoPanelColapsado('diseno')?'▸':'▾'} 🎯 Objetivo de Diseño — bases nuevas en ${mesNombre}</div>
+    ${objetivoPanelColapsado('diseno') ? '' : `
     <div class="od-row" style="cursor:pointer" onclick="toggleObjetivoDisenoGrilla()">
       <div class="od-label">${objetivoDisenoAbierto?'▾':'▸'} Bases nuevas aprobadas</div>
       <div class="od-bar-wrap"><div class="od-bar" style="width:${pct}%;background:${cumplido?'#16a34a':'#4f46e5'}"></div></div>
@@ -8832,7 +8844,7 @@ function renderObjetivoDisenoPanel(){
     </div>
     ${grilla}
     <div class="od-foot">Cuenta artículos con el molde aprobado este mes. Tocá la fila para ver las fotos. ${canEditar?'Tocá los números para editarlos a mano.':''}</div>
-  </div>`;
+    `}  </div>`;
 }
 
 // ============= OBJETIVO DE CORTE (Fábrica) =============
@@ -8976,11 +8988,13 @@ function renderObjetivoCortePanel(){
   }).join('');
 
   el.innerHTML=`<div class="od-box">
-    <div class="od-title">🎯 Objetivo de Corte — ${mesNombre}</div>
+    <div class="od-title" style="cursor:pointer" onclick="toggleObjetivoPanelColapsado('corte')">${objetivoPanelColapsado('corte')?'▸':'▾'} 🎯 Objetivo de Corte — ${mesNombre}</div>
+    ${objetivoPanelColapsado('corte') ? '' : `
     ${totalRow}
     ${Object.keys(objetivoCorteLineas).length?`<div class="od-sep">Objetivos puntuales</div>${lineasHtml}`:''}
     ${canEditar?`<button class="od-agregar-linea" onclick="agregarLineaObjetivoCorte()">+ Agregar objetivo puntual</button>`:''}
     <div class="od-foot">Suma unidades cortadas reales (no artículos). Tocá una fila para ver las fotos.</div>
+    `}
   </div>`;
 }
 

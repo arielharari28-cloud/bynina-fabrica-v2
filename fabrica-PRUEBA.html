@@ -539,6 +539,7 @@
     <button class="user-btn" id="btn-arimoron"><div class="user-avatar" style="background:#0e7490">AM</div><div><div class="uname">Ari Morón</div><div class="urole">Cortador — Fábrica y Pendientes</div></div></button>
     <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">N</div><div><div class="uname">Nahuel</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-noemi"><div class="user-avatar" style="background:#be185d">N</div><div><div class="uname">Noemí</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
+    <button class="user-btn" id="btn-noelia"><div class="user-avatar" style="background:#7c2d12">N</div><div><div class="uname">Noelia</div><div class="urole">Diseño — acceso total · resto solo lectura</div></div></button>
   </div>
 </div>
 
@@ -1083,7 +1084,7 @@ db.ref('.info/connected').on('value', snap=>{
 // --- PIN por usuario ---
 // Arranca con estos valores por defecto; se guardan en Firebase la primera vez,
 // y desde ahí Ariel/Stef los pueden cambiar sin tocar código.
-let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', arimoron:'0634', nahuel:'0633', noemi:'0001'};
+let userPins = {ariel:'2801', stef:'1611', peque:'2907', emir:'2916', arimoron:'0634', nahuel:'0633', noemi:'0001', noelia:'0002'};
 let pinsReady = false;
 db.ref('fabrica_v5/pins').once('value',snap=>{
   if(snap.exists()){
@@ -2596,7 +2597,7 @@ function esSeccionTalleres(secId,sec){
 }
 
 // Nombre visible de cada login
-const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí'};
+const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí',noelia:'Noelia'};
 
 // Lista de modelistas (editable: se puede agregar una nueva directo desde la ficha)
 let modelistasList = ['Peque','Adela','Guada','Paula'];
@@ -2784,6 +2785,7 @@ document.getElementById('btn-emir').onclick=()=>attemptLogin('emir');
 document.getElementById('btn-arimoron').onclick=()=>attemptLogin('arimoron');
 document.getElementById('btn-nahuel').onclick=()=>attemptLogin('nahuel');
 document.getElementById('btn-noemi').onclick=()=>attemptLogin('noemi');
+document.getElementById('btn-noelia').onclick=()=>attemptLogin('noelia');
 document.getElementById('user-chip').onclick=doLogout;
 
 function doLogin(user){
@@ -4926,6 +4928,12 @@ function renderSections(board){
   const c=document.getElementById(containerId);c.innerHTML='';
   if(board==='diseno') renderObjetivoDisenoPanel();
   if(board==='fabrica') renderObjetivoCortePanel();
+  // Noelia: acceso de edición completo en Diseño, solo lectura en el resto. En vez de tocar
+  // cada uno de los ~25 chequeos de permiso dispersos por las tarjetas, se la trata como Stef
+  // SOLO mientras se renderiza el tablero de Diseño — afuera de esa ventana sigue siendo
+  // 'noelia', que no matchea ningún chequeo existente, así que todo queda de solo lectura solo.
+  const _usuarioReal=currentUser;
+  if(_usuarioReal==='noelia' && board==='diseno') currentUser='stef';
   const boardParaDatos = board==='talleres' ? 'fabrica' : board;
   let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===boardParaDatos).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
   // "Talleres" es un recorte del tablero Fábrica: mismas secciones y datos, solo que separadas
@@ -5036,6 +5044,7 @@ function renderSections(board){
   // "Talleres" muestra un recorte de los mismos datos de Fábrica — se refresca solo cada vez
   // que se refresca Fábrica, así no hace falta duplicar cada llamada existente en el código.
   if(board==='fabrica'&&!document.getElementById('tab-talleres').classList.contains('hidden')) renderSections('talleres');
+  currentUser=_usuarioReal;
 }
 
 function moveSectionOrder(secId,dir){
@@ -8250,6 +8259,10 @@ const TAB_VISIBILITY={
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
   noemi:['tab-btn-logistica'],
+  // Noelia ve todas las pestañas (pediste "que vea todo") — la restricción real de que solo
+  // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
+  // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
+  noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
 };
 function applyTabVisibility(user){
   const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT;
@@ -8362,7 +8375,7 @@ document.getElementById('accesos-btn').onclick=()=>{
 
 function renderPinsPanel(){
   const el=document.getElementById('pins-list');
-  const users=['ariel','stef','peque','emir','arimoron','nahuel','noemi'];
+  const users=['ariel','stef','peque','emir','arimoron','nahuel','noemi','noelia'];
   el.innerHTML=users.map(u=>`
     <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:12px;flex:1">${USER_DISPLAY[u]||u}</span>
@@ -8425,7 +8438,7 @@ function renderNotifPanel(){
 }
 // ---- "Mis pendientes": campanita personal que le muestra a cada usuario, en tiempo real,
 // qué le falta hacer a ÉL/ELLA — sin tener que entrar a Pendientes/Logística a revisar.
-const MIS_PENDIENTES_USERS=['peque','ariel','stef','emir','arimoron','nahuel','noemi'];
+const MIS_PENDIENTES_USERS=['peque','ariel','stef','emir','arimoron','nahuel','noemi','noelia'];
 let misPendientesLastSeen=0;
 
 // Recorre TODOS los ítems de todas las secciones, juntando los avíos de cada uno (para

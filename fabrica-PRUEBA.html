@@ -9251,6 +9251,7 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
     renderMisPendientesBadge();
     if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
   }
+  facturacionMigrarSiHaceFalta();
 });
 
 function logiInit(){
@@ -9631,15 +9632,18 @@ function logiSetPrioridad(itemId, prioridad){
 
 // --- Finalizados: precio de taller (por unidad) y a cuánto se le debe (OK + Detalle) ---
 // ============= FACTURACIÓN (Meli — administración) =============
-// Cortes ya finalizados en Logística, listos para pagarle al taller o proveedor. Cantidad
+// Cortes ya finalizados en Logística, listos para facturar al taller o proveedor. Cantidad
 // facturable = OK + Detalle + Fallado tela (el Fallado taller NO se factura, es responsabilidad
 // del taller). Siempre queda un botón para corregir la cantidad a mano si algo no cierra.
 //
-// Pagos: se registran por taller/proveedor (no por corte suelto), y se debitan solos contra
-// los cortes pendientes de ESE taller/proveedor, del más viejo al más nuevo (FIFO). Si el pago
-// no alcanza para cubrir un corte entero, ese corte queda con saldo parcial y ahí se corta —
-// el resto del pago no salta a otro corte porque no sobró nada. Si el pago es mayor a lo
-// pendiente, sigue debitando de los siguientes cortes en orden hasta gastarlo todo.
+// MODELO DE CUENTA CORRIENTE (a partir de esta versión):
+// Un corte con precio cargado se "Factura a cuenta corriente" con un botón — a partir de ahí
+// su monto queda CONGELADO como un movimiento fijo (Debe) y no se recalcula más, aunque
+// después se corrija cantidad o precio en otro lado. Los pagos ya no se debitan contra cortes
+// puntuales: son simplemente un movimiento (Haber) contra la cuenta corriente del taller. Si
+// algo necesita corregirse después de facturado, se hace con un "Ajuste manual" directo en la
+// cuenta corriente (con motivo), nunca reabriendo el corte — así el saldo es siempre trazable,
+// como una planilla de Debe/Haber/Saldo.
 let facturacionFiltro='pendiente', facturacionBuscar='';
 // Talleres colapsados en la vista de Facturación (colapsado = valor true). Por defecto todos
 // arrancan colapsados; se abren individualmente al hacer click en el header (ver toggleFacturacionGrupo).
@@ -9660,18 +9664,18 @@ function facturacionCantidad(it){
   const auto=facturacionCantidadAuto(it);
   return it.facturacion_cantidad_manual!=null?it.facturacion_cantidad_manual:auto;
 }
-function facturacionTotal(it){
-  return facturacionCantidad(it)*(it.precio_taller||0);
+// Monto de un corte para la cuenta corriente: si ya fue facturado, es el monto CONGELADO al
+// momento de facturarlo (no se recalcula más); si todavía no, es cantidad×precio en vivo.
+function facturacionMontoItem(it){
+  return it.facturado_cta_cte ? (it.facturacion_monto||0) : facturacionCantidad(it)*(it.precio_taller||0);
 }
-function facturacionPagado(it){
-  return Object.values(it.pagos||{}).reduce((s,p)=>s+(p.monto||0),0);
-}
+function facturacionTotal(it){ return facturacionMontoItem(it); }
 function facturacionDestino(it){
   return it.taller||it.proveedor||'Sin destino';
 }
 // Corrige el nombre de taller/proveedor cuando quedó mal cargado (typo, etc.), reasignando
-// todos los cortes de ese grupo al nombre correcto, y actualizando también el historial de
-// pagos ya registrados para que sigan agrupados junto con el nombre corregido.
+// todos los cortes de ese grupo al nombre correcto, y actualizando también los pagos y ajustes
+// ya registrados para que sigan agrupados junto con el nombre corregido.
 function facturacionRenombrarTaller(destinoActual){
   const nuevo=(prompt(`Corregir nombre de taller/proveedor.\n\nActual: "${destinoActual}"\n\nEscribí el nombre correcto:`,destinoActual)||'').trim();
   if(!nuevo||nuevo===destinoActual) return;
@@ -9686,32 +9690,61 @@ function facturacionRenombrarTaller(destinoActual){
   Object.entries(fabricaPagosTallerData||{}).forEach(([pagoId,p])=>{
     if(p.destino===destinoActual) updates[`fabrica_v5/pagos_taller/${pagoId}/destino`]=nuevo;
   });
+  Object.entries(fabricaAjustesTallerData||{}).forEach(([ajusteId,a])=>{
+    if(a.destino===destinoActual) updates[`fabrica_v5/ajustes_taller/${ajusteId}/destino`]=nuevo;
+  });
   db.ref().update(updates);
   logActivity('Reasignó taller/proveedor',`"${destinoActual}" → "${nuevo}" (${items.length} corte${items.length!==1?'s':''})`);
   showToast(`✓ Reasignado a "${nuevo}"`);
   renderFacturacionTab();
 }
 function facturacionSetCantidadManual(itemId,val){
+  const it=(logiItemsData||{})[itemId];
+  if(it&&it.facturado_cta_cte){ showToast('Este corte ya está facturado — cargá un ajuste manual en cuenta corriente para corregirlo'); return; }
   const n=Math.max(0,parseInt(val)||0);
   db.ref(`fabrica_v5/logistica/items/${itemId}/facturacion_cantidad_manual`).set(n);
   logActivity('Corrigió cantidad a facturar a mano',`Ítem ${itemId}: ${n}`);
   renderFacturacionTab();
 }
 function facturacionLimpiarManual(itemId){
+  const it=(logiItemsData||{})[itemId];
+  if(it&&it.facturado_cta_cte){ showToast('Este corte ya está facturado — cargá un ajuste manual en cuenta corriente para corregirlo'); return; }
   db.ref(`fabrica_v5/logistica/items/${itemId}/facturacion_cantidad_manual`).remove();
   renderFacturacionTab();
 }
 function facturacionSetPrecio(itemId,val){
+  const it=(logiItemsData||{})[itemId];
+  if(it&&it.facturado_cta_cte){ showToast('Este corte ya está facturado — cargá un ajuste manual en cuenta corriente para corregirlo'); return; }
   const n=Math.max(0,parseFloat(val)||0);
   db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).set(n);
+  renderFacturacionTab();
+}
+// Congela el monto del corte (cantidad×precio de hoy) como un movimiento fijo (Debe) en la
+// cuenta corriente del taller. Desde acá no se puede volver atrás — a propósito, es lo que
+// pediste: una vez facturado, cualquier corrección se hace como ajuste manual en la cuenta.
+function facturacionFacturarCorte(itemId){
+  const it=(logiItemsData||{})[itemId];
+  if(!it){ showToast('No se encontró ese corte'); return; }
+  if(it.facturado_cta_cte){ showToast('Ese corte ya está facturado'); return; }
+  if(!(it.precio_taller>0)){ showToast('Cargá el precio antes de facturar'); return; }
+  const monto=facturacionCantidad(it)*(it.precio_taller||0);
+  if(!confirm(`¿Facturar este corte a cuenta corriente por $${monto.toLocaleString('es-AR')}?\n\nDespués de facturado no se puede volver atrás ni editar cantidad/precio de este corte — cualquier corrección se carga como ajuste manual en la cuenta corriente del taller.`)) return;
+  const updates={};
+  updates[`fabrica_v5/logistica/items/${itemId}/facturado_cta_cte`]=true;
+  updates[`fabrica_v5/logistica/items/${itemId}/facturacion_monto`]=monto;
+  updates[`fabrica_v5/logistica/items/${itemId}/facturacion_fecha`]=new Date().toLocaleDateString('es-AR');
+  updates[`fabrica_v5/logistica/items/${itemId}/facturacion_fecha_registro`]=Date.now();
+  updates[`fabrica_v5/logistica/items/${itemId}/facturacion_registrado_por`]=currentUser;
+  db.ref().update(updates);
+  logActivity('Facturó corte a cuenta corriente',`${it.code||it.numero_corte||itemId}: $${monto.toLocaleString('es-AR')}`);
+  showToast('✓ Facturado a cuenta corriente');
   renderFacturacionTab();
 }
 function facturacionItemsFiltrados(){
   const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado');
   let out=items.filter(([,it])=>{
-    const saldo=facturacionTotal(it)-facturacionPagado(it);
-    if(facturacionFiltro==='pendiente') return saldo>0.009||!it.precio_taller;
-    if(facturacionFiltro==='facturado') return saldo<=0.009&&!!it.precio_taller;
+    if(facturacionFiltro==='pendiente') return !it.facturado_cta_cte;
+    if(facturacionFiltro==='facturado') return !!it.facturado_cta_cte;
     return true;
   });
   const q=(facturacionBuscar||'').trim().toLowerCase();
@@ -9721,120 +9754,189 @@ function facturacionItemsFiltrados(){
   out.sort((a,b)=>(a[1].fecha_entregado_ts||a[1].fecha_cerrado||0)-(b[1].fecha_entregado_ts||b[1].fecha_cerrado||0));
   return out;
 }
-// Todos los cortes finalizados con saldo pendiente para un taller/proveedor puntual, en orden
-// del más viejo al más nuevo — es contra esta lista que se debita un pago nuevo.
-function facturacionPendientesDeDestino(destino){
-  return Object.entries(logiItemsData||{})
-    .filter(([,it])=>it.estado==='cerrado' && facturacionDestino(it)===destino && (facturacionTotal(it)-facturacionPagado(it))>0.009)
-    .sort((a,b)=>(a[1].fecha_entregado_ts||a[1].fecha_cerrado||0)-(b[1].fecha_entregado_ts||b[1].fecha_cerrado||0));
-}
 function facturacionListaDestinos(){
   const set=new Set();
   Object.values(logiItemsData||{}).forEach(it=>{ if(it.estado==='cerrado') set.add(facturacionDestino(it)); });
   return Array.from(set).sort();
 }
-// Repuebla el select de "corte puntual" cada vez que cambia el taller/proveedor elegido,
-// mostrando solo los cortes de ese destino con saldo pendiente.
-function facturacionActualizarSelectCorte(){
-  const sel=document.getElementById('facturacion-pago-corte');
-  if(!sel) return;
-  const destino=(document.getElementById('facturacion-pago-destino').value||'').trim();
-  const pendientes=destino?facturacionPendientesDeDestino(destino):[];
-  sel.innerHTML='<option value="">(automático — el más viejo primero)</option>'+
-    pendientes.map(([id,it])=>{
-      const saldo=facturacionTotal(it)-facturacionPagado(it);
-      return `<option value="${id}">${it.code||it.numero_corte||id} — falta $${saldo.toLocaleString('es-AR')}</option>`;
-    }).join('');
+// Saldo de cuenta corriente de un taller/proveedor = Debe (cortes facturados + ajustes tipo
+// "debe") menos Haber (pagos registrados + ajustes tipo "haber"). Positivo = le debemos
+// (saldo pendiente). Negativo = tiene crédito a favor (le pagamos/ajustamos de más).
+function facturacionSaldoCC(destino){
+  const debeFacturas=Object.values(logiItemsData||{})
+    .filter(it=>it.estado==='cerrado'&&it.facturado_cta_cte&&facturacionDestino(it)===destino)
+    .reduce((s,it)=>s+(it.facturacion_monto||0),0);
+  const ajustesDestino=Object.values(fabricaAjustesTallerData||{}).filter(a=>a.destino===destino);
+  const debeAjustes=ajustesDestino.filter(a=>a.tipo==='debe').reduce((s,a)=>s+(a.monto||0),0);
+  const haberAjustes=ajustesDestino.filter(a=>a.tipo==='haber').reduce((s,a)=>s+(a.monto||0),0);
+  const haberPagos=Object.values(fabricaPagosTallerData||{}).filter(p=>p.destino===destino).reduce((s,p)=>s+(p.monto||0),0);
+  return (debeFacturas+debeAjustes)-(haberPagos+haberAjustes);
 }
 function facturacionRegistrarPago(){
   const destino=document.getElementById('facturacion-pago-destino').value.trim();
   const monto=parseFloat(document.getElementById('facturacion-pago-monto').value);
   const fecha=document.getElementById('facturacion-pago-fecha').value||new Date().toLocaleDateString('es-AR');
-  const corteElegidoId=document.getElementById('facturacion-pago-corte')?document.getElementById('facturacion-pago-corte').value:'';
   if(!destino){ showToast('Elegí a quién le estás pagando'); return; }
   if(!monto||monto<=0){ showToast('Cargá un monto válido'); return; }
-  let pendientes=facturacionPendientesDeDestino(destino);
-  if(!pendientes.length){ showToast(`${destino} no tiene cortes con saldo pendiente`); return; }
-  // Si se eligió un corte puntual, se debita primero de ese (aunque no sea el más viejo) y,
-  // si sobra plata, sigue con el resto en orden normal (FIFO) como siempre.
-  if(corteElegidoId){
-    const elegido=pendientes.find(([id])=>id===corteElegidoId);
-    if(elegido){
-      pendientes=[elegido,...pendientes.filter(([id])=>id!==corteElegidoId)];
-    }
-  }
-  let restante=monto;
   const pagoId='pago_'+Date.now();
-  const updates={};
-  const aplicaciones={};
-  const detalle=[];
-  for(const [id,it] of pendientes){
-    if(restante<=0.009) break;
-    const saldoCorte=facturacionTotal(it)-facturacionPagado(it);
-    const aplicado=Math.min(restante,saldoCorte);
-    updates[`fabrica_v5/logistica/items/${id}/pagos/${pagoId}`]={monto:aplicado,fecha,registrado_por:currentUser};
-    aplicaciones[id]={monto:aplicado,code:it.code||'',numero_corte:it.numero_corte||''};
-    detalle.push(`${it.code||it.numero_corte||id}: $${aplicado.toLocaleString('es-AR')}`);
-    restante-=aplicado;
-  }
-  updates[`fabrica_v5/pagos_taller/${pagoId}`]={destino,monto,fecha,registrado_por:currentUser,fecha_registro:Date.now(),aplicaciones,sobrante:restante>0.009?restante:0};
-  db.ref().update(updates);
-  logActivity('Registró pago',`${destino}: $${monto.toLocaleString('es-AR')} → ${detalle.join(' · ')}`);
+  db.ref(`fabrica_v5/pagos_taller/${pagoId}`).set({destino,monto,fecha,registrado_por:currentUser,fecha_registro:Date.now()});
+  logActivity('Registró pago',`${destino}: $${monto.toLocaleString('es-AR')}`);
   document.getElementById('facturacion-pago-monto').value='';
-  if(document.getElementById('facturacion-pago-corte')) document.getElementById('facturacion-pago-corte').value='';
-  const resumen=restante>0.009
-    ? `✓ Pago aplicado. Sobraron $${restante.toLocaleString('es-AR')} sin poder debitar (no había más saldo pendiente de ${destino}).`
-    : `✓ Pago de $${monto.toLocaleString('es-AR')} debitado en: ${detalle.join(' · ')}`;
-  alert(resumen);
+  showToast(`✓ Pago de $${monto.toLocaleString('es-AR')} registrado en la cuenta de ${destino}`);
   renderFacturacionTab();
 }
-function facturacionVerPagos(destino){
-  document.getElementById('facturacion-pagos-modal-title').textContent=`Pagos a ${destino}`;
-  facturacionRenderPagosModal(destino);
-  document.getElementById('modal-facturacion-pagos').classList.remove('hidden');
-}
-function facturacionRenderPagosModal(destino){
-  const body=document.getElementById('facturacion-pagos-modal-body');
-  const pagos=Object.entries(fabricaPagosTallerData||{}).filter(([,p])=>p.destino===destino).sort((a,b)=>(b[1].fecha_registro||0)-(a[1].fecha_registro||0));
-  if(!pagos.length){ body.innerHTML=`<div class="empty">Todavía no hay pagos registrados para ${destino}.</div>`; return; }
-  body.innerHTML=pagos.map(([pagoId,p])=>{
-    const aplic=Object.values(p.aplicaciones||{}).map(a=>`${a.code||a.numero_corte}: $${(a.monto||0).toLocaleString('es-AR')}`).join(' · ');
-    return `<div class="logi-card" style="display:block;padding:10px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div>
-          <div style="font-weight:700">${p.fecha} — $${(p.monto||0).toLocaleString('es-AR')}</div>
-          <div style="font-size:11px;color:var(--text3)">Registró: ${USER_DISPLAY[p.registrado_por]||p.registrado_por}</div>
-          <div style="font-size:11.5px;color:var(--text2);margin-top:4px">→ ${aplic}</div>
-          ${p.sobrante?`<div style="font-size:11px;color:#b8860b;margin-top:2px">⚠️ sobrante sin aplicar: $${p.sobrante.toLocaleString('es-AR')}</div>`:''}
-        </div>
-        <button class="logi-note-btn" title="Borrar este pago" onclick="facturacionEliminarPago('${pagoId}','${destino.replace(/'/g,"\\'")}')">🗑</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-// Borra un pago cargado por error: revierte lo debitado en cada corte donde se había aplicado
-// y elimina el registro del historial. No reajusta pagos posteriores — si había otro pago
-// aplicado después que "saltó" a un corte siguiente por falta de saldo, ese queda como está.
 function facturacionEliminarPago(pagoId,destino){
   const pago=(fabricaPagosTallerData||{})[pagoId];
   if(!pago){ showToast('No se encontró ese pago'); return; }
-  if(!confirm(`¿Borrar el pago de $${(pago.monto||0).toLocaleString('es-AR')} del ${pago.fecha} a ${destino}? Esto revierte lo debitado en cada corte.`)) return;
-  const updates={};
-  Object.keys(pago.aplicaciones||{}).forEach(itemId=>{
-    updates[`fabrica_v5/logistica/items/${itemId}/pagos/${pagoId}`]=null;
-  });
-  updates[`fabrica_v5/pagos_taller/${pagoId}`]=null;
-  db.ref().update(updates);
+  if(!confirm(`¿Borrar el pago de $${(pago.monto||0).toLocaleString('es-AR')} del ${pago.fecha} a ${destino}?`)) return;
+  db.ref(`fabrica_v5/pagos_taller/${pagoId}`).remove();
   logActivity('Borró pago',`${destino}: $${(pago.monto||0).toLocaleString('es-AR')} del ${pago.fecha}`);
   showToast('✓ Pago borrado');
-  facturacionRenderPagosModal(destino);
+  facturacionRenderCuentaCorriente(destino);
   renderFacturacionTab();
+}
+// Ajuste manual: la única forma de corregir un corte ya facturado. tipo 'debe' = aumenta lo
+// que le debemos al taller (ej. nos facturaron algo que faltaba); tipo 'haber' = lo reduce
+// (ej. un descuento, una devolución, una corrección a favor nuestro).
+function facturacionGuardarAjuste(destino){
+  const tipo=document.getElementById('cc-ajuste-tipo').value;
+  const monto=Math.abs(parseFloat(document.getElementById('cc-ajuste-monto').value)||0);
+  const motivo=(document.getElementById('cc-ajuste-motivo').value||'').trim();
+  const fecha=document.getElementById('cc-ajuste-fecha').value||new Date().toLocaleDateString('es-AR');
+  if(!monto){ showToast('Cargá un monto válido'); return; }
+  if(!motivo){ showToast('Cargá un motivo para el ajuste'); return; }
+  const ajusteId='ajuste_'+Date.now();
+  db.ref(`fabrica_v5/ajustes_taller/${ajusteId}`).set({destino,tipo,monto,motivo,fecha,registrado_por:currentUser,fecha_registro:Date.now()});
+  logActivity('Cargó ajuste manual en cuenta corriente',`${destino}: ${tipo==='debe'?'+':'-'}$${monto.toLocaleString('es-AR')} — ${motivo}`);
+  showToast('✓ Ajuste cargado');
+  facturacionRenderCuentaCorriente(destino);
+  renderFacturacionTab();
+}
+function facturacionEliminarAjuste(ajusteId,destino){
+  const a=(fabricaAjustesTallerData||{})[ajusteId];
+  if(!a){ showToast('No se encontró ese ajuste'); return; }
+  if(!confirm(`¿Borrar el ajuste "${a.motivo}" (${a.tipo==='debe'?'+':'-'}$${(a.monto||0).toLocaleString('es-AR')})?`)) return;
+  db.ref(`fabrica_v5/ajustes_taller/${ajusteId}`).remove();
+  logActivity('Borró ajuste manual',`${destino}: ${a.motivo}`);
+  showToast('✓ Ajuste borrado');
+  facturacionRenderCuentaCorriente(destino);
+  renderFacturacionTab();
+}
+function facturacionToggleFormAjuste(){
+  const f=document.getElementById('cc-ajuste-form');
+  if(f) f.classList.toggle('hidden');
+}
+function facturacionVerCuentaCorriente(destino){
+  document.getElementById('facturacion-pagos-modal-title').textContent=`Cuenta corriente · ${destino}`;
+  facturacionRenderCuentaCorriente(destino);
+  document.getElementById('modal-facturacion-pagos').classList.remove('hidden');
+}
+// Arma la planilla tipo Excel: Fecha | Detalle | Debe | Haber | Saldo corrido — juntando
+// cortes facturados, pagos y ajustes manuales, todo ordenado cronológicamente.
+function facturacionRenderCuentaCorriente(destino){
+  const body=document.getElementById('facturacion-pagos-modal-body');
+  const movs=[];
+  Object.entries(logiItemsData||{}).forEach(([itemId,it])=>{
+    if(it.estado==='cerrado'&&it.facturado_cta_cte&&facturacionDestino(it)===destino){
+      movs.push({ts:it.facturacion_fecha_registro||0,fecha:it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,debe:it.facturacion_monto||0,haber:0});
+    }
+  });
+  Object.entries(fabricaPagosTallerData||{}).forEach(([pagoId,p])=>{
+    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}`,debe:0,haber:p.monto||0,pagoId});
+  });
+  Object.entries(fabricaAjustesTallerData||{}).forEach(([ajusteId,a])=>{
+    if(a.destino===destino) movs.push({ts:a.fecha_registro||0,fecha:a.fecha,detalle:`Ajuste: ${a.motivo}`,debe:a.tipo==='debe'?a.monto:0,haber:a.tipo==='haber'?a.monto:0,ajusteId});
+  });
+  movs.sort((a,b)=>a.ts-b.ts);
+  let saldoCorrido=0;
+  const filas=movs.map(m=>{
+    saldoCorrido+=m.debe-m.haber;
+    const accion=m.pagoId?`<button class="logi-note-btn" title="Borrar" onclick="facturacionEliminarPago('${m.pagoId}','${destino.replace(/'/g,"\\'")}')">🗑</button>`
+      :m.ajusteId?`<button class="logi-note-btn" title="Borrar" onclick="facturacionEliminarAjuste('${m.ajusteId}','${destino.replace(/'/g,"\\'")}')">🗑</button>`:'';
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:6px 4px;font-size:11.5px;white-space:nowrap">${m.fecha}</td>
+      <td style="padding:6px 4px;font-size:11.5px">${m.detalle}</td>
+      <td style="padding:6px 4px;font-size:11.5px;text-align:right">${m.debe?'$'+m.debe.toLocaleString('es-AR'):'—'}</td>
+      <td style="padding:6px 4px;font-size:11.5px;text-align:right">${m.haber?'$'+m.haber.toLocaleString('es-AR'):'—'}</td>
+      <td style="padding:6px 4px;font-size:11.5px;text-align:right;font-weight:700;color:${saldoCorrido>0.009?'var(--danger)':saldoCorrido<-0.009?'#1d4ed8':'#15803d'}">$${saldoCorrido.toLocaleString('es-AR')}</td>
+      <td style="padding:6px 2px;text-align:right">${accion}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <button class="btn-sm" onclick="facturacionToggleFormAjuste()">+ Ajuste manual</button>
+    </div>
+    <div id="cc-ajuste-form" class="hidden" style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Tipo</label>
+        <select id="cc-ajuste-tipo" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
+          <option value="debe">Aumenta lo que le debo</option>
+          <option value="haber">Reduce lo que le debo</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Monto</label>
+        <input type="number" min="0" id="cc-ajuste-monto" placeholder="0" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:110px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Motivo</label>
+        <input type="text" id="cc-ajuste-motivo" placeholder="Ej: corrección de cantidad" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:190px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Fecha</label>
+        <input type="date" id="cc-ajuste-fecha" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
+      </div>
+      <button class="btn-sm" onclick="facturacionGuardarAjuste('${destino.replace(/'/g,"\\'")}')">✓ Guardar ajuste</button>
+    </div>
+    ${movs.length?`<table style="width:100%;border-collapse:collapse">
+      <tr style="text-align:left;color:var(--text3);font-size:11px">
+        <th style="padding:4px">Fecha</th><th style="padding:4px">Detalle</th>
+        <th style="padding:4px;text-align:right">Debe</th><th style="padding:4px;text-align:right">Haber</th>
+        <th style="padding:4px;text-align:right">Saldo</th><th></th>
+      </tr>
+      ${filas}
+    </table>`:'<div class="empty">Todavía no hay movimientos para este taller/proveedor.</div>'}
+  `;
 }
 let fabricaPagosTallerData={};
 db.ref('fabrica_v5/pagos_taller').on('value',snap=>{
   fabricaPagosTallerData=snap.val()||{};
   if(!document.getElementById('tab-facturacion').classList.contains('hidden')) renderFacturacionTab();
 });
+let fabricaAjustesTallerData={};
+db.ref('fabrica_v5/ajustes_taller').on('value',snap=>{
+  fabricaAjustesTallerData=snap.val()||{};
+  if(!document.getElementById('tab-facturacion').classList.contains('hidden')) renderFacturacionTab();
+});
+// Migración única: la primera vez que corre esta versión, da por facturados (con su monto
+// actual congelado) todos los cortes que ya estaban cerrados y con precio cargado bajo el
+// sistema viejo — así no se pierde el historial previo. Después de esta corrida no se vuelve
+// a disparar (queda una marca en fabrica_v5/cta_cte_migrado), así que cualquier corte NUEVO
+// que reciba precio sí requiere el botón "Facturar a cuenta corriente" a propósito.
+let facturacionMigracionYaCorrio=false;
+function facturacionMigrarSiHaceFalta(){
+  if(facturacionMigracionYaCorrio) return;
+  db.ref('fabrica_v5/cta_cte_migrado').once('value').then(snap=>{
+    if(snap.val()){ facturacionMigracionYaCorrio=true; return; }
+    facturacionMigracionYaCorrio=true;
+    const updates={};
+    let algo=false;
+    Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+      if(it.estado==='cerrado' && (it.precio_taller||0)>0 && !it.facturado_cta_cte){
+        const monto=facturacionCantidad(it)*(it.precio_taller||0);
+        updates[`fabrica_v5/logistica/items/${id}/facturado_cta_cte`]=true;
+        updates[`fabrica_v5/logistica/items/${id}/facturacion_monto`]=monto;
+        updates[`fabrica_v5/logistica/items/${id}/facturacion_fecha`]=it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):new Date().toLocaleDateString('es-AR'));
+        updates[`fabrica_v5/logistica/items/${id}/facturacion_fecha_registro`]=it.fecha_cerrado||Date.now();
+        updates[`fabrica_v5/logistica/items/${id}/facturacion_registrado_por`]='migración automática';
+        algo=true;
+      }
+    });
+    updates['fabrica_v5/cta_cte_migrado']=true;
+    db.ref().update(updates);
+    if(algo) logActivity('Migró cortes a cuenta corriente','Se marcaron como facturados todos los cortes cerrados con precio cargado');
+  });
+}
 // Días desde que se entregó el corte — usa fecha_entregado (texto DD/MM/AAAA) si existe,
 // si no cae a fecha_cerrado (timestamp real), para poder mostrar "hace X días" siempre que
 // haya algún dato de fecha disponible.
@@ -9854,7 +9956,7 @@ function renderFacturacionTab(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div>
         <label style="font-size:11px;color:var(--text3);display:block">Taller / Proveedor</label>
-        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." oninput="facturacionActualizarSelectCorte()" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
+        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
         <datalist id="facturacion-destinos-list">${destinos.map(d=>`<option value="${d}">`).join('')}</datalist>
       </div>
       <div>
@@ -9865,15 +9967,9 @@ function renderFacturacionTab(){
         <label style="font-size:11px;color:var(--text3);display:block">Fecha</label>
         <input type="date" id="facturacion-pago-fecha" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
       </div>
-      <div>
-        <label style="font-size:11px;color:var(--text3);display:block">Debitar de (opcional)</label>
-        <select id="facturacion-pago-corte" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;max-width:200px">
-          <option value="">(automático — el más viejo primero)</option>
-        </select>
-      </div>
-      <button class="btn-sm" onclick="facturacionRegistrarPago()">✓ Registrar y debitar</button>
+      <button class="btn-sm" onclick="facturacionRegistrarPago()">✓ Registrar pago</button>
     </div>
-    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Si no elegís un corte puntual, se descuenta del más viejo con saldo pendiente de ese taller/proveedor y sigue con el siguiente si sobra plata.</div>
+    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">El pago queda como un movimiento (Haber) en la cuenta corriente del taller — no se debita contra un corte puntual. Vas a ver el detalle completo en "Cuenta corriente" de cada taller.</div>
   </div>`;
 
   if(!items.length){ el.innerHTML=formHtml+'<div class="empty">No hay cortes acá.</div>'; return; }
@@ -9892,52 +9988,59 @@ function renderFacturacionTab(){
     return maxDiasB-maxDiasA;
   });
 
-  // --- Resumen de cuentas: total pendiente general + un renglón por taller, con los que
-  // tienen saldo pendiente primero (de mayor a menor deuda), y los saldados al final. ---
-  const saldosPorGrupo=nombresGrupos.map(destino=>({
-    destino,
-    saldo:grupos[destino].reduce((s,[,it])=>s+(facturacionTotal(it)-facturacionPagado(it)),0)
-  }));
-  const totalPendienteGeneral=saldosPorGrupo.reduce((s,g)=>s+(g.saldo>0.009?g.saldo:0),0);
-  const resumenOrdenado=[...saldosPorGrupo].sort((a,b)=>b.saldo-a.saldo);
+  // --- Resumen de cuentas: saldo de cuenta corriente real por taller (independiente del
+  // filtro Pendientes/Facturados de la lista de abajo). Orden: primero a quién le debemos
+  // (deuda de mayor a menor), después los que tienen crédito a favor, y al final los saldados. ---
+  const todosLosDestinos=facturacionListaDestinos();
+  const cuentasPorDestino=todosLosDestinos.map(destino=>({destino,saldo:facturacionSaldoCC(destino)}));
+  const totalPendienteGeneral=cuentasPorDestino.reduce((s,g)=>s+(g.saldo>0.009?g.saldo:0),0);
+  const totalAFavorGeneral=cuentasPorDestino.reduce((s,g)=>s+(g.saldo<-0.009?-g.saldo:0),0);
+  const resumenOrdenado=[...cuentasPorDestino].sort((a,b)=>{
+    const grupoA=a.saldo>0.009?0:a.saldo<-0.009?1:2, grupoB=b.saldo>0.009?0:b.saldo<-0.009?1:2;
+    if(grupoA!==grupoB) return grupoA-grupoB;
+    return grupoA===0?b.saldo-a.saldo:a.saldo-b.saldo;
+  });
   const resumenHtml=`<div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px">
       <div style="font-weight:700;font-size:13.5px">Resumen de cuentas</div>
-      <div style="font-size:12.5px;font-weight:700;color:${totalPendienteGeneral>0.009?'var(--danger)':'#15803d'}">Total pendiente: ${totalPendienteGeneral>0.009?'$'+totalPendienteGeneral.toLocaleString('es-AR'):'$0'}</div>
+      <div style="display:flex;gap:14px;font-size:12.5px;font-weight:700">
+        <span style="color:var(--danger)">Total pendiente: ${totalPendienteGeneral>0.009?'$'+totalPendienteGeneral.toLocaleString('es-AR'):'$0'}</span>
+        ${totalAFavorGeneral>0.009?`<span style="color:#1d4ed8">Total a favor: $${totalAFavorGeneral.toLocaleString('es-AR')}</span>`:''}
+      </div>
     </div>
     ${resumenOrdenado.map(g=>{
-      const pend=g.saldo>0.009;
+      const pend=g.saldo>0.009, favor=g.saldo<-0.009;
+      const color=pend?'var(--danger)':favor?'#1d4ed8':'#15803d';
+      const monto=pend?'-$'+g.saldo.toLocaleString('es-AR'):favor?'+$'+Math.abs(g.saldo).toLocaleString('es-AR'):'$0';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px">
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="width:7px;height:7px;border-radius:50%;background:${pend?'var(--danger)':'#15803d'};flex-shrink:0"></span>
+          <span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0"></span>
           <span>${g.destino}</span>
         </div>
-        <span style="font-weight:700;color:${pend?'var(--danger)':'#15803d'}">${pend?'-$'+g.saldo.toLocaleString('es-AR'):'$0'}</span>
+        <span style="font-weight:700;color:${color}">${monto}</span>
       </div>`;
     }).join('')}
   </div>`;
 
   const gruposHtml=nombresGrupos.map(destino=>{
     const lista=grupos[destino];
-    const saldoTotal=lista.reduce((s,[,it])=>s+(facturacionTotal(it)-facturacionPagado(it)),0);
+    const saldoTotal=facturacionSaldoCC(destino); // cuenta corriente real, no solo lo filtrado en pantalla
     const colapsado=facturacionColapsados[destino]!==false; // default: colapsado
     const filas=lista.map(([id,it])=>{
       const cantidad=facturacionCantidad(it);
       const auto=facturacionCantidadAuto(it);
       const esManual=it.facturacion_cantidad_manual!=null;
       const precio=it.precio_taller||0;
-      const total=facturacionTotal(it);
-      const pagado=facturacionPagado(it);
-      const saldo=total-pagado;
+      const facturado=!!it.facturado_cta_cte;
+      const total=facturacionMontoItem(it);
       const dias=facturacionDiasEntregado(it);
       const fecha=it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):'—');
       const diasColor = dias==null?'var(--text3)':dias>=15?'var(--danger)':dias>=7?'#b8860b':'var(--text2)';
       const diasHtml = dias==null?'':`<span style="color:${diasColor};font-weight:700">· hace ${dias} día${dias!==1?'s':''}</span>`;
-      const estadoBadge = !precio ? `<span class="logi-badge" style="background:#f3f4f6;color:#6b7280">Sin precio cargado</span>`
-        : saldo<=0.009 ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">✓ Pagado</span>`
-        : pagado>0.009 ? `<span class="logi-badge" style="background:#fef3c7;color:#92400e">Pago parcial — falta $${saldo.toLocaleString('es-AR')}</span>`
-        : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">Sin pagar</span>`;
-      return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px${saldo<=0.009&&precio?';opacity:.7':''}">
+      const estadoBadge = facturado ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">✓ Facturado ${it.facturacion_fecha?'el '+it.facturacion_fecha:''}</span>`
+        : !precio ? `<span class="logi-badge" style="background:#f3f4f6;color:#6b7280">Sin precio cargado</span>`
+        : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">Pendiente de facturar</span>`;
+      return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px${facturado?';opacity:.75':''}">
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
           <div>
             <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
@@ -9946,19 +10049,26 @@ function renderFacturacionTab(){
           </div>
           ${estadoBadge}
         </div>
+        ${facturado?`
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px;color:var(--text2)">
+          <span>${cantidad} u. × $${precio.toLocaleString('es-AR')} = <strong>$${total.toLocaleString('es-AR')}</strong> (congelado — corrección: ajuste manual en cuenta corriente)</span>
+        </div>`:`
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px">
           <span>Cantidad: <input type="number" min="0" value="${cantidad}" title="${esManual?'Corregido a mano (automático daba '+auto+')':'Automático: OK+Detalle+Fallado tela'}" style="width:60px;border:1px solid ${esManual?'#c98f1f':'var(--border)'};border-radius:6px;padding:3px 5px;background:${esManual?'#fdf3d0':'var(--surface)'}" onchange="facturacionSetCantidadManual('${id}',this.value)"> u.
             ${esManual?`<button class="logi-note-btn" title="Volver al automático (${auto})" onclick="facturacionLimpiarManual('${id}')">↺</button>`:''}
           </span>
           <span>Precio: $<input type="number" min="0" value="${precio||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px" onchange="facturacionSetPrecio('${id}',this.value)"></span>
           <span style="font-weight:700">Total: $${total.toLocaleString('es-AR')}</span>
-          ${pagado>0.009?`<span style="color:#15803d">Pagado: $${pagado.toLocaleString('es-AR')}</span>`:''}
-        </div>
+          <button class="btn-sm" title="${precio?'':'Cargá el precio primero'}" ${precio?'':'disabled'} onclick="facturacionFacturarCorte('${id}')">✓ Facturar a cuenta corriente</button>
+        </div>`}
       </div>`;
     }).join('');
-    const pend=saldoTotal>0.009;
-    const saldoBadge=`<span class="logi-badge" style="background:${pend?'#fee2e2':'#dcfce7'};color:${pend?'#b91c1c':'#15803d'}">${pend?'Saldo pendiente':'✓ Sin saldo pendiente'}</span>`;
-    const montoHtml=`<span style="font-weight:700;color:${pend?'var(--danger)':'#15803d'}">${pend?'-$'+saldoTotal.toLocaleString('es-AR'):'$0'}</span>`;
+    const pend=saldoTotal>0.009, favor=saldoTotal<-0.009;
+    const badgeColor=pend?'var(--danger)':favor?'#1d4ed8':'#15803d';
+    const saldoBadge=pend?`<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">Saldo pendiente</span>`
+      :favor?`<span class="logi-badge" style="background:#dbeafe;color:#1d4ed8">A favor (crédito)</span>`
+      :`<span class="logi-badge" style="background:#dcfce7;color:#15803d">✓ Sin saldo pendiente</span>`;
+    const montoHtml=`<span style="font-weight:700;color:${badgeColor}">${pend?'-$'+saldoTotal.toLocaleString('es-AR'):favor?'+$'+Math.abs(saldoTotal).toLocaleString('es-AR'):'$0'}</span>`;
     return `<div style="margin-bottom:22px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="if(event.target.closest('button'))return;toggleFacturacionGrupo('${destino.replace(/'/g,"\\'")}')">
         <div style="font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:6px">
@@ -9968,7 +10078,7 @@ function renderFacturacionTab(){
         <div style="display:flex;align-items:center;gap:10px">
           ${saldoBadge}
           ${montoHtml}
-          <button class="btn-sm" onclick="event.stopPropagation();facturacionVerPagos('${destino.replace(/'/g,"\\'")}')" style="font-size:11px">Historial</button>
+          <button class="btn-sm" onclick="event.stopPropagation();facturacionVerCuentaCorriente('${destino.replace(/'/g,"\\'")}')" style="font-size:11px">Cuenta corriente</button>
         </div>
       </div>
       ${colapsado?'':filas}
@@ -9982,8 +10092,7 @@ function facturacionExportarExcel(){
   const filas=items.map(([,it])=>{
     const cantidad=facturacionCantidad(it);
     const precio=it.precio_taller||0;
-    const total=cantidad*precio;
-    const pagado=facturacionPagado(it);
+    const total=facturacionMontoItem(it);
     return {
       'Fecha entrega': it.fecha_entregado||(it.fecha_cerrado?new Date(it.fecha_cerrado).toLocaleDateString('es-AR'):''),
       'Taller/Proveedor': facturacionDestino(it),
@@ -9993,13 +10102,13 @@ function facturacionExportarExcel(){
       'Cantidad': cantidad,
       'Precio unitario': precio,
       'Total': total,
-      'Pagado': pagado,
-      'Saldo': total-pagado,
+      'Estado': it.facturado_cta_cte?'Facturado':(precio?'Pendiente de facturar':'Sin precio cargado'),
+      'Fecha facturación': it.facturacion_fecha||'',
     };
   });
   if(!filas.length){ showToast('No hay nada para exportar con este filtro'); return; }
   const ws=XLSX.utils.json_to_sheet(filas);
-  ws['!cols']=[{wch:14},{wch:20},{wch:10},{wch:12},{wch:35},{wch:10},{wch:14},{wch:12},{wch:12},{wch:12}];
+  ws['!cols']=[{wch:14},{wch:20},{wch:10},{wch:12},{wch:35},{wch:10},{wch:14},{wch:12},{wch:16},{wch:14}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Facturación');
   const hoy=new Date().toISOString().slice(0,10);

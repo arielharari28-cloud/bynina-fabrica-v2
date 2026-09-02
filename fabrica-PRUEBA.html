@@ -751,12 +751,12 @@
     </div>
     <div id="tab-facturacion" class="hidden">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-        <p style="font-size:11px;color:var(--text3);margin:0">Cortes finalizados, listos para pagarle al taller o proveedor. Cantidad = OK + Detalle + Fallado tela (el fallado de taller no se factura). Podés corregir la cantidad a mano si algo no cierra.</p>
+        <p style="font-size:11px;color:var(--text3);margin:0">Cortes finalizados, listos para facturar a cuenta corriente del taller o proveedor. Cantidad = OK + Detalle + Fallado tela (el fallado de taller no se factura). Podés corregir la cantidad a mano hasta que lo factures — después queda congelado.</p>
         <button class="btn-sm" onclick="facturacionExportarExcel()">⬇️ Descargar Excel (backup)</button>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap" id="facturacion-filtro">
         <button class="btn-sm active" data-filtro="pendiente" onclick="facturacionSetFiltro('pendiente')">Pendientes de facturar</button>
-        <button class="btn-sm" data-filtro="facturado" onclick="facturacionSetFiltro('facturado')">Pagados</button>
+        <button class="btn-sm" data-filtro="facturado" onclick="facturacionSetFiltro('facturado')">Facturados</button>
         <button class="btn-sm" data-filtro="todos" onclick="facturacionSetFiltro('todos')">Todos</button>
         <input type="text" id="facturacion-buscar" placeholder="Buscar por taller, proveedor, código o N° de corte..." style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px" oninput="facturacionBuscar=this.value;renderFacturacionTab()">
       </div>
@@ -4681,11 +4681,38 @@ function setFechaEntregaEstimadaCorte(secId,itemId,val){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega`).set(val||null);
 }
 
+// Resumen "Próximas entregas": todos los cortes en talleres con fecha estimada de entrega
+// cargada, ordenados por esa fecha (la más próxima primero) sin importar el taller — para ver
+// de un vistazo qué está por entrar esta semana, cruzando todos los talleres a la vez.
+function buildProximasEntregasHtml(items){
+  const conFecha=items.filter(([,item])=>!!item.fecha_estimada_entrega);
+  if(!conFecha.length) return '';
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const filas=conFecha.slice().sort((a,b)=>a[1].fecha_estimada_entrega.localeCompare(b[1].fecha_estimada_entrega)).map(([itemId,item])=>{
+    const f=new Date(item.fecha_estimada_entrega+'T00:00:00');
+    const diasFaltan=Math.round((f-hoy)/86400000);
+    const vencida=diasFaltan<0;
+    const etiqueta=vencida?`⚠️ hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'hoy':diasFaltan===1?'mañana':`en ${diasFaltan}d`;
+    return `<div class="rt-row">
+      <div class="rt-row-top">
+        <span class="rt-corte-num" style="${vencida?'background:var(--danger)':''}">${item.numero_corte||'s/n°'}</span>
+        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
+      </div>
+      <div class="rt-row-bottom">
+        <span class="rt-stats"><span style="${vencida?'color:var(--danger);font-weight:700':'font-weight:700'}">📅 ${f.toLocaleDateString('es-AR')} · ${etiqueta}</span></span>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="rt-box"><div class="rt-title">📅 Próximas entregas (${conFecha.length})</div>${filas}</div>`;
+}
+
 // Resumen por corte: un registro por artículo/corte en taller, con lo cortado, lo entregado,
 // hace cuántos días está esperando, observación (auto o manual) y fecha aproximada de entrega.
 // Reemplaza al viejo resumen agrupado "qué debe cada taller".
 function buildResumenTalleresHtml(secId,items){
   if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
+  const proximasHtml=buildProximasEntregasHtml(items);
   const filas=items.slice().sort((a,b)=>String(a[1].taller_corte||'zzz').localeCompare(String(b[1].taller_corte||'zzz'))).map(([itemId,item])=>{
     const resumen=resumenEntregasFabrica(item,itemId);
     const dias=diasEntre(item.fecha_etapa);
@@ -4713,7 +4740,7 @@ function buildResumenTalleresHtml(secId,items){
       </div>
     </div>`;
   }).join('');
-  return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
+  return `${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
 }
 
 function buildPasosPanelCorteHtml(item){

@@ -6369,7 +6369,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
-          ${canEntregarRevision?`<button class="btn-advance" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
+          ${canEntregarRevision?`<button class="btn-advance" title="Normalmente esto pasa solo cuando se abre la primera entrega en Logística — usá este botón solo si hace falta forzarlo a mano" onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
@@ -9232,8 +9232,10 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   const {filas}=resumenEntregasFabrica(item,itemId);
   // Lo ya entregado por color/talle en entregas anteriores de este mismo corte, para que la
   // grilla nueva solo pida contar lo que todavía puede faltar de cada combinación.
+  const entregasPrevias=Object.values(logiItemsData||{}).filter(it=>it.fabrica_item_id===itemId);
+  const esPrimeraEntrega=entregasPrevias.length===0; // Solo la primera entrega de un corte dispara el pase automático a Revisión.
   const entregadoPorCombo={};
-  Object.values(logiItemsData||{}).filter(it=>it.fabrica_item_id===itemId).forEach(it=>{
+  entregasPrevias.forEach(it=>{
     Object.values(it.grilla||{}).forEach(f=>{
       const k=`${f.color||''}__${f.talle||''}`;
       entregadoPorCombo[k]=(entregadoPorCombo[k]||0)+(parseInt(f.contado)||0);
@@ -9256,9 +9258,46 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem).then(()=>{
     logActivity('Abrió una entrega del taller en Logística',`Corte ${item.numero_corte}: ${item.code}`);
-    showToast('📦 Entrega abierta en Logística — falta que la cuenten');
+    if(esPrimeraEntrega){
+      avanzarCorteAlAbrirPrimeraEntrega(secId,itemId);
+    } else {
+      showToast('📦 Entrega abierta en Logística — falta que la cuenten');
+    }
   });
   logiCerrarNuevaEntregaModal();
+}
+
+// --- Al abrir la PRIMERA entrega de un corte desde Logística, el corte ya se considera
+// "entregado por el taller" y avanza solo (mismo destino que el botón manual "Entregado"):
+// a Taller de terminación si tiene pasos extra sin tildar, a Estampado si tiene DTF pendiente,
+// o directo a Revisión Final para que Stef/Ariel lo revisen. No crea un segundo registro de
+// Logística — el conteo recién abierto es el que van a usar Nahuel/Noemí. ---
+function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId){
+  const item=sectionsData[secId]&&sectionsData[secId].items[itemId];
+  if(!item) return; // Puede haber sido movido/eliminado ya por otra vía.
+  const hoy=new Date();
+  const fechaFinal=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+  let targetSec,fechaField,msg,logMsg;
+  if(pasosPendientes.length){
+    targetSec=SEC_TALLER_TERMINACION; fechaField='fecha_entregado_taller_armado';
+    msg=`🧵 ${item.code} pasó a taller de terminación (entrega abierta en Logística)`;
+    logMsg='Entrega abierta en Logística — pasa a taller de terminación';
+  } else if(item.estampado_dtf && !item.estampado_taller_entregado){
+    targetSec=SEC_ESTAMPADO_TALLER; fechaField='fecha_entregado_taller_costura';
+    msg=`🎨 ${item.code} pasó a taller de estampado (entrega abierta en Logística)`;
+    logMsg='Entrega abierta en Logística — pasa a taller de estampado';
+  } else {
+    targetSec=getSectionIdByTipo('revision_final'); fechaField='fecha_entregado_revision';
+    msg=`✅ ${item.code} pasó a Revisión Final (entrega abierta en Logística)`;
+    logMsg='Entrega abierta en Logística — pasa a Revisión Final';
+  }
+  if(!targetSec){ showToast('📦 Entrega abierta en Logística — falta que la cuenten'); return; }
+  const newItem={...item,fecha_entregado:fechaFinal,[fechaField]:Date.now(),fecha_etapa:Date.now()};
+  db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity(logMsg,`${item.code}: ${fechaFinal}`);
+  showToast(msg);
 }
 
 let logiItemsData = {};

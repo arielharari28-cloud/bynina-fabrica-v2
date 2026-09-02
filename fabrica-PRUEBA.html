@@ -8472,7 +8472,7 @@ function renderNotifPanel(){
 }
 // ---- "Mis pendientes": campanita personal que le muestra a cada usuario, en tiempo real,
 // qué le falta hacer a ÉL/ELLA — sin tener que entrar a Pendientes/Logística a revisar.
-const MIS_PENDIENTES_USERS=['peque','ariel','stef','emir','arimoron','nahuel','noemi','noelia'];
+const MIS_PENDIENTES_USERS=['peque','ariel','stef','emir','arimoron','nahuel','noemi'];
 let misPendientesLastSeen=0;
 
 // Recorre TODOS los ítems de todas las secciones, juntando los avíos de cada uno (para
@@ -9641,6 +9641,13 @@ function logiSetPrioridad(itemId, prioridad){
 // el resto del pago no salta a otro corte porque no sobró nada. Si el pago es mayor a lo
 // pendiente, sigue debitando de los siguientes cortes en orden hasta gastarlo todo.
 let facturacionFiltro='pendiente', facturacionBuscar='';
+// Talleres colapsados en la vista de Facturación (colapsado = valor true). Por defecto todos
+// arrancan colapsados; se abren individualmente al hacer click en el header (ver toggleFacturacionGrupo).
+let facturacionColapsados={};
+function toggleFacturacionGrupo(destino){
+  facturacionColapsados[destino]=!facturacionColapsados[destino];
+  renderFacturacionTab();
+}
 function facturacionSetFiltro(f){
   facturacionFiltro=f;
   document.querySelectorAll('#facturacion-filtro button[data-filtro]').forEach(b=>b.classList.toggle('active',b.dataset.filtro===f));
@@ -9885,9 +9892,35 @@ function renderFacturacionTab(){
     return maxDiasB-maxDiasA;
   });
 
+  // --- Resumen de cuentas: total pendiente general + un renglón por taller, con los que
+  // tienen saldo pendiente primero (de mayor a menor deuda), y los saldados al final. ---
+  const saldosPorGrupo=nombresGrupos.map(destino=>({
+    destino,
+    saldo:grupos[destino].reduce((s,[,it])=>s+(facturacionTotal(it)-facturacionPagado(it)),0)
+  }));
+  const totalPendienteGeneral=saldosPorGrupo.reduce((s,g)=>s+(g.saldo>0.009?g.saldo:0),0);
+  const resumenOrdenado=[...saldosPorGrupo].sort((a,b)=>b.saldo-a.saldo);
+  const resumenHtml=`<div style="background:var(--surface2);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-weight:700;font-size:13.5px">Resumen de cuentas</div>
+      <div style="font-size:12.5px;font-weight:700;color:${totalPendienteGeneral>0.009?'var(--danger)':'#15803d'}">Total pendiente: ${totalPendienteGeneral>0.009?'$'+totalPendienteGeneral.toLocaleString('es-AR'):'$0'}</div>
+    </div>
+    ${resumenOrdenado.map(g=>{
+      const pend=g.saldo>0.009;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:7px;height:7px;border-radius:50%;background:${pend?'var(--danger)':'#15803d'};flex-shrink:0"></span>
+          <span>${g.destino}</span>
+        </div>
+        <span style="font-weight:700;color:${pend?'var(--danger)':'#15803d'}">${pend?'-$'+g.saldo.toLocaleString('es-AR'):'$0'}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
+
   const gruposHtml=nombresGrupos.map(destino=>{
     const lista=grupos[destino];
     const saldoTotal=lista.reduce((s,[,it])=>s+(facturacionTotal(it)-facturacionPagado(it)),0);
+    const colapsado=facturacionColapsados[destino]!==false; // default: colapsado
     const filas=lista.map(([id,it])=>{
       const cantidad=facturacionCantidad(it);
       const auto=facturacionCantidadAuto(it);
@@ -9923,19 +9956,26 @@ function renderFacturacionTab(){
         </div>
       </div>`;
     }).join('');
+    const pend=saldoTotal>0.009;
+    const saldoBadge=`<span class="logi-badge" style="background:${pend?'#fee2e2':'#dcfce7'};color:${pend?'#b91c1c':'#15803d'}">${pend?'Saldo pendiente':'✓ Sin saldo pendiente'}</span>`;
+    const montoHtml=`<span style="font-weight:700;color:${pend?'var(--danger)':'#15803d'}">${pend?'-$'+saldoTotal.toLocaleString('es-AR'):'$0'}</span>`;
     return `<div style="margin-bottom:22px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--surface2);border-radius:8px;margin-bottom:8px">
-        <div style="font-weight:700;font-size:13.5px">🏭 ${destino} <button class="logi-note-btn" title="Corregir nombre de este taller/proveedor" onclick="facturacionRenombrarTaller('${destino.replace(/'/g,"\\'")}')">✏️</button> <span style="font-weight:400;color:var(--text3);font-size:11.5px">(${lista.length} corte${lista.length!==1?'s':''})</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--surface2);border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="if(event.target.closest('button'))return;toggleFacturacionGrupo('${destino.replace(/'/g,"\\'")}')">
+        <div style="font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:6px">
+          <span style="display:inline-block;transition:transform .15s;transform:rotate(${colapsado?'-90deg':'0deg'})">▾</span>
+          🏭 ${destino} <button class="logi-note-btn" title="Corregir nombre de este taller/proveedor" onclick="event.stopPropagation();facturacionRenombrarTaller('${destino.replace(/'/g,"\\'")}')">✏️</button> <span style="font-weight:400;color:var(--text3);font-size:11.5px">(${lista.length} corte${lista.length!==1?'s':''})</span>
+        </div>
         <div style="display:flex;align-items:center;gap:10px">
-          ${saldoTotal>0.009?`<span style="font-weight:700;color:var(--danger)">Saldo total: $${saldoTotal.toLocaleString('es-AR')}</span>`:`<span style="color:#15803d;font-weight:700">✓ Sin saldo pendiente</span>`}
-          <button class="btn-sm" onclick="facturacionVerPagos('${destino.replace(/'/g,"\\'")}')" style="font-size:11px">Historial</button>
+          ${saldoBadge}
+          ${montoHtml}
+          <button class="btn-sm" onclick="event.stopPropagation();facturacionVerPagos('${destino.replace(/'/g,"\\'")}')" style="font-size:11px">Historial</button>
         </div>
       </div>
-      ${filas}
+      ${colapsado?'':filas}
     </div>`;
   }).join('');
 
-  el.innerHTML=formHtml+gruposHtml;
+  el.innerHTML=formHtml+resumenHtml+gruposHtml;
 }
 function facturacionExportarExcel(){
   const items=facturacionItemsFiltrados();

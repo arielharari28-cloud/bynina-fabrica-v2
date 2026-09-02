@@ -1060,6 +1060,14 @@
   </div>
 </div>
 
+<div class="modal-overlay hidden" id="modal-facturacion-pagos">
+  <div class="modal">
+    <div class="modal-header"><span class="modal-title" id="facturacion-pagos-modal-title">Pagos</span><button class="modal-close" onclick="document.getElementById('modal-facturacion-pagos').classList.add('hidden')">×</button></div>
+    <div class="modal-body" id="facturacion-pagos-modal-body"></div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="document.getElementById('modal-facturacion-pagos').classList.add('hidden')">Cerrar</button></div>
+  </div>
+</div>
+
 <!-- Modal foto grande -->
 <div class="photo-modal-overlay hidden" id="photo-modal" onclick="closePhotoModal()">
   <button class="photo-modal-close" onclick="closePhotoModal()">×</button>
@@ -9654,6 +9662,28 @@ function facturacionPagado(it){
 function facturacionDestino(it){
   return it.taller||it.proveedor||'Sin destino';
 }
+// Corrige el nombre de taller/proveedor cuando quedó mal cargado (typo, etc.), reasignando
+// todos los cortes de ese grupo al nombre correcto, y actualizando también el historial de
+// pagos ya registrados para que sigan agrupados junto con el nombre corregido.
+function facturacionRenombrarTaller(destinoActual){
+  const nuevo=(prompt(`Corregir nombre de taller/proveedor.\n\nActual: "${destinoActual}"\n\nEscribí el nombre correcto:`,destinoActual)||'').trim();
+  if(!nuevo||nuevo===destinoActual) return;
+  const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado' && facturacionDestino(it)===destinoActual);
+  if(!items.length){ showToast('No se encontraron cortes de ese taller/proveedor'); return; }
+  if(!confirm(`¿Reasignar ${items.length} corte${items.length!==1?'s':''} de "${destinoActual}" a "${nuevo}"?`)) return;
+  const updates={};
+  items.forEach(([id,it])=>{
+    const campo=it.taller?'taller':'proveedor';
+    updates[`fabrica_v5/logistica/items/${id}/${campo}`]=nuevo;
+  });
+  Object.entries(fabricaPagosTallerData||{}).forEach(([pagoId,p])=>{
+    if(p.destino===destinoActual) updates[`fabrica_v5/pagos_taller/${pagoId}/destino`]=nuevo;
+  });
+  db.ref().update(updates);
+  logActivity('Reasignó taller/proveedor',`"${destinoActual}" → "${nuevo}" (${items.length} corte${items.length!==1?'s':''})`);
+  showToast(`✓ Reasignado a "${nuevo}"`);
+  renderFacturacionTab();
+}
 function facturacionSetCantidadManual(itemId,val){
   const n=Math.max(0,parseInt(val)||0);
   db.ref(`fabrica_v5/logistica/items/${itemId}/facturacion_cantidad_manual`).set(n);
@@ -9696,14 +9726,36 @@ function facturacionListaDestinos(){
   Object.values(logiItemsData||{}).forEach(it=>{ if(it.estado==='cerrado') set.add(facturacionDestino(it)); });
   return Array.from(set).sort();
 }
+// Repuebla el select de "corte puntual" cada vez que cambia el taller/proveedor elegido,
+// mostrando solo los cortes de ese destino con saldo pendiente.
+function facturacionActualizarSelectCorte(){
+  const sel=document.getElementById('facturacion-pago-corte');
+  if(!sel) return;
+  const destino=(document.getElementById('facturacion-pago-destino').value||'').trim();
+  const pendientes=destino?facturacionPendientesDeDestino(destino):[];
+  sel.innerHTML='<option value="">(automático — el más viejo primero)</option>'+
+    pendientes.map(([id,it])=>{
+      const saldo=facturacionTotal(it)-facturacionPagado(it);
+      return `<option value="${id}">${it.code||it.numero_corte||id} — falta $${saldo.toLocaleString('es-AR')}</option>`;
+    }).join('');
+}
 function facturacionRegistrarPago(){
   const destino=document.getElementById('facturacion-pago-destino').value.trim();
   const monto=parseFloat(document.getElementById('facturacion-pago-monto').value);
   const fecha=document.getElementById('facturacion-pago-fecha').value||new Date().toLocaleDateString('es-AR');
+  const corteElegidoId=document.getElementById('facturacion-pago-corte')?document.getElementById('facturacion-pago-corte').value:'';
   if(!destino){ showToast('Elegí a quién le estás pagando'); return; }
   if(!monto||monto<=0){ showToast('Cargá un monto válido'); return; }
-  const pendientes=facturacionPendientesDeDestino(destino);
+  let pendientes=facturacionPendientesDeDestino(destino);
   if(!pendientes.length){ showToast(`${destino} no tiene cortes con saldo pendiente`); return; }
+  // Si se eligió un corte puntual, se debita primero de ese (aunque no sea el más viejo) y,
+  // si sobra plata, sigue con el resto en orden normal (FIFO) como siempre.
+  if(corteElegidoId){
+    const elegido=pendientes.find(([id])=>id===corteElegidoId);
+    if(elegido){
+      pendientes=[elegido,...pendientes.filter(([id])=>id!==corteElegidoId)];
+    }
+  }
   let restante=monto;
   const pagoId='pago_'+Date.now();
   const updates={};
@@ -9722,6 +9774,7 @@ function facturacionRegistrarPago(){
   db.ref().update(updates);
   logActivity('Registró pago',`${destino}: $${monto.toLocaleString('es-AR')} → ${detalle.join(' · ')}`);
   document.getElementById('facturacion-pago-monto').value='';
+  if(document.getElementById('facturacion-pago-corte')) document.getElementById('facturacion-pago-corte').value='';
   const resumen=restante>0.009
     ? `✓ Pago aplicado. Sobraron $${restante.toLocaleString('es-AR')} sin poder debitar (no había más saldo pendiente de ${destino}).`
     : `✓ Pago de $${monto.toLocaleString('es-AR')} debitado en: ${detalle.join(' · ')}`;
@@ -9729,13 +9782,46 @@ function facturacionRegistrarPago(){
   renderFacturacionTab();
 }
 function facturacionVerPagos(destino){
+  document.getElementById('facturacion-pagos-modal-title').textContent=`Pagos a ${destino}`;
+  facturacionRenderPagosModal(destino);
+  document.getElementById('modal-facturacion-pagos').classList.remove('hidden');
+}
+function facturacionRenderPagosModal(destino){
+  const body=document.getElementById('facturacion-pagos-modal-body');
   const pagos=Object.entries(fabricaPagosTallerData||{}).filter(([,p])=>p.destino===destino).sort((a,b)=>(b[1].fecha_registro||0)-(a[1].fecha_registro||0));
-  if(!pagos.length){ alert(`Todavía no hay pagos registrados para ${destino}.`); return; }
-  const texto=pagos.map(([,p])=>{
-    const aplic=Object.values(p.aplicaciones||{}).map(a=>`${a.code||a.numero_corte}: $${(a.monto||0).toLocaleString('es-AR')}`).join(', ');
-    return `${p.fecha} — $${(p.monto||0).toLocaleString('es-AR')} (por ${USER_DISPLAY[p.registrado_por]||p.registrado_por})\n   → ${aplic}${p.sobrante?`\n   ⚠️ sobrante sin aplicar: $${p.sobrante.toLocaleString('es-AR')}`:''}`;
-  }).join('\n\n');
-  alert(`Pagos a ${destino}:\n\n${texto}`);
+  if(!pagos.length){ body.innerHTML=`<div class="empty">Todavía no hay pagos registrados para ${destino}.</div>`; return; }
+  body.innerHTML=pagos.map(([pagoId,p])=>{
+    const aplic=Object.values(p.aplicaciones||{}).map(a=>`${a.code||a.numero_corte}: $${(a.monto||0).toLocaleString('es-AR')}`).join(' · ');
+    return `<div class="logi-card" style="display:block;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div>
+          <div style="font-weight:700">${p.fecha} — $${(p.monto||0).toLocaleString('es-AR')}</div>
+          <div style="font-size:11px;color:var(--text3)">Registró: ${USER_DISPLAY[p.registrado_por]||p.registrado_por}</div>
+          <div style="font-size:11.5px;color:var(--text2);margin-top:4px">→ ${aplic}</div>
+          ${p.sobrante?`<div style="font-size:11px;color:#b8860b;margin-top:2px">⚠️ sobrante sin aplicar: $${p.sobrante.toLocaleString('es-AR')}</div>`:''}
+        </div>
+        <button class="logi-note-btn" title="Borrar este pago" onclick="facturacionEliminarPago('${pagoId}','${destino.replace(/'/g,"\\'")}')">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+// Borra un pago cargado por error: revierte lo debitado en cada corte donde se había aplicado
+// y elimina el registro del historial. No reajusta pagos posteriores — si había otro pago
+// aplicado después que "saltó" a un corte siguiente por falta de saldo, ese queda como está.
+function facturacionEliminarPago(pagoId,destino){
+  const pago=(fabricaPagosTallerData||{})[pagoId];
+  if(!pago){ showToast('No se encontró ese pago'); return; }
+  if(!confirm(`¿Borrar el pago de $${(pago.monto||0).toLocaleString('es-AR')} del ${pago.fecha} a ${destino}? Esto revierte lo debitado en cada corte.`)) return;
+  const updates={};
+  Object.keys(pago.aplicaciones||{}).forEach(itemId=>{
+    updates[`fabrica_v5/logistica/items/${itemId}/pagos/${pagoId}`]=null;
+  });
+  updates[`fabrica_v5/pagos_taller/${pagoId}`]=null;
+  db.ref().update(updates);
+  logActivity('Borró pago',`${destino}: $${(pago.monto||0).toLocaleString('es-AR')} del ${pago.fecha}`);
+  showToast('✓ Pago borrado');
+  facturacionRenderPagosModal(destino);
+  renderFacturacionTab();
 }
 let fabricaPagosTallerData={};
 db.ref('fabrica_v5/pagos_taller').on('value',snap=>{
@@ -9761,7 +9847,7 @@ function renderFacturacionTab(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div>
         <label style="font-size:11px;color:var(--text3);display:block">Taller / Proveedor</label>
-        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
+        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." oninput="facturacionActualizarSelectCorte()" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
         <datalist id="facturacion-destinos-list">${destinos.map(d=>`<option value="${d}">`).join('')}</datalist>
       </div>
       <div>
@@ -9772,9 +9858,15 @@ function renderFacturacionTab(){
         <label style="font-size:11px;color:var(--text3);display:block">Fecha</label>
         <input type="date" id="facturacion-pago-fecha" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
       </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Debitar de (opcional)</label>
+        <select id="facturacion-pago-corte" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;max-width:200px">
+          <option value="">(automático — el más viejo primero)</option>
+        </select>
+      </div>
       <button class="btn-sm" onclick="facturacionRegistrarPago()">✓ Registrar y debitar</button>
     </div>
-    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Se descuenta solo del corte más viejo con saldo pendiente de ese taller/proveedor, y sigue con el siguiente si sobra plata.</div>
+    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">Si no elegís un corte puntual, se descuenta del más viejo con saldo pendiente de ese taller/proveedor y sigue con el siguiente si sobra plata.</div>
   </div>`;
 
   if(!items.length){ el.innerHTML=formHtml+'<div class="empty">No hay cortes acá.</div>'; return; }
@@ -9833,7 +9925,7 @@ function renderFacturacionTab(){
     }).join('');
     return `<div style="margin-bottom:22px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 10px;background:var(--surface2);border-radius:8px;margin-bottom:8px">
-        <div style="font-weight:700;font-size:13.5px">🏭 ${destino} <span style="font-weight:400;color:var(--text3);font-size:11.5px">(${lista.length} corte${lista.length!==1?'s':''})</span></div>
+        <div style="font-weight:700;font-size:13.5px">🏭 ${destino} <button class="logi-note-btn" title="Corregir nombre de este taller/proveedor" onclick="facturacionRenombrarTaller('${destino.replace(/'/g,"\\'")}')">✏️</button> <span style="font-weight:400;color:var(--text3);font-size:11.5px">(${lista.length} corte${lista.length!==1?'s':''})</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           ${saldoTotal>0.009?`<span style="font-weight:700;color:var(--danger)">Saldo total: $${saldoTotal.toLocaleString('es-AR')}</span>`:`<span style="color:#15803d;font-weight:700">✓ Sin saldo pendiente</span>`}
           <button class="btn-sm" onclick="facturacionVerPagos('${destino.replace(/'/g,"\\'")}')" style="font-size:11px">Historial</button>

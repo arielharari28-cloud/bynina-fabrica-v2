@@ -999,7 +999,10 @@
   <div class="modal">
     <div class="modal-header"><span class="modal-title">Agregar como reposición</span><button class="modal-close" id="close-modal-repo">×</button></div>
     <div class="modal-body">
-      <div class="field"><label>Producto perfecto</label><select id="repo-add-select"><option value="">Elegir producto…</option></select></div>
+      <div class="field"><label>Producto perfecto</label>
+        <input type="text" id="repo-add-search" placeholder="Buscar por código o nombre…" style="margin-bottom:6px" oninput="filtrarProductosPerfectosSelect('repo-add-select',this.value)">
+        <select id="repo-add-select"><option value="">Elegir producto…</option></select>
+      </div>
     </div>
     <div class="modal-footer"><button class="btn-secondary" id="cancel-modal-repo">Cancelar</button><button class="btn-primary" id="save-modal-repo">Crear</button></div>
   </div>
@@ -1012,6 +1015,7 @@
     <div class="modal-body">
       <div class="field"><label>Nombre de la prenda</label><input type="text" id="base-add-name" placeholder="Ej: Camisa Vila…"></div>
       <div class="field"><label>Base (molde ya aprobado)</label>
+        <input type="text" id="base-add-search" placeholder="Buscar por código o nombre…" style="margin-bottom:6px" oninput="filtrarProductosPerfectosSelect('base-add-select',this.value)">
         <select id="base-add-select">
           <option value="">Elegir producto…</option>
           <option value="__manual__">+ Base manual (no está en la lista)…</option>
@@ -2071,7 +2075,7 @@ function pasarABaseAprobada(secId,itemId){
   // si el nombre no está en la lista, lo agregamos para no perderlo.
   const telaNombre=(item.tela_nombre||'').trim();
   if(telaNombre&&!telasList.includes(telaNombre)){
-    telasList=[...telasList,telaNombre];
+    telasList=[...telasList,telaNombre].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
     db.ref('fabrica_v5/telas').set(telasList);
   }
   const newItem={
@@ -2285,7 +2289,7 @@ function onTelaChange(secId,itemId,sel){
     if(!nombre||!nombre.trim()){ sel.value=item.tela||''; return; }
     const limpio=nombre.trim();
     if(!telasList.includes(limpio)){
-      telasList=[...telasList,limpio];
+      telasList=[...telasList,limpio].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
       db.ref('fabrica_v5/telas').set(telasList);
     }
     assignTela(secId,itemId,limpio);
@@ -2354,6 +2358,9 @@ function buildProductosPerfectosOptions(){
       });
     }
   });
+  // Orden natural: numérico si el código empieza con número (7421 antes que 7439), alfabético
+  // si empieza con letra — así queda ordenado "como corresponde" según cómo arranca cada código.
+  out.sort((a,b)=>a.label.localeCompare(b.label,'es',{numeric:true,sensitivity:'base'}));
   return out;
 }
 
@@ -3232,7 +3239,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
   });
   db.ref('fabrica_v5/telas').on('value',snap=>{
     const v=snap.val();
-    if(v){ telasList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
+    if(v){ telasList=(Array.isArray(v)?v.filter(Boolean):Object.values(v)).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); }
     renderSections('diseno');renderSections('fabrica');
   });
   db.ref('fabrica_v5/telas_colores').on('value',snap=>{
@@ -3532,7 +3539,7 @@ function onTelaBaseChange(secId,itemId,sel){
     if(!nombre||!nombre.trim()){ sel.value=item.tela_nombre||''; return; }
     const limpio=nombre.trim();
     if(!telasList.includes(limpio)){
-      telasList=[...telasList,limpio];
+      telasList=[...telasList,limpio].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
       db.ref('fabrica_v5/telas').set(telasList);
     }
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(limpio);
@@ -6281,7 +6288,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // usar el botón estándar "▶ Siguiente paso" (avanza por orden en el tablero, no por el flujo
   // real) — eso es lo que la mandaba mal a "Muestras — canceladas". El único paso válido acá es
   // que Guada/Peque confirmen la digitalización, y eso siempre va a "Pendiente armar tizada".
-  const esPendienteDigitalizar = (sectionsData[secId].title||'').trim()==='Molde - Pendiente Digitalizar';
+  const esPendienteDigitalizar = (sectionsData[secId].title||'').trim().toLowerCase().includes('pendiente digitalizar');
   // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
@@ -6919,6 +6926,14 @@ function ordenCorteAddColorFromInput(){
   const inp=document.getElementById('oc-color-input');
   const val=(inp.value||'').trim();
   if(!val) return;
+  // Si esta tela ya tiene un listado de colores usados antes (telasColoresData), solo se puede
+  // elegir de esa lista — no colores nuevos tipeados a mano. Evita que se cuele un color con
+  // otro nombre/escritura para una tela que ya tiene sus colores definidos.
+  const sugeridos=ordenCtx.coloresSugeridos||[];
+  if(sugeridos.length && !sugeridos.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
+    showToast(`"${val}" no está en los colores ya usados con esta tela. Elegilo de la lista, o agregalo primero en Colores por tela.`);
+    return;
+  }
   ordenCorteAddColor(val);
   inp.value='';
 }
@@ -7040,7 +7055,7 @@ function renderOrdenCorteModal(){
     <div class="oc-fields-row">
       <div class="oc-field-block">
         <label>Colores de esta tela</label>
-        <div class="chip-box">${chipsHtml}<input type="text" id="oc-color-input" placeholder="Escribí un color y Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();ordenCorteAddColorFromInput();}"></div>
+        <div class="chip-box">${chipsHtml}<input type="text" id="oc-color-input" placeholder="${(ordenCtx.coloresSugeridos||[]).length?'Elegí de los colores ya usados con esta tela':'Escribí un color y Enter'}" onkeydown="if(event.key==='Enter'){event.preventDefault();ordenCorteAddColorFromInput();}"></div>
         ${sugeridosHtml}
       </div>
       <div class="oc-field-block">
@@ -7995,6 +8010,20 @@ function quickAdd(secId){
   logActivity('Agregó ítem',val);inp.value='';showToast('Ítem agregado');
 }
 
+// Filtra en vivo el <select> de productos perfectos (repo-add-select / base-add-select) según
+// lo que se va tipeando en el buscador de arriba — reconstruye las opciones desde
+// buildProductosPerfectosOptions() cada vez, ya filtradas y siempre en orden natural.
+function filtrarProductosPerfectosSelect(selectId,query){
+  const sel=document.getElementById(selectId);
+  const valorPrevio=sel.value;
+  const opts=buildProductosPerfectosOptions();
+  const q=(query||'').trim().toLowerCase();
+  const filtradas=q?opts.filter(o=>o.label.toLowerCase().includes(q)):opts;
+  const extraManual = selectId==='base-add-select' ? '<option value="__manual__">+ Base manual (no está en la lista)…</option>' : '';
+  sel.innerHTML='<option value="">Elegir producto…</option>'+extraManual+filtradas.map(o=>`<option value="${o.secId}::${o.itemId}">${o.label}</option>`).join('');
+  if(filtradas.some(o=>`${o.secId}::${o.itemId}`===valorPrevio)) sel.value=valorPrevio;
+}
+
 // --- Agregar directo como reposición, eligiendo el producto perfecto desde el arranque ---
 let repoAddSecId=null;
 function openRepoAddModal(secId){
@@ -8002,6 +8031,7 @@ function openRepoAddModal(secId){
   const opts=buildProductosPerfectosOptions();
   const sel=document.getElementById('repo-add-select');
   sel.innerHTML='<option value="">Elegir producto…</option>'+opts.map(o=>`<option value="${o.secId}::${o.itemId}">${o.label}</option>`).join('');
+  document.getElementById('repo-add-search').value='';
   document.getElementById('modal-repo').classList.remove('hidden');
 }
 function closeRepoAddModal(){
@@ -8045,6 +8075,7 @@ function openBaseAddModal(secId){
   const opts=buildProductosPerfectosOptions();
   const sel=document.getElementById('base-add-select');
   sel.innerHTML='<option value="">Elegir producto…</option><option value="__manual__">+ Base manual (no está en la lista)…</option>'+opts.map(o=>`<option value="${o.secId}::${o.itemId}">${o.label}</option>`).join('');
+  document.getElementById('base-add-search').value='';
   document.getElementById('base-add-name').value='';
   document.getElementById('base-add-code').value='';
   document.getElementById('base-add-manual').value='';
@@ -10472,11 +10503,8 @@ function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
   let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado');
-  items.sort((a,b)=>{
-    const fa=medidasCompletas(a[1])?1:0, fb=medidasCompletas(b[1])?1:0;
-    if(fa!==fb) return fa-fb; // los que les faltan medidas van primero
-    return logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]);
-  });
+  // Orden: lo más recién ingresado primero (no por N° de corte) — así lo nuevo aparece arriba.
+  items.sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
   if(webSearch.trim()){
     const q=webSearch.trim().toLowerCase();
     items=items.filter(([id,it])=>String(it.numero_corte||'').toLowerCase().includes(q)||String(it.code||'').toLowerCase().includes(q));

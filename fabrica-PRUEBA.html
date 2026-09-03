@@ -9976,13 +9976,17 @@ function facturacionEliminarPago(pagoId,destino){
 // (ej. un descuento, una devolución, una corrección a favor nuestro).
 function facturacionGuardarAjuste(destino){
   const tipo=document.getElementById('cc-ajuste-tipo').value;
+  const cantidad=parseFloat(document.getElementById('cc-ajuste-cantidad').value)||0;
+  const precio=parseFloat(document.getElementById('cc-ajuste-precio').value)||0;
   const monto=Math.abs(parseFloat(document.getElementById('cc-ajuste-monto').value)||0);
   const motivo=(document.getElementById('cc-ajuste-motivo').value||'').trim();
   const fecha=document.getElementById('cc-ajuste-fecha').value||new Date().toLocaleDateString('es-AR');
-  if(!monto){ showToast('Cargá un monto válido'); return; }
+  if(!monto){ showToast('Cargá un monto válido (o Cantidad y Precio para que se calcule solo)'); return; }
   if(!motivo){ showToast('Cargá un motivo para el ajuste'); return; }
   const ajusteId='ajuste_'+Date.now();
-  db.ref(`fabrica_v5/ajustes_taller/${ajusteId}`).set({destino,tipo,monto,motivo,fecha,registrado_por:currentUser,fecha_registro:Date.now()});
+  const registro={destino,tipo,monto,motivo,fecha,registrado_por:currentUser,fecha_registro:Date.now()};
+  if(cantidad>0&&precio>0){ registro.cantidad=cantidad; registro.precio=precio; }
+  db.ref(`fabrica_v5/ajustes_taller/${ajusteId}`).set(registro);
   logActivity('Cargó ajuste manual en cuenta corriente',`${destino}: ${tipo==='debe'?'+':'-'}$${monto.toLocaleString('es-AR')} — ${motivo}`);
   showToast('✓ Ajuste cargado');
   facturacionRenderCuentaCorriente(destino);
@@ -10014,14 +10018,14 @@ function facturacionRenderCuentaCorriente(destino){
   const movs=[];
   Object.entries(logiItemsData||{}).forEach(([itemId,it])=>{
     if(it.estado==='cerrado'&&it.facturado_cta_cte&&facturacionDestino(it)===destino){
-      movs.push({ts:it.facturacion_fecha_registro||0,fecha:it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,debe:it.facturacion_monto||0,haber:0});
+      movs.push({ts:it.facturacion_fecha_registro||0,fecha:it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,cantidad:facturacionCantidad(it),precio:it.precio_taller||0,debe:it.facturacion_monto||0,haber:0});
     }
   });
   Object.entries(fabricaPagosTallerData||{}).forEach(([pagoId,p])=>{
-    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}`,debe:0,haber:p.monto||0,pagoId});
+    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}`,cantidad:null,precio:null,debe:0,haber:p.monto||0,pagoId});
   });
   Object.entries(fabricaAjustesTallerData||{}).forEach(([ajusteId,a])=>{
-    if(a.destino===destino) movs.push({ts:a.fecha_registro||0,fecha:a.fecha,detalle:`Ajuste: ${a.motivo}`,debe:a.tipo==='debe'?a.monto:0,haber:a.tipo==='haber'?a.monto:0,ajusteId});
+    if(a.destino===destino) movs.push({ts:a.fecha_registro||0,fecha:a.fecha,detalle:`Ajuste: ${a.motivo}`,cantidad:a.cantidad||null,precio:a.precio||null,debe:a.tipo==='debe'?a.monto:0,haber:a.tipo==='haber'?a.monto:0,ajusteId});
   });
   movs.sort((a,b)=>a.ts-b.ts);
   let saldoCorrido=0;
@@ -10032,6 +10036,8 @@ function facturacionRenderCuentaCorriente(destino){
     return `<tr style="border-top:1px solid var(--border)">
       <td style="padding:6px 4px;font-size:11.5px;white-space:nowrap">${m.fecha}</td>
       <td style="padding:6px 4px;font-size:11.5px">${m.detalle}</td>
+      <td style="padding:6px 4px;font-size:11.5px;text-align:right">${m.cantidad!=null?m.cantidad:'—'}</td>
+      <td style="padding:6px 4px;font-size:11.5px;text-align:right">${m.precio?'$'+m.precio.toLocaleString('es-AR'):'—'}</td>
       <td style="padding:6px 4px;font-size:11.5px;text-align:right">${m.debe?'$'+m.debe.toLocaleString('es-AR'):'—'}</td>
       <td style="padding:6px 4px;font-size:11.5px;text-align:right">${m.haber?'$'+m.haber.toLocaleString('es-AR'):'—'}</td>
       <td style="padding:6px 4px;font-size:11.5px;text-align:right;font-weight:700;color:${saldoCorrido>0.009?'var(--danger)':saldoCorrido<-0.009?'#1d4ed8':'#15803d'}">$${saldoCorrido.toLocaleString('es-AR')}</td>
@@ -10039,7 +10045,8 @@ function facturacionRenderCuentaCorriente(destino){
     </tr>`;
   }).join('');
   body.innerHTML=`
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:8px">
+      <button class="btn-sm" onclick="facturacionExportarCuentaCorriente('${destino.replace(/'/g,"\\'")}')">📊 Exportar Excel</button>
       <button class="btn-sm" onclick="facturacionToggleFormAjuste()">+ Ajuste manual</button>
     </div>
     <div id="cc-ajuste-form" class="hidden" style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -10049,6 +10056,14 @@ function facturacionRenderCuentaCorriente(destino){
           <option value="debe">Aumenta lo que le debo</option>
           <option value="haber">Reduce lo que le debo</option>
         </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Cantidad <span style="font-weight:400">(opcional)</span></label>
+        <input type="number" min="0" id="cc-ajuste-cantidad" placeholder="—" oninput="ccAjusteRecalcularMonto()" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:80px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--text3);display:block">Precio <span style="font-weight:400">(opcional)</span></label>
+        <input type="number" min="0" id="cc-ajuste-precio" placeholder="—" oninput="ccAjusteRecalcularMonto()" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:90px">
       </div>
       <div>
         <label style="font-size:11px;color:var(--text3);display:block">Monto</label>
@@ -10067,12 +10082,53 @@ function facturacionRenderCuentaCorriente(destino){
     ${movs.length?`<table style="width:100%;border-collapse:collapse">
       <tr style="text-align:left;color:var(--text3);font-size:11px">
         <th style="padding:4px">Fecha</th><th style="padding:4px">Detalle</th>
+        <th style="padding:4px;text-align:right">Cantidad</th><th style="padding:4px;text-align:right">Precio</th>
         <th style="padding:4px;text-align:right">Debe</th><th style="padding:4px;text-align:right">Haber</th>
         <th style="padding:4px;text-align:right">Saldo</th><th></th>
       </tr>
       ${filas}
     </table>`:'<div class="empty">Todavía no hay movimientos para este taller/proveedor.</div>'}
   `;
+}
+// Si el ajuste manual se carga con Cantidad y Precio (ej. "faltaron 12 unidades a $380"), el
+// Monto se calcula solo — así queda claro que el origen del ajuste es una corrección de
+// cantidad/precio, y no un número suelto. Si el usuario borra Cantidad o Precio, vuelve a
+// poder tipear el Monto a mano (para ajustes que no son por unidades, ej. un descuento).
+function ccAjusteRecalcularMonto(){
+  const cant=parseFloat(document.getElementById('cc-ajuste-cantidad').value);
+  const precio=parseFloat(document.getElementById('cc-ajuste-precio').value);
+  const montoInput=document.getElementById('cc-ajuste-monto');
+  if(cant>0&&precio>0){ montoInput.value=(cant*precio).toFixed(2); montoInput.readOnly=true; }
+  else { montoInput.readOnly=false; }
+}
+// Exporta el detalle completo de esta cuenta corriente (facturas, pagos y ajustes, con saldo
+// corrido) a un .xlsx — mismas columnas que se ven en pantalla.
+function facturacionExportarCuentaCorriente(destino){
+  const movs=[];
+  Object.entries(logiItemsData||{}).forEach(([itemId,it])=>{
+    if(it.estado==='cerrado'&&it.facturado_cta_cte&&facturacionDestino(it)===destino){
+      movs.push({ts:it.facturacion_fecha_registro||0,fecha:it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,cantidad:facturacionCantidad(it),precio:it.precio_taller||0,debe:it.facturacion_monto||0,haber:0});
+    }
+  });
+  Object.entries(fabricaPagosTallerData||{}).forEach(([,p])=>{
+    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}`,cantidad:'',precio:'',debe:0,haber:p.monto||0});
+  });
+  Object.entries(fabricaAjustesTallerData||{}).forEach(([,a])=>{
+    if(a.destino===destino) movs.push({ts:a.fecha_registro||0,fecha:a.fecha,detalle:`Ajuste: ${a.motivo}`,cantidad:a.cantidad||'',precio:a.precio||'',debe:a.tipo==='debe'?a.monto:0,haber:a.tipo==='haber'?a.monto:0});
+  });
+  if(!movs.length){ showToast('No hay movimientos para exportar'); return; }
+  movs.sort((a,b)=>a.ts-b.ts);
+  let saldoCorrido=0;
+  const filas=movs.map(m=>{
+    saldoCorrido+=m.debe-m.haber;
+    return {Fecha:m.fecha,Detalle:m.detalle,Cantidad:m.cantidad,Precio:m.precio,Debe:m.debe||'',Haber:m.haber||'',Saldo:saldoCorrido};
+  });
+  const ws=XLSX.utils.json_to_sheet(filas);
+  ws['!cols']=[{wch:12},{wch:35},{wch:10},{wch:12},{wch:14},{wch:14},{wch:14}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Cuenta corriente');
+  const hoy=new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb,`CtaCte_${destino.replace(/[^a-zA-Z0-9]+/g,'_')}_${hoy}.xlsx`);
 }
 let fabricaPagosTallerData={};
 db.ref('fabrica_v5/pagos_taller').on('value',snap=>{

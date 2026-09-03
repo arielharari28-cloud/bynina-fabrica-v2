@@ -3432,13 +3432,39 @@ function diasDesde(timestamp){
 }
 
 // --- MUESTRA NUEVA (Nuevos Desarrollos): nombre + código + ficha + control, todo en un lugar ---
+// Cambiar el código ya no es solo tocar el campo del ítem: si el corte ya avanzó, el código
+// quedó copiado (no enlazado en vivo) en las entregas de Logística y en la entrada de Costeo
+// de ese N° de corte. Este prompt corrige todo junto para no dejar copias viejas dando vueltas.
 function editCodigoPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const val=prompt('Código de la prenda:',item.code||'');
   if(val===null) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/code`).set(val.trim());
-  logActivity('Editó código',val.trim()||'(vacío)');
-  showToast('✓ Código guardado');
+  const nuevo=val.trim();
+  const anterior=item.code||'';
+  if(nuevo===anterior) return;
+  const updates={};
+  updates[`fabrica_v5/sections/${secId}/items/${itemId}/code`]=nuevo;
+  // Logística: entregas de este mismo corte, enlazadas por fabrica_item_id.
+  let logiTocados=0;
+  Object.entries(logiItemsData||{}).forEach(([lid,lit])=>{
+    if(lit.fabrica_item_id===itemId){
+      updates[`fabrica_v5/logistica/items/${lid}/code`]=nuevo;
+      logiTocados++;
+    }
+  });
+  // Costeo: la entrada de este N° de corte guarda un array de artículos {code,name}.
+  let costeoTocado=false;
+  const corteKey=corteKeyFrom(item.numero_corte);
+  if(corteKey && costeosData[corteKey] && Array.isArray(costeosData[corteKey].articulos)){
+    const articulosNuevos=costeosData[corteKey].articulos.map(a=>(a&&a.code===anterior)?{...a,code:nuevo}:a);
+    updates[`fabrica_v5/costeos/${corteKey}/articulos`]=articulosNuevos;
+    costeoTocado=true;
+  }
+  db.ref().update(updates).then(()=>{
+    logActivity('Editó código',`${anterior||'(vacío)'} → ${nuevo||'(vacío)'}`);
+    const extra=[logiTocados?`${logiTocados} entrega${logiTocados>1?'s':''} de Logística`:null, costeoTocado?'Costeo':null].filter(Boolean);
+    showToast(`✓ Código guardado${extra.length?' — también actualizado en '+extra.join(' y '):''}. Revisá Ninox a mano, eso no se sincroniza solo.`);
+  });
 }
 
 // Tela base en Nuevos Desarrollos: comparte la misma lista de telas que Fábrica (telasList),

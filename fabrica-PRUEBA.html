@@ -1987,6 +1987,18 @@ function toggleBaseAprobada(secId,itemId){
   showToast(nv?'✅ Base aprobada — se saltea moldería':'↩ Deshecho');
 }
 
+// Para ítems que llegaron a "Pendiente armar tizada" salteando el botón normal de Aprobar
+// (por ejemplo, movidos a mano con "Mover a..." tras un error de proceso) — les faltan
+// aprobado_por/fecha_aprobada, así que no cuentan en el Objetivo de Diseño del mes ni
+// aparecen en su grilla de fotos. Esto los suma retroactivamente, sin mover el ítem.
+function marcarAprobadaRetroactivo(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(item.aprobado_por&&item.fecha_aprobada){ showToast('Ya está contado en el Objetivo de Diseño'); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({aprobado_por:currentUser,fecha_aprobada:Date.now()});
+  logActivity('Sumó al Objetivo de Diseño (aprobación retroactiva)',item.code||item.name||'');
+  showToast('📊 Ahora cuenta en el Objetivo de Diseño de este mes');
+}
+
 // Elección explícita en Nuevos Desarrollos: apenas hay nombre cargado, Peque elige si el
 // corte es un Nuevo Desarrollo (pasa por moldería) o una Base ya aprobada (molde existente).
 function setTipoDesarrollo(secId,itemId,esBase){
@@ -6339,9 +6351,13 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div class="c-check" onclick="${((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?`confirmarDigitalizacionYAvanzar('${secId}','${itemId}')`:''}"></div>
           <span class="c-label" style="font-size:11px">🖨️ Molde digitalizado (Guada) — al tildar pasa a Pendiente armar tizada</span>
         </div>`:''}
-        ${(!POST_S3_SECS.includes(secId)&&!esArmarTizada)?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+        ${(!POST_S3_SECS.includes(secId)&&(!esArmarTizada||!item.base_aprobada))?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>
           <span class="c-label ${item.base_aprobada?'done':''}" style="font-size:11px">🔁 Base ya aprobada (molde ya existe)</span>
+        </div>`:''}
+        ${(esArmarTizada&&canFicha&&!(item.aprobado_por&&item.fecha_aprobada))?`<div class="avio-item" style="padding-left:0;border-top:none">
+          <div class="c-check" onclick="marcarAprobadaRetroactivo('${secId}','${itemId}')"></div>
+          <span class="c-label" style="font-size:11px">📊 Sumar al Objetivo de Diseño de este mes</span>
         </div>`:''}
         ${(()=>{
           if(POST_S3_SECS.includes(secId)) return '';

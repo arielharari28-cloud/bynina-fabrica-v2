@@ -6315,7 +6315,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const realesHtml = secId==='s3' ? '' : buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = (secId==='sFIN'||secId==='s6')&&item.fecha_salida_taller
     ? `<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
-        <span style="font-size:11px;color:var(--text2)">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></span>
+        <span style="font-size:11px;color:var(--text2)">${(secId==='sFIN'&&item.retirado_taller)
+          ? `✅ Retirado por ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'el taller '}${item.fecha_retiro_confirmado?`el <strong>${fmtFecha(item.fecha_retiro_confirmado)}</strong>`:''}`
+          : `📦 Asignado a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong> — pendiente de retiro`}</span>
         ${canFicha?`<button class="btn-sm" onclick="editFechaSalidaTaller('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
       </div>` : '';
   // Mientras el taller todavía no pasó a buscarlo, se puede confirmar el retiro acá mismo —
@@ -7596,13 +7598,9 @@ function sacarATaller(secId,itemId){
   if(!item.taller_corte){ showToast('Asigná un taller antes de sacarlo'); return; }
   // El checklist (Muestra/Ficha/Ninox) ya NO se exige acá — se pide recién al confirmar que el
   // taller retiró el corte (ver confirmarRetiroTaller), que es el momento real de la entrega.
-  if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
-  const hoy=new Date();
-  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
-  const fecha=prompt('¿Qué fecha salió a taller?',fechaDefault);
-  if(fecha===null) return;
-  const fechaFinal=fecha.trim()||fechaDefault;
-  const tsSalida=parseFechaArToTs(fechaFinal)||Date.now();
+  // Tampoco hay popup de confirmación ni de fecha: el botón ya es una acción explícita, y la
+  // fecha se toma como hoy (corregible después con "Editar fecha" si hace falta).
+  const tsSalida=Date.now();
   const avList=Object.values(item.avios||{});
   const avioPendiente = avList.length>0 && !avList.every(a=>a.recibido);
   const targetSec = avioPendiente ? 's6' : 'sFIN';
@@ -7619,8 +7617,8 @@ function sacarATaller(secId,itemId){
   ensureSeccionCorte(targetSec);
   db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Corte sacado a taller',`${item.code} → ${item.taller_corte}${avioPendiente?' (avío pendiente)':''}: ${fechaFinal}`);
-  showToast(avioPendiente?`📦 ${item.code} salió a ${item.taller_corte} — el avío queda pendiente`:`📦 ${item.code} salió a ${item.taller_corte}`);
+  logActivity('Corte asignado a taller, pendiente de retiro',`${item.code} → ${item.taller_corte}${avioPendiente?' (avío pendiente)':''}`);
+  showToast(avioPendiente?`📦 ${item.code} asignado a ${item.taller_corte} — el avío queda pendiente`:`📦 ${item.code} asignado a ${item.taller_corte}, pendiente de retiro`);
 }
 
 // Deja corregir la fecha de salida a taller de un artículo ya entregado (por si se marcó
@@ -7651,7 +7649,7 @@ function editFechaSalioPlancha(secId,itemId){
 
 function editFechaSalidaTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const fecha=prompt('¿Qué fecha salió a taller?',fmtFecha(item.fecha_salida_taller));
+  const fecha=prompt('¿Qué fecha quedó asignado al taller?',fmtFecha(item.fecha_salida_taller));
   if(fecha===null) return;
   const ts=parseFechaArToTs(fecha.trim());
   if(fecha.trim()&&!ts){ showToast('Fecha inválida — usá el formato DD/MM/AAAA'); return; }

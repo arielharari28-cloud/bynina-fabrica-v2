@@ -5589,7 +5589,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${item.motivo_cancelacion?`<div style="font-size:12px;color:var(--text);background:var(--surface2);border-radius:6px;padding:6px 8px;margin-top:4px;white-space:pre-wrap">${item.motivo_cancelacion}</div>`:`<span style="font-size:12px;color:var(--text3);font-style:italic;margin-left:6px">Sin motivo cargado</span>`}
           </div>
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" onclick="reactivarMuestra('${secId}','${itemId}')">↩ Reactivar</button>`:''}
+            ${canEdit?`<button class="btn-advance" title="Vuelve al principio, a Nuevos Desarrollos" onclick="reactivarMuestra('${secId}','${itemId}')">↩ Reactivar</button>`:''}
+            ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar definitivo</button>`:''}
           </div>
         </div>
@@ -5734,6 +5735,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
 
           <div class="item-actions">
             ${canPeque?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.color_muestra&&item.modelista&&!fichaModPendiente?'Falta tildar Tela separada':(!item.color_muestra?'Falta elegir el color de la muestra':'Falta código, link de ficha o modelista')))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
+            ${item.molde_aprobado?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0;width:100%">⚠️ Este ítem ya tenía el molde aprobado antes — probablemente no debería estar acá. Usá "Mover a..." para mandarlo a "Molde - Pendiente Digitalizar" o "Pendiente armar tizada" según corresponda.</div>`:''}
+            ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
@@ -6110,6 +6113,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const necesitaRollosParaSeguir=POST_S3_SECS.includes(secId)&&secId!=='s3'&&secId!=='sFIN'&&!Object.values(item.rollos||{}).some(r=>r&&(r.color||r.kgmts||r.capas));
   const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='arimoron';
   const canControlFichaCorreccion=(currentUser==='ariel'||currentUser==='stef');
+  // "Molde - Pendiente Digitalizar" es una sección genérica (sin tipo propio), así que NO puede
+  // usar el botón estándar "▶ Siguiente paso" (avanza por orden en el tablero, no por el flujo
+  // real) — eso es lo que la mandaba mal a "Muestras — canceladas". El único paso válido acá es
+  // que Guada/Peque confirmen la digitalización, y eso siempre va a "Pendiente armar tizada".
+  const esPendienteDigitalizar = (sectionsData[secId].title||'').trim()==='Molde - Pendiente Digitalizar';
   // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
@@ -6373,7 +6381,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
-          ${canEdit?`<button class="btn-advance" ${necesitaRollosParaSeguir?'disabled':''} title="${necesitaRollosParaSeguir?'Falta cargar los rollos utilizados':''}" onclick="siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`:''}
+          ${esPendienteDigitalizar
+            ? (canEdit?`<button class="btn-advance" onclick="confirmarDigitalizacionYAvanzar('${secId}','${itemId}')">🖨️ Molde digitalizado (Guada) → Pendiente armar tizada</button>`:'')
+            : (canEdit?`<button class="btn-advance" ${necesitaRollosParaSeguir?'disabled':''} title="${necesitaRollosParaSeguir?'Falta cargar los rollos utilizados':''}" onclick="siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`:'')}
           ${moveOpts}
           ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
         </div>

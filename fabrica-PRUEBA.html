@@ -4793,62 +4793,9 @@ function confirmarRetiroTaller(secId,itemId){
   showToast(`✅ ${item.code} — retirado, pasa a Talleres`);
 }
 
-// Resumen "Próximos retiros": todos los cortes en talleres con fecha coordinada de retiro
-// cargada (el día que se pasó a buscar al taller), ordenados por esa fecha — para ver de un
-// vistazo qué se coordinó retirar esta semana, cruzando todos los talleres a la vez.
-function buildProximasEntregasHtml(items){
-  const conFecha=items.filter(([,item])=>!!item.fecha_estimada_entrega);
-  if(!conFecha.length) return '';
-  const hoy=new Date(); hoy.setHours(0,0,0,0);
-  const filas=conFecha.slice().sort((a,b)=>a[1].fecha_estimada_entrega.localeCompare(b[1].fecha_estimada_entrega)).map(([itemId,item])=>{
-    const f=new Date(item.fecha_estimada_entrega+'T00:00:00');
-    const diasFaltan=Math.round((f-hoy)/86400000);
-    const vencida=diasFaltan<0;
-    const etiqueta=vencida?`⚠️ no lo retiraron, coordinado hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'retirar hoy':diasFaltan===1?'retirar mañana':`retirar en ${diasFaltan}d`;
-    return `<div class="rt-row">
-      <div class="rt-row-top">
-        <span class="rt-corte-num" style="${vencida?'background:var(--danger)':''}">${item.numero_corte||'s/n°'}</span>
-        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
-        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
-      </div>
-      <div class="rt-row-bottom">
-        <span class="rt-stats"><span style="${vencida?'color:var(--danger);font-weight:700':'font-weight:700'}">📅 ${f.toLocaleDateString('es-AR')} · ${etiqueta}</span></span>
-      </div>
-    </div>`;
-  }).join('');
-  return `<div class="rt-box"><div class="rt-title">📅 Próximos retiros coordinados (${conFecha.length})</div>${filas}</div>`;
-}
-
-// Resumen por corte: un registro por artículo/corte en taller, con lo cortado, lo entregado,
-// hace cuántos días está esperando, observación (auto o manual) y fecha aproximada de entrega.
-// Reemplaza al viejo resumen agrupado "qué debe cada taller".
-// "Sin coordinar todavía": cortes en taller donde Emir ni siquiera cargó una fecha coordinada
-// de retiro — para que Ariel los vea de un vistazo en vez de tener que preguntarle a Emir uno
-// por uno si ya coordinó el retiro. Se ordena por más días esperando primero (más urgente).
-function buildSinCoordinarHtml(items){
-  const sinFecha=items.filter(([,item])=>!item.fecha_estimada_entrega);
-  if(!sinFecha.length) return '';
-  const filas=sinFecha.slice().sort((a,b)=>(diasEntre(b[1].fecha_etapa)||0)-(diasEntre(a[1].fecha_etapa)||0)).map(([itemId,item])=>{
-    const dias=diasEntre(item.fecha_etapa);
-    const urgente=dias!=null&&dias>=7;
-    return `<div class="rt-row">
-      <div class="rt-row-top">
-        <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
-        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
-        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
-      </div>
-      <div class="rt-row-bottom">
-        <span class="rt-stats ${urgente?'urgente':''}" style="font-weight:700">⏳ Esperando hace ${dias!=null?dias+'d':'—'} · sin coordinar retiro</span>
-      </div>
-    </div>`;
-  }).join('');
-  return `<div class="rt-box"><div class="rt-title">❓ Sin coordinar retiro con el taller (${sinFecha.length})</div>${filas}</div>`;
-}
-
 function buildResumenTalleresHtml(secId,items){
   if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
-  const sinCoordinarHtml=buildSinCoordinarHtml(items);
-  const proximasHtml=buildProximasEntregasHtml(items);
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
   const filas=items.slice().sort((a,b)=>String(a[1].taller_corte||'zzz').localeCompare(String(b[1].taller_corte||'zzz'))).map(([itemId,item])=>{
     const resumen=resumenEntregasFabrica(item,itemId);
     const dias=diasEntre(item.fecha_etapa);
@@ -4857,10 +4804,19 @@ function buildResumenTalleresHtml(secId,items){
     const obsManual=item.observacion_taller||'';
     const obsMostrar=obsManual||obsAuto;
     const esAuto=!obsManual&&obsAuto;
-    const hoy=new Date(); hoy.setHours(0,0,0,0);
     const fechaObjRecibir = item.fecha_objetivo_recibir ? new Date(item.fecha_objetivo_recibir+'T00:00:00') : null;
     const objVencido = fechaObjRecibir && fechaObjRecibir < hoy;
-    return `<div class="rt-row">
+    // Marca la fila misma en vez de duplicarla en un panel de resumen aparte: sin fecha
+    // cargada todavía, o con fecha ya vencida (coordinó y el taller no pasó a retirarlo).
+    const fechaRetiro = item.fecha_estimada_entrega ? new Date(item.fecha_estimada_entrega+'T00:00:00') : null;
+    const retiroVencido = fechaRetiro && fechaRetiro < hoy;
+    const sinCoordinar = !item.fecha_estimada_entrega;
+    const avisoRetiro = sinCoordinar
+      ? `<span style="font-size:10.5px;color:var(--danger);font-weight:700">❓ sin coordinar retiro</span>`
+      : retiroVencido
+        ? `<span style="font-size:10.5px;color:var(--danger);font-weight:700">⚠️ no lo retiraron todavía</span>`
+        : '';
+    return `<div class="rt-row" style="${sinCoordinar||retiroVencido?'border-left:3px solid var(--danger)':''}">
       <div class="rt-row-top">
         <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
         <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
@@ -4869,6 +4825,7 @@ function buildResumenTalleresHtml(secId,items){
       </div>
       <div class="rt-row-bottom">
         <span class="rt-stats"><b>${resumen.totalEsperado}</b> cort. · <b>${resumen.totalEntregado}</b> entr. · <span class="${urgente?'urgente':''}">${dias!=null?dias+'d':'—'}</span></span>
+        ${avisoRetiro}
         <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
           onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
           onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
@@ -4878,7 +4835,7 @@ function buildResumenTalleresHtml(secId,items){
       </div>
     </div>`;
   }).join('');
-  return `${sinCoordinarHtml}${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
+  return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
 }
 
 // Fecha estimada de ENTREGA (el taller cose y devuelve) — distinta de la fecha coordinada de
@@ -4887,34 +4844,19 @@ function buildResumenTalleresHtml(secId,items){
 function setFechaEntregaTallerCorte(secId,itemId,val){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega_taller`).set(val||null);
 }
-function buildProximasEntregasTallerHtml(items){
-  const conFecha=items.filter(([,item])=>!!item.fecha_estimada_entrega_taller);
-  if(!conFecha.length) return '';
-  const hoy=new Date(); hoy.setHours(0,0,0,0);
-  const filas=conFecha.slice().sort((a,b)=>a[1].fecha_estimada_entrega_taller.localeCompare(b[1].fecha_estimada_entrega_taller)).map(([itemId,item])=>{
-    const f=new Date(item.fecha_estimada_entrega_taller+'T00:00:00');
-    const diasFaltan=Math.round((f-hoy)/86400000);
-    const vencida=diasFaltan<0;
-    const etiqueta=vencida?`⚠️ hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'hoy':diasFaltan===1?'mañana':`en ${diasFaltan}d`;
-    return `<div class="rt-row">
-      <div class="rt-row-top">
-        <span class="rt-corte-num" style="${vencida?'background:var(--danger)':''}">${item.numero_corte||'s/n°'}</span>
-        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
-        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
-      </div>
-      <div class="rt-row-bottom">
-        <span class="rt-stats"><span style="${vencida?'color:var(--danger);font-weight:700':'font-weight:700'}">📅 ${f.toLocaleDateString('es-AR')} · ${etiqueta}</span></span>
-      </div>
-    </div>`;
-  }).join('');
-  return `<div class="rt-box"><div class="rt-title">📅 Próximas entregas del taller (${conFecha.length})</div>${filas}</div>`;
+// Fecha estimada de ENTREGA (el taller cose y devuelve) — distinta de la fecha coordinada de
+// RETIRO (el taller pasa a buscar el corte cortado, ver más arriba). Esta es la que ya existía
+// antes y se usa una vez que el corte pasó a Talleres (ya retirado, en confección/plancha).
+function setFechaEntregaTallerCorte(secId,itemId,val){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega_taller`).set(val||null);
 }
 // Resumen de "En taller" (Talleres, ya retirado): igual que buildResumenTalleresHtml pero sin
 // la coordinación de retiro (ya pasó) y sin el precio (ya se cargó antes) — solo observación y
-// fecha estimada de que el taller lo entregue cosido.
+// fecha estimada de que el taller lo entregue cosido. La fila misma se marca en rojo si la
+// fecha ya venció, en vez de duplicarse en un panel de resumen aparte.
 function buildResumenEnTallerHtml(secId,items){
   if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 En taller</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
-  const proximasHtml=buildProximasEntregasTallerHtml(items);
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
   const filas=items.slice().sort((a,b)=>String(a[1].taller_corte||'zzz').localeCompare(String(b[1].taller_corte||'zzz'))).map(([itemId,item])=>{
     const resumen=resumenEntregasFabrica(item,itemId);
     const dias=diasEntre(item.fecha_retiro_confirmado||item.fecha_etapa);
@@ -4923,7 +4865,10 @@ function buildResumenEnTallerHtml(secId,items){
     const obsManual=item.observacion_taller||'';
     const obsMostrar=obsManual||obsAuto;
     const esAuto=!obsManual&&obsAuto;
-    return `<div class="rt-row">
+    const fechaEntrega = item.fecha_estimada_entrega_taller ? new Date(item.fecha_estimada_entrega_taller+'T00:00:00') : null;
+    const entregaVencida = fechaEntrega && fechaEntrega < hoy;
+    const avisoEntrega = entregaVencida ? `<span style="font-size:10.5px;color:var(--danger);font-weight:700">⚠️ no lo entregaron todavía</span>` : '';
+    return `<div class="rt-row" style="${entregaVencida?'border-left:3px solid var(--danger)':''}">
       <div class="rt-row-top">
         <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
         <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
@@ -4931,6 +4876,7 @@ function buildResumenEnTallerHtml(secId,items){
       </div>
       <div class="rt-row-bottom">
         <span class="rt-stats"><b>${resumen.totalEsperado}</b> cort. · <b>${resumen.totalEntregado}</b> entr. · <span class="${urgente?'urgente':''}">${dias!=null?dias+'d':'—'}</span></span>
+        ${avisoEntrega}
         <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
           onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
           onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
@@ -4939,7 +4885,7 @@ function buildResumenEnTallerHtml(secId,items){
       </div>
     </div>`;
   }).join('');
-  return `${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 En taller (${items.length})</div>${filas}</div>`;
+  return `<div class="rt-box"><div class="rt-title">🧵 En taller (${items.length})</div>${filas}</div>`;
 }
 
 function buildPasosPanelCorteHtml(item){

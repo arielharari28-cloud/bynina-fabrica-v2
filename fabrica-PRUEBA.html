@@ -10379,11 +10379,12 @@ function renderWebTab(){
     const filas=Object.values(it.grilla||{});
     const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
     if(!colores.length) return '';
+    const completas=medidasCompletas(it);
     const rows=colores.map(color=>{
       const slug=webColorSlug(color);
       const subido=!!(it.web_colores&&it.web_colores[slug]);
-      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
-        <input type="checkbox" ${subido?'checked':''} onchange="logiToggleWebColor('${id}','${slug}',this.checked)">
+      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:${completas?'pointer':'not-allowed'}" title="${completas?'':'Cargá las medidas primero'}">
+        <input type="checkbox" ${subido?'checked':''} ${completas?'':'disabled'} onchange="logiToggleWebColor('${id}','${slug}',this.checked)">
         <span style="font-size:13px">${(color||'').replace(/</g,'&lt;')}</span>
         <span style="margin-left:auto;font-size:11px;color:${subido?'#15803d':'#b91c1c'}">${subido?'✓ Subido':'Pendiente'}</span>
       </label>`;
@@ -10391,11 +10392,14 @@ function renderWebTab(){
     return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px">
       <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
       <div class="logi-name" style="margin-bottom:6px">${it.name||''}</div>
+      ${buildMedidasHtml(id,it,true)}
       ${rows}
     </div>`;
   }).join('');
 }
 function logiToggleWebColor(itemId,slug,checked){
+  const it=(logiItemsData||{})[itemId];
+  if(checked && it && !medidasCompletas(it)){ showToast('📏 Cargá las medidas de todos los talles antes de subir a la web'); renderWebTab(); return; }
   db.ref(`fabrica_v5/logistica/items/${itemId}/web_colores/${slug}`).set(!!checked);
 }
 
@@ -10494,7 +10498,8 @@ function logiCardHtml(id,it,cerrado){
         ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">🌐 Subido a la web</span>`
         : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">🌐 Faltan colores (${coloresSubidos}/${colores.length})</span>`);
       const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}${it.division_avellaneda!=null?` · Avellaneda: <strong>${it.division_avellaneda}</strong> · Depósito: <strong>${it.division_deposito||0}</strong>`:''}</div>`;
-      extraCerradoHtml = `<div style="margin-top:4px">${webBadge}</div>${plataHtml}${dividioInfo}`;
+      const medidasHtml = buildMedidasHtml(id,it,true);
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge}</div>${plataHtml}${dividioInfo}${medidasHtml}`;
     } else {
       const pool = totalOk + totalDetalle;
       const avell = it.division_avellaneda;
@@ -10540,6 +10545,48 @@ function compareTalles(a,b){
   const ia = talleSortIndex(a), ib = talleSortIndex(b);
   if(ia!==ib) return ia-ib;
   return (a||'').localeCompare(b||'');
+}
+
+// ===== Medidas por talle (para subir a la web) =====
+// Se cargan una sola vez por artículo (no por color) — Noemí/Nahuel/Emir las cargan apenas el
+// corte queda Finalizado en Logística, y Noelia las ve/completa también desde la pestaña Web.
+// Mientras falte algún talle, Noelia no puede tildar ningún color como "Subido".
+function medidasTalles(it){
+  return [...new Set(Object.values(it.grilla||{}).map(f=>f.talle).filter(Boolean))].sort(compareTalles);
+}
+function medidasCompletas(it){
+  const talles=medidasTalles(it);
+  if(!talles.length) return false;
+  return talles.every(t=>{
+    const m=(it.medidas||{})[t];
+    return m && String(m.largo||'').trim() && String(m.ancho||'').trim() && String(m.manga||'').trim();
+  });
+}
+function logiSetMedida(itemId,talle,campo,val){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/medidas/${talle}/${campo}`).set(val.trim());
+}
+function buildMedidasHtml(id,it,canEdit){
+  const talles=medidasTalles(it);
+  if(!talles.length) return '';
+  const completas=medidasCompletas(it);
+  const filas=talles.map(t=>{
+    const m=(it.medidas||{})[t]||{};
+    const campo=(nombre,label)=>canEdit
+      ? `<input type="text" value="${(m[nombre]||'').toString().replace(/"/g,'&quot;')}" placeholder="${label}" style="width:52px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:11.5px" onclick="event.stopPropagation()" onchange="event.stopPropagation();logiSetMedida('${id}','${t}','${nombre}',this.value)">`
+      : `<span style="font-size:11.5px">${m[nombre]||'—'}</span>`;
+    return `<div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:11px;font-weight:700;min-width:28px">${t}</span>
+      ${campo('largo','Largo')}${campo('ancho','Ancho')}${campo('manga','Manga')}
+    </div>`;
+  }).join('');
+  return `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:6px;background:var(--surface2);border-radius:8px;padding:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <span style="font-weight:700">📏 Medidas (cm)</span>
+      <span style="font-size:11px;color:${completas?'#15803d':'#b91c1c'}">${completas?'✓ Cargadas':'Faltan cargar'}</span>
+    </div>
+    <div style="display:flex;gap:6px;font-size:10px;color:var(--text3);padding-left:34px;margin-bottom:2px"><span style="width:52px">Largo</span><span style="width:52px">Ancho</span><span style="width:52px">Manga</span></div>
+    <div style="display:flex;flex-direction:column;gap:4px">${filas}</div>
+  </div>`;
 }
 
 function logiOpenDetail(id){

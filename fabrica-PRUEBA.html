@@ -1740,14 +1740,44 @@ function saveItemName(secId,itemId,el){
   logActivity('Editó nombre', `${item.code} → ${newName}`);
 }
 
+// El código también se edita haciendo clic directo sobre el texto en la tarjeta (no solo desde
+// el modal "✏️ Editar"), así que necesita la misma propagación a Logística/Costeo o el cambio
+// queda pisado en un solo lugar y en los demás sigue mostrando el código viejo.
 function saveItemCode(secId,itemId,el){
   const newCode = el.textContent.trim();
   const item = sectionsData[secId].items[itemId];
   if (!newCode) { el.textContent = item.code; return; }
   if (newCode === (item.code||'')) return;
+  const codigoAnterior = item.code||'';
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/code`).set(newCode);
   checkPasosNuevoDesarrollo(secId,itemId,{code:newCode});
-  logActivity('Editó código', `${item.code} → ${newCode}`);
+  logActivity('Editó código', `${codigoAnterior} → ${newCode}`);
+  // No filtramos por tipo de sección: un corte puede llegar a "Revisión Final" (que sí tiene
+  // tipo propio) y seguir enlazado a entregas de Logística/Costeo de cuando estaba en Talleres.
+  // Para muestras de diseño esto simplemente no encuentra nada y no hace nada de más.
+  {
+    const extraUpdates={};
+    let logiTocados=0;
+    Object.entries(logiItemsData||{}).forEach(([lid,lit])=>{
+      if(lit.fabrica_item_id===itemId){
+        extraUpdates[`fabrica_v5/logistica/items/${lid}/code`]=newCode;
+        logiTocados++;
+      }
+    });
+    let costeoTocado=false;
+    const corteKey=corteKeyFrom(item.numero_corte);
+    if(corteKey && costeosData[corteKey] && Array.isArray(costeosData[corteKey].articulos)){
+      const articulosNuevos=costeosData[corteKey].articulos.map(a=>(a&&a.code===codigoAnterior)?{...a,code:newCode}:a);
+      extraUpdates[`fabrica_v5/costeos/${corteKey}/articulos`]=articulosNuevos;
+      costeoTocado=true;
+    }
+    if(Object.keys(extraUpdates).length){
+      db.ref().update(extraUpdates).then(()=>{
+        const extra=[logiTocados?`${logiTocados} entrega${logiTocados>1?'s':''} de Logística`:null, costeoTocado?'Costeo':null].filter(Boolean);
+        showToast(`✓ Código también actualizado en ${extra.join(' y ')}. Revisá Ninox a mano, eso no se sincroniza solo.`);
+      });
+    }
+  }
 }
 
 function buildPhotoHtml(secId,itemId,item,canEdit,big){
@@ -8191,8 +8221,9 @@ function saveEditItem(){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   // Si cambió el código y el corte ya avanzó, el código quedó copiado (no enlazado en vivo) en
   // las entregas de Logística y en la entrada de Costeo de ese N° de corte — hay que corregirlos
-  // ahí también o quedan mostrando el código viejo.
-  if(esCorte && updates.code!==codigoAnterior){
+  // ahí también o quedan mostrando el código viejo. No filtramos por tipo de sección: el ítem
+  // puede haber avanzado a una sección con tipo propio (ej. Revisión Final) y seguir enlazado.
+  if(updates.code!==codigoAnterior){
     const extraUpdates={};
     let logiTocados=0;
     Object.entries(logiItemsData||{}).forEach(([lid,lit])=>{

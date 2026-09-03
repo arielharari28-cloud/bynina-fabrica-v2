@@ -2936,6 +2936,20 @@ function startListening(){
         });
         // Secciones nuevas (Moldería / Diseño) que pueden no existir en cuentas ya en uso
         if(!data.sections[SEC_MOLD]) db.ref(`fabrica_v5/sections/${SEC_MOLD}`).set(INITIAL_SECTIONS[SEC_MOLD]);
+        // Migración única: "Cortes en talleres" (sFIN) se separa en dos vistas según si el taller
+        // ya retiró el corte o no (retirado_taller). Los que YA estaban en sFIN antes de este
+        // cambio se dan por retirados (para no vaciar de golpe la pestaña Talleres) — de acá en
+        // más, cada corte nuevo que sale a taller arranca sin retirar hasta que se confirme a mano.
+        if(data.sections.sFIN && data.sections.sFIN.items && !data.migracion_retirado_taller){
+          const upd={};
+          Object.keys(data.sections.sFIN.items).forEach(itemId=>{
+            if(data.sections.sFIN.items[itemId].retirado_taller==null){
+              upd[`fabrica_v5/sections/sFIN/items/${itemId}/retirado_taller`]=true;
+            }
+          });
+          upd['fabrica_v5/migracion_retirado_taller']=true;
+          db.ref().update(upd);
+        }
         // Detectar por título las secciones de Revisión Final / Mejora / Productos Perfectos
         // que Ariel ya había creado a mano, y darles su comportamiento especial (una sola vez)
         Object.entries(data.sections).forEach(([id,s])=>{
@@ -4764,6 +4778,21 @@ function buildPrecioTallerRecordatorio(secId,itemId,item){
   </span>`;
 }
 
+// El taller pasa a buscar el corte recién cortado y coordinado — este es el momento que separa
+// "Pendiente retiro de taller" (pestaña Fábrica) de "En taller" (pestaña Talleres, ya en
+// confección/plancha/estampado). Mismo secId (sFIN) siempre — solo cambia esta bandera.
+function confirmarRetiroTaller(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  // El requisito real (Ficha entregada / Muestra entregada / Salida en Ninox) se pide justo
+  // acá, en el momento del retiro — ya no antes, al sacarlo del taller nuestro.
+  const faltan=[!item.taller_ficha_entregada?'Ficha entregada':null,!item.taller_muestra_entregada?'Muestra entregada':null,!item.taller_ninox_salida?'Salida en Ninox':null].filter(Boolean);
+  if(faltan.length){ showToast(`Falta completar antes de confirmar el retiro: ${faltan.join(', ')}`); return; }
+  if(!confirm(`¿${item.taller_corte||'El taller'} ya pasó a retirar "${item.code}"?`)) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({retirado_taller:true,fecha_retiro_confirmado:Date.now()});
+  logActivity('Confirmó que el taller retiró el corte',`${item.code} — ${item.taller_corte||''}`);
+  showToast(`✅ ${item.code} — retirado, pasa a Talleres`);
+}
+
 // Resumen "Próximos retiros": todos los cortes en talleres con fecha coordinada de retiro
 // cargada (el día que se pasó a buscar al taller), ordenados por esa fecha — para ver de un
 // vistazo qué se coordinó retirar esta semana, cruzando todos los talleres a la vez.
@@ -4850,6 +4879,67 @@ function buildResumenTalleresHtml(secId,items){
     </div>`;
   }).join('');
   return `${sinCoordinarHtml}${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
+}
+
+// Fecha estimada de ENTREGA (el taller cose y devuelve) — distinta de la fecha coordinada de
+// RETIRO (el taller pasa a buscar el corte cortado, ver más arriba). Esta es la que ya existía
+// antes y se usa una vez que el corte pasó a Talleres (ya retirado, en confección/plancha).
+function setFechaEntregaTallerCorte(secId,itemId,val){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega_taller`).set(val||null);
+}
+function buildProximasEntregasTallerHtml(items){
+  const conFecha=items.filter(([,item])=>!!item.fecha_estimada_entrega_taller);
+  if(!conFecha.length) return '';
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const filas=conFecha.slice().sort((a,b)=>a[1].fecha_estimada_entrega_taller.localeCompare(b[1].fecha_estimada_entrega_taller)).map(([itemId,item])=>{
+    const f=new Date(item.fecha_estimada_entrega_taller+'T00:00:00');
+    const diasFaltan=Math.round((f-hoy)/86400000);
+    const vencida=diasFaltan<0;
+    const etiqueta=vencida?`⚠️ hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'hoy':diasFaltan===1?'mañana':`en ${diasFaltan}d`;
+    return `<div class="rt-row">
+      <div class="rt-row-top">
+        <span class="rt-corte-num" style="${vencida?'background:var(--danger)':''}">${item.numero_corte||'s/n°'}</span>
+        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
+      </div>
+      <div class="rt-row-bottom">
+        <span class="rt-stats"><span style="${vencida?'color:var(--danger);font-weight:700':'font-weight:700'}">📅 ${f.toLocaleDateString('es-AR')} · ${etiqueta}</span></span>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="rt-box"><div class="rt-title">📅 Próximas entregas del taller (${conFecha.length})</div>${filas}</div>`;
+}
+// Resumen de "En taller" (Talleres, ya retirado): igual que buildResumenTalleresHtml pero sin
+// la coordinación de retiro (ya pasó) y sin el precio (ya se cargó antes) — solo observación y
+// fecha estimada de que el taller lo entregue cosido.
+function buildResumenEnTallerHtml(secId,items){
+  if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 En taller</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
+  const proximasHtml=buildProximasEntregasTallerHtml(items);
+  const filas=items.slice().sort((a,b)=>String(a[1].taller_corte||'zzz').localeCompare(String(b[1].taller_corte||'zzz'))).map(([itemId,item])=>{
+    const resumen=resumenEntregasFabrica(item,itemId);
+    const dias=diasEntre(item.fecha_retiro_confirmado||item.fecha_etapa);
+    const urgente=dias!=null&&dias>=7;
+    const obsAuto=autoObservacionCorte(item);
+    const obsManual=item.observacion_taller||'';
+    const obsMostrar=obsManual||obsAuto;
+    const esAuto=!obsManual&&obsAuto;
+    return `<div class="rt-row">
+      <div class="rt-row-top">
+        <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
+        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
+      </div>
+      <div class="rt-row-bottom">
+        <span class="rt-stats"><b>${resumen.totalEsperado}</b> cort. · <b>${resumen.totalEntregado}</b> entr. · <span class="${urgente?'urgente':''}">${dias!=null?dias+'d':'—'}</span></span>
+        <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
+          onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
+          onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
+        <input class="rt-fecha-input" type="date" title="Fecha estimada de entrega del taller" value="${item.fecha_estimada_entrega_taller||''}" onchange="setFechaEntregaTallerCorte('${secId}','${itemId}',this.value)">
+        <span style="font-size:9.5px;color:var(--text3)">↑ entrega estimada</span>
+      </div>
+    </div>`;
+  }).join('');
+  return `${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 En taller (${items.length})</div>${filas}</div>`;
 }
 
 function buildPasosPanelCorteHtml(item){
@@ -5104,8 +5194,13 @@ function renderSections(board){
   let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===boardParaDatos).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
   // "Talleres" es un recorte del tablero Fábrica: mismas secciones y datos, solo que separadas
   // en otra pestaña para no scrollear tanto — y por eso se excluyen de la pestaña Fábrica normal.
+  // "Cortes en talleres" (sFIN) es la única excepción: convive en LAS DOS pestañas, porque agrupa
+  // dos momentos distintos — un corte recién salido que el taller todavía no pasó a retirar (vive
+  // en Fábrica, con la fecha coordinada) y un corte que el taller ya retiró y está en confección/
+  // plancha/estampado (vive en Talleres). El split real es por ítem (`item.retirado_taller`), más
+  // abajo en el loop de cada sección.
   if(board==='talleres') entries=entries.filter(([secId,sec])=>esSeccionTalleres(secId,sec));
-  else if(board==='fabrica') entries=entries.filter(([secId,sec])=>!esSeccionTalleres(secId,sec));
+  else if(board==='fabrica') entries=entries.filter(([secId,sec])=>!esSeccionTalleres(secId,sec)||secId==='sFIN');
   // Ari Morón (cortador): vista acotada — solo "Cortes próximos a sacar" (y ahí, solo lo
   // confirmado y con orden de corte ya cargada) y "Muestras — pendiente corte" en Diseño.
   if(currentUser==='arimoron'){
@@ -5115,6 +5210,19 @@ function renderSections(board){
   entries.forEach(([secId,sec],secIdx)=>{
     const col=COLORS[sec.color]||COLORS.accent;
     let items=getSortedItems(sec);
+    // "Cortes en talleres" (sFIN) se parte en dos según cuál de las dos pestañas se está
+    // dibujando en este momento (ver nota más arriba). displayTitle es solo el título mostrado
+    // en pantalla — el título guardado en Firebase no se toca.
+    let displayTitle=sec.title;
+    if(secId==='sFIN'){
+      if(board==='fabrica'){
+        items=items.filter(([,item])=>!item.retirado_taller);
+        displayTitle='Pendiente retiro de taller';
+      } else if(board==='talleres'){
+        items=items.filter(([,item])=>!!item.retirado_taller);
+        displayTitle='En taller (confección / plancha / estampado)';
+      }
+    }
     if(filtroMarca){
       items=items.filter(([,item])=>(item.marca||marcasList[0]||'By Nina')===filtroMarca);
     }
@@ -5189,15 +5297,16 @@ function renderSections(board){
       itemsHtml=colaHtml+confHtml;
     } else if(secId==='sFIN'){
       const itemsFiltrados=aplicarFiltroYOrdenCorte(items);
-      itemsHtml=buildFiltroCorteBarHtml(items)+buildResumenTalleresHtml(secId,itemsFiltrados)
-        +(itemsFiltrados.length?itemsFiltrados.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,itemsFiltrados.length)).join(''):`<div class="empty-state">Ningún corte coincide con el filtro</div>`);
+      const resumenHtml = board==='fabrica' ? buildResumenTalleresHtml(secId,itemsFiltrados) : buildResumenEnTallerHtml(secId,itemsFiltrados);
+      itemsHtml=buildFiltroCorteBarHtml(items)+resumenHtml
+        +(itemsFiltrados.length?itemsFiltrados.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,itemsFiltrados.length)).join(''):`<div class="empty-state">${board==='fabrica'?'Ningún corte pendiente de retiro coincide con el filtro':'Ningún corte en confección/plancha/estampado coincide con el filtro'}</div>`);
     } else {
       itemsHtml=items.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,items.length)).join('');
     }
 
     div.innerHTML=`
       <div class="sec-header" style="background:${col.secBg}" onclick="toggleSec('${secId}')">
-        <div class="sec-left"><span class="sec-title" style="color:${col.secText}">${sec.title}</span><span class="sec-count" style="color:${col.secText}">${count}</span></div>
+        <div class="sec-left"><span class="sec-title" style="color:${col.secText}">${displayTitle}</span><span class="sec-count" style="color:${col.secText}">${count}</span></div>
         <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">${secOrderBtns}${hBtns}<span style="color:${col.secText};font-size:12px">${isSecCollapsed(secId)?'▶':'▼'}</span></div>
       </div>
       <div class="sec-body ${isSecCollapsed(secId)?'hidden':''}" id="body-${secId}">
@@ -6263,6 +6372,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <span style="font-size:11px;color:var(--text2)">📦 Salió a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong></span>
         ${canFicha?`<button class="btn-sm" onclick="editFechaSalidaTaller('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
       </div>` : '';
+  // Mientras el taller todavía no pasó a buscarlo, se puede confirmar el retiro acá mismo —
+  // ese click es lo que lo pasa de "Pendiente retiro" (Fábrica) a "En taller" (Talleres).
+  const confirmarRetiroHtml = (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir'))
+    ? `<button class="btn-sm" style="border-color:#5b21b6;color:#5b21b6;margin-top:4px" onclick="event.stopPropagation();confirmarRetiroTaller('${secId}','${itemId}')">✅ Confirmar que el taller lo retiró</button>` : '';
   // Banner grande y persistente: si quedan avíos sin recibir, se ve fuerte en CUALQUIER
   // etapa (incluido ya en taller / Cortes Finalizados) — no se pierde entre la lista.
   const aviosSinRecibir=avios.filter(([,a])=>!a.recibido);
@@ -6290,16 +6403,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const avioPendiente=(secId==='s4'||secId==='s5');
   const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
-  const listaSalidaTaller=(secId==='sLT'&&avios.length&&item.lleva_avios!==false)?(aviosSinRecibir.length===0):true;
-  const puedeSacarTaller=secId!=='sLT'||(!!item.taller_muestra_entregada&&!!item.taller_ficha_entregada&&!!item.taller_ninox_salida&&listaSalidaTaller);
-  const checklistTitle=puedeSacarTaller?'':'Falta completar el checklist: Muestra, Ficha, Ninox y Avíos (si lleva)';
+  // El checklist (Muestra/Ficha/Ninox) ya no bloquea "Sacar a taller" — se exige recién al
+  // confirmar el retiro (ver confirmarRetiroTaller), así que acá el botón siempre está habilitado.
   let sacarTallerHtml='';
   if(canSacarTaller){
     if(!avioPendiente){
-      sacarTallerHtml=`<button class="btn-advance" ${puedeSacarTaller?'':'disabled'} title="${checklistTitle}" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`;
+      sacarTallerHtml=`<button class="btn-advance" onclick="sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`;
     } else if(esAutorizador){
       sacarTallerHtml=item.pedido_sin_avio
-        ? `<button class="btn-advance" ${puedeSacarTaller?'':'disabled'} title="${checklistTitle}" onclick="autorizarSacarSinAvio('${secId}','${itemId}')">✅ Autorizar y sacar a taller</button>
+        ? `<button class="btn-advance" onclick="autorizarSacarSinAvio('${secId}','${itemId}')">✅ Autorizar y sacar a taller</button>
            <button class="btn-sm" onclick="rechazarSinAvio('${secId}','${itemId}')">✖ Rechazar pedido</button>`
         : `<span class="c-label" style="font-size:11px;color:var(--text3);flex:0">Esperando que Peque pida autorización para sacar sin avío</span>`;
     } else {
@@ -6308,11 +6420,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
         : `<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionSinAvio('${secId}','${itemId}')">🔔 Pedir autorización para sacar sin avío</button>`;
     }
   }
-  const checklistPreTallerHtml=(secId==='sLT')?`<div class="cortada-panel" style="margin:6px 0">
-      <div class="cortada-row"><div class="c-check ${item.taller_muestra_entregada?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_muestra_entregada')`:''}">${item.taller_muestra_entregada?'✓':''}</div><span class="c-label ${item.taller_muestra_entregada?'done':''}">Muestra entregada</span></div>
-      <div class="cortada-row"><div class="c-check ${item.taller_ficha_entregada?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_ficha_entregada')`:''}">${item.taller_ficha_entregada?'✓':''}</div><span class="c-label ${item.taller_ficha_entregada?'done':''}">Ficha entregada</span></div>
-      <div class="cortada-row"><div class="c-check ${item.taller_ninox_salida?'checked':''}" onclick="${canSacarTaller?`toggleChecklistTaller('${secId}','${itemId}','taller_ninox_salida')`:''}">${item.taller_ninox_salida?'✓':''}</div><span class="c-label ${item.taller_ninox_salida?'done':''}">Salida en Ninox realizada</span></div>
-      ${(avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${aviosSinRecibir.length===0?'checked':''}" title="Se completa solo cuando todos los avíos figuren Recibido — no se puede tildar a mano">${aviosSinRecibir.length===0?'✓':''}</div><span class="c-label ${aviosSinRecibir.length===0?'done':''}">Avíos entregados${aviosSinRecibir.length?` — faltan: ${aviosSinRecibir.map(([,a])=>a.nombre).join(', ')}`:''}</span></div>`:''}
+  // Antes solo se mostraba en "Listo para taller" (sLT); ahora también en "Pendiente retiro de
+  // taller" (sFIN, todavía sin retirar) porque el requisito real es tenerlo listo ANTES de que
+  // el taller pase a buscarlo — confirmarRetiroTaller exige estos tres tildados.
+  const canTocarChecklist = (secId==='sLT'&&canSacarTaller) || (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||currentUser==='peque'||currentUser==='emir'));
+  const checklistPreTallerHtml=(secId==='sLT'||(secId==='sFIN'&&!item.retirado_taller))?`<div class="cortada-panel" style="margin:6px 0">
+      <div class="cortada-row"><div class="c-check ${item.taller_muestra_entregada?'checked':''}" onclick="${canTocarChecklist?`toggleChecklistTaller('${secId}','${itemId}','taller_muestra_entregada')`:''}">${item.taller_muestra_entregada?'✓':''}</div><span class="c-label ${item.taller_muestra_entregada?'done':''}">Muestra entregada</span></div>
+      <div class="cortada-row"><div class="c-check ${item.taller_ficha_entregada?'checked':''}" onclick="${canTocarChecklist?`toggleChecklistTaller('${secId}','${itemId}','taller_ficha_entregada')`:''}">${item.taller_ficha_entregada?'✓':''}</div><span class="c-label ${item.taller_ficha_entregada?'done':''}">Ficha entregada</span></div>
+      <div class="cortada-row"><div class="c-check ${item.taller_ninox_salida?'checked':''}" onclick="${canTocarChecklist?`toggleChecklistTaller('${secId}','${itemId}','taller_ninox_salida')`:''}">${item.taller_ninox_salida?'✓':''}</div><span class="c-label ${item.taller_ninox_salida?'done':''}">Salida en Ninox realizada</span></div>
+      ${(secId==='sLT'&&avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${aviosSinRecibir.length===0?'checked':''}" title="Se completa solo cuando todos los avíos figuren Recibido — no se puede tildar a mano">${aviosSinRecibir.length===0?'✓':''}</div><span class="c-label ${aviosSinRecibir.length===0?'done':''}">Avíos entregados${aviosSinRecibir.length?` — faltan: ${aviosSinRecibir.map(([,a])=>a.nombre).join(', ')}`:''}</span></div>`:''}
     </div>`:'';
   const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
@@ -6478,6 +6594,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${flujoCorteHtml}
         ${fechaCorteHtml}
         ${fechaSalidaHtml}
+        ${confirmarRetiroHtml}
         ${secId==='sFIN'?buildEntregasFabricaHtml(secId,itemId,item):''}
         ${avioPendienteBannerHtml}
         ${notaHtml}
@@ -7531,16 +7648,8 @@ function toggleChecklistTaller(secId,itemId,campo){
 function sacarATaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.taller_corte){ showToast('Asigná un taller antes de sacarlo'); return; }
-  // El checklist (Muestra/Ficha/Ninox/Avíos entregados) es específico de "Listas para taller"
-  // (sLT) — en s4/s5 esos checkboxes ni siquiera se muestran, así que no corresponde exigirlos
-  // ahí; el único requisito en s4/s5 es la autorización de Ariel/Stef para saltear el avío.
-  if(secId==='sLT'){
-    const faltaAvios=(item.avios&&Object.keys(item.avios).length&&item.lleva_avios!==false)&&!Object.values(item.avios).every(a=>a.recibido);
-    if(!item.taller_muestra_entregada||!item.taller_ficha_entregada||!item.taller_ninox_salida||faltaAvios){
-      showToast('Falta completar el checklist antes de sacar a taller');
-      return;
-    }
-  }
+  // El checklist (Muestra/Ficha/Ninox) ya NO se exige acá — se pide recién al confirmar que el
+  // taller retiró el corte (ver confirmarRetiroTaller), que es el momento real de la entrega.
   if(!confirm(`¿Confirmás que ${item.code} salió a ${item.taller_corte}? Se cierra el ciclo.`)) return;
   const hoy=new Date();
   const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -7551,7 +7660,7 @@ function sacarATaller(secId,itemId){
   const avList=Object.values(item.avios||{});
   const avioPendiente = avList.length>0 && !avList.every(a=>a.recibido);
   const targetSec = avioPendiente ? 's6' : 'sFIN';
-  const newItem={...item, fecha_salida_taller:tsSalida, fecha_etapa:Date.now()};
+  const newItem={...item, fecha_salida_taller:tsSalida, fecha_etapa:Date.now(), retirado_taller:false};
   delete newItem.pedido_sin_avio;
   // Emir es responsable de cargar el precio pactado con el taller — se lo pedimos acá, apenas
   // sale, para que no llegue "en blanco" a Logística cuando el taller lo entregue. No bloquea:

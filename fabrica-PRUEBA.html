@@ -4748,10 +4748,25 @@ function setObservacionCorte(secId,itemId,val){
 function setFechaEntregaEstimadaCorte(secId,itemId,val){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega`).set(val||null);
 }
+// Precio pactado con el taller para este corte. Solo Emir/Ariel/Stef lo ven o lo cargan — al
+// resto de Fábrica/Talleres no le interesa esa info. Se recuerda mientras esté en taller y
+// justo antes de facturar (logiCrearEntregaDesdeCorte) lo copia para que no llegue en blanco.
+function setPrecioTallerCorte(secId,itemId,val){
+  const n=Math.max(0,parseFloat(val)||0);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/precio_taller`).set(n||null);
+}
+function buildPrecioTallerRecordatorio(secId,itemId,item){
+  if(!(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir')) return '';
+  const tiene=!!item.precio_taller;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;${tiene?'color:var(--text2)':'color:var(--danger);font-weight:700'}" onclick="event.stopPropagation()">
+    💵 ${tiene?'':'<span style="margin-right:2px">Falta precio:</span>'}
+    <input type="number" min="0" value="${item.precio_taller||''}" placeholder="$/u" style="width:56px;border:1px solid ${tiene?'var(--border)':'var(--danger)'};border-radius:6px;padding:2px 4px;font-size:11px" onchange="event.stopPropagation();setPrecioTallerCorte('${secId}','${itemId}',this.value)">
+  </span>`;
+}
 
-// Resumen "Próximas entregas": todos los cortes en talleres con fecha estimada de entrega
-// cargada, ordenados por esa fecha (la más próxima primero) sin importar el taller — para ver
-// de un vistazo qué está por entrar esta semana, cruzando todos los talleres a la vez.
+// Resumen "Próximos retiros": todos los cortes en talleres con fecha coordinada de retiro
+// cargada (el día que se pasó a buscar al taller), ordenados por esa fecha — para ver de un
+// vistazo qué se coordinó retirar esta semana, cruzando todos los talleres a la vez.
 function buildProximasEntregasHtml(items){
   const conFecha=items.filter(([,item])=>!!item.fecha_estimada_entrega);
   if(!conFecha.length) return '';
@@ -4760,7 +4775,7 @@ function buildProximasEntregasHtml(items){
     const f=new Date(item.fecha_estimada_entrega+'T00:00:00');
     const diasFaltan=Math.round((f-hoy)/86400000);
     const vencida=diasFaltan<0;
-    const etiqueta=vencida?`⚠️ hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'hoy':diasFaltan===1?'mañana':`en ${diasFaltan}d`;
+    const etiqueta=vencida?`⚠️ no lo retiraron, coordinado hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'retirar hoy':diasFaltan===1?'retirar mañana':`retirar en ${diasFaltan}d`;
     return `<div class="rt-row">
       <div class="rt-row-top">
         <span class="rt-corte-num" style="${vencida?'background:var(--danger)':''}">${item.numero_corte||'s/n°'}</span>
@@ -4772,14 +4787,38 @@ function buildProximasEntregasHtml(items){
       </div>
     </div>`;
   }).join('');
-  return `<div class="rt-box"><div class="rt-title">📅 Próximas entregas (${conFecha.length})</div>${filas}</div>`;
+  return `<div class="rt-box"><div class="rt-title">📅 Próximos retiros coordinados (${conFecha.length})</div>${filas}</div>`;
 }
 
 // Resumen por corte: un registro por artículo/corte en taller, con lo cortado, lo entregado,
 // hace cuántos días está esperando, observación (auto o manual) y fecha aproximada de entrega.
 // Reemplaza al viejo resumen agrupado "qué debe cada taller".
+// "Sin coordinar todavía": cortes en taller donde Emir ni siquiera cargó una fecha coordinada
+// de retiro — para que Ariel los vea de un vistazo en vez de tener que preguntarle a Emir uno
+// por uno si ya coordinó el retiro. Se ordena por más días esperando primero (más urgente).
+function buildSinCoordinarHtml(items){
+  const sinFecha=items.filter(([,item])=>!item.fecha_estimada_entrega);
+  if(!sinFecha.length) return '';
+  const filas=sinFecha.slice().sort((a,b)=>(diasEntre(b[1].fecha_etapa)||0)-(diasEntre(a[1].fecha_etapa)||0)).map(([itemId,item])=>{
+    const dias=diasEntre(item.fecha_etapa);
+    const urgente=dias!=null&&dias>=7;
+    return `<div class="rt-row">
+      <div class="rt-row-top">
+        <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
+        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
+      </div>
+      <div class="rt-row-bottom">
+        <span class="rt-stats ${urgente?'urgente':''}" style="font-weight:700">⏳ Esperando hace ${dias!=null?dias+'d':'—'} · sin coordinar retiro</span>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="rt-box"><div class="rt-title">❓ Sin coordinar retiro con el taller (${sinFecha.length})</div>${filas}</div>`;
+}
+
 function buildResumenTalleresHtml(secId,items){
   if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
+  const sinCoordinarHtml=buildSinCoordinarHtml(items);
   const proximasHtml=buildProximasEntregasHtml(items);
   const filas=items.slice().sort((a,b)=>String(a[1].taller_corte||'zzz').localeCompare(String(b[1].taller_corte||'zzz'))).map(([itemId,item])=>{
     const resumen=resumenEntregasFabrica(item,itemId);
@@ -4804,11 +4843,13 @@ function buildResumenTalleresHtml(secId,items){
         <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
           onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
           onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
-        <input class="rt-fecha-input" type="date" value="${item.fecha_estimada_entrega||''}" onchange="setFechaEntregaEstimadaCorte('${secId}','${itemId}',this.value)">
+        <input class="rt-fecha-input" type="date" title="Fecha coordinada de retiro" value="${item.fecha_estimada_entrega||''}" onchange="setFechaEntregaEstimadaCorte('${secId}','${itemId}',this.value)">
+        <span style="font-size:9.5px;color:var(--text3)">↑ retiro coordinado</span>
+        ${buildPrecioTallerRecordatorio(secId,itemId,item)}
       </div>
     </div>`;
   }).join('');
-  return `${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
+  return `${sinCoordinarHtml}${proximasHtml}<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres (${items.length})</div>${filas}</div>`;
 }
 
 function buildPasosPanelCorteHtml(item){
@@ -7512,6 +7553,14 @@ function sacarATaller(secId,itemId){
   const targetSec = avioPendiente ? 's6' : 'sFIN';
   const newItem={...item, fecha_salida_taller:tsSalida, fecha_etapa:Date.now()};
   delete newItem.pedido_sin_avio;
+  // Emir es responsable de cargar el precio pactado con el taller — se lo pedimos acá, apenas
+  // sale, para que no llegue "en blanco" a Logística cuando el taller lo entregue. No bloquea:
+  // si no lo tiene todavía, puede cargarlo después desde la tarjeta en "Cortes en talleres".
+  if(!item.precio_taller && (currentUser==='emir'||currentUser==='ariel'||currentUser==='stef')){
+    const precioTxt=prompt(`💵 ¿Ya tenés el precio acordado con ${item.taller_corte} para este corte? Cargalo ahora (por unidad) — si todavía no lo sabés, dejalo vacío y te lo vamos a recordar mientras esté en taller.`,'');
+    const precioNum=parseFloat(precioTxt);
+    if(precioNum>0) newItem.precio_taller=precioNum;
+  }
   ensureSeccionCorte(targetSec);
   db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -9366,6 +9415,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
     entrega_parcial:true, abierta_por:currentUser,
     grilla:grillaObj
   };
+  if(item.precio_taller) logisticaItem.precio_taller=item.precio_taller; // ya lo cargó Emir en Fábrica — no llega en blanco
   db.ref('fabrica_v5/logistica/items').push(logisticaItem).then(()=>{
     logActivity('Abrió una entrega del taller en Logística',`Corte ${item.numero_corte}: ${item.code}`);
     if(esPrimeraEntrega){
@@ -10369,7 +10419,11 @@ function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
   let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado');
-  items.sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
+  items.sort((a,b)=>{
+    const fa=medidasCompletas(a[1])?1:0, fb=medidasCompletas(b[1])?1:0;
+    if(fa!==fb) return fa-fb; // los que les faltan medidas van primero
+    return logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]);
+  });
   if(webSearch.trim()){
     const q=webSearch.trim().toLowerCase();
     items=items.filter(([id,it])=>String(it.numero_corte||'').toLowerCase().includes(q)||String(it.code||'').toLowerCase().includes(q));
@@ -10383,13 +10437,15 @@ function renderWebTab(){
     const rows=colores.map(color=>{
       const slug=webColorSlug(color);
       const subido=!!(it.web_colores&&it.web_colores[slug]);
-      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:${completas?'pointer':'not-allowed'}" title="${completas?'':'Cargá las medidas primero'}">
-        <input type="checkbox" ${subido?'checked':''} ${completas?'':'disabled'} onchange="logiToggleWebColor('${id}','${slug}',this.checked)">
+      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="checkbox" ${subido?'checked':''} onchange="logiToggleWebColor('${id}','${slug}',this.checked)">
         <span style="font-size:13px">${(color||'').replace(/</g,'&lt;')}</span>
         <span style="margin-left:auto;font-size:11px;color:${subido?'#15803d':'#b91c1c'}">${subido?'✓ Subido':'Pendiente'}</span>
       </label>`;
     }).join('');
-    return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px">
+    const avisoMedidas = completas ? '' : `<div style="background:#fee2e2;color:#b91c1c;font-weight:700;font-size:12px;border-radius:8px;padding:6px 10px;margin-bottom:8px">⚠️ Faltan medidas de este artículo — cargalas antes de subir a la web</div>`;
+    return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px;${completas?'':'border:2px solid #ef4444'}">
+      ${avisoMedidas}
       <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
       <div class="logi-name" style="margin-bottom:6px">${it.name||''}</div>
       ${buildMedidasHtml(id,it,true)}
@@ -10398,8 +10454,6 @@ function renderWebTab(){
   }).join('');
 }
 function logiToggleWebColor(itemId,slug,checked){
-  const it=(logiItemsData||{})[itemId];
-  if(checked && it && !medidasCompletas(it)){ showToast('📏 Cargá las medidas de todos los talles antes de subir a la web'); renderWebTab(); return; }
   db.ref(`fabrica_v5/logistica/items/${itemId}/web_colores/${slug}`).set(!!checked);
 }
 

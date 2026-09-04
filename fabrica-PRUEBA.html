@@ -4574,12 +4574,34 @@ function pedirAjusteFichaDiseno(secId,itemId){
     ficha_ajuste_pendiente:true,
     ficha_ajuste_fecha:Date.now(),
     ficha_ajuste_por:USER_DISPLAY[currentUser]||currentUser,
+    ficha_ajuste_nota_actual:notas.trim(),
     ficha_confirmada_ok:false,
     nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (pedido en Diseño): ${notas.trim()}`
   });
   logNotaAuto(secId,itemId,`⚠️ Pidió ajustar la ficha técnica: ${notas.trim()}`);
   logActivity('Pidió ajustar ficha (Diseño)',item.code);
   showToast('⚠️ Ficha marcada para ajustar — pendiente Peque');
+}
+
+// Editar el pedido de ajuste ya cargado (corregir un typo, sumar algo que faltó, etc.) sin
+// tener que deshacer y volver a pedirlo. Queda registrado en el historial que se editó.
+function editarAjusteFichaDiseno(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const actual=item.ficha_ajuste_nota_actual||(item.nota?item.nota.split('\n').slice(-1)[0]:'');
+  let notas=null;
+  while(true){
+    notas=prompt('Editar qué hay que ajustar en la ficha técnica:',notas!==null?notas:actual);
+    if(notas===null) return;
+    if(notas.trim()) break;
+    alert('Contame qué ajustar antes de continuar.');
+  }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    ficha_ajuste_nota_actual:notas.trim(),
+    nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (editado): ${notas.trim()}`
+  });
+  logNotaAuto(secId,itemId,`✏️ Editó el pedido de ajuste de ficha: ${notas.trim()}`);
+  logActivity('Editó pedido de ajuste de ficha (Diseño)',item.code);
+  showToast('✏️ Pedido de ajuste actualizado');
 }
 
 function marcarFichaOkDiseno(secId,itemId){
@@ -6142,8 +6164,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
             if(item.ficha_ajuste_pendiente){
               return `<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
                 <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Falta que Peque ajuste la ficha técnica pedida</div>
-                ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
+                ${(item.ficha_ajuste_nota_actual||item.nota)?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.ficha_ajuste_nota_actual||item.nota.split('\n').slice(-1)[0]}</div>`:''}
                 ${canDesign?`<button class="btn-sm" onclick="marcarFichaAjustada('${secId}','${itemId}')">✓ Ficha ya ajustada</button>`:''}
+                ${canControlFicha?`<button class="btn-sm" onclick="editarAjusteFichaDiseno('${secId}','${itemId}')">✏️ Editar</button>`:''}
               </div>`;
             }
             if(item.ficha_control_pendiente){
@@ -6654,8 +6677,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
         </div>`:''}
         ${item.ficha_ajuste_pendiente?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
           <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Falta que Peque ajuste la ficha técnica pedida</div>
-          ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
+          ${(item.ficha_ajuste_nota_actual||item.nota)?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.ficha_ajuste_nota_actual||item.nota.split('\n').slice(-1)[0]}</div>`:''}
           ${canToggle?`<button class="btn-sm" onclick="marcarFichaAjustada('${secId}','${itemId}')">✓ Ficha ya ajustada</button>`:''}
+          ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" onclick="editarAjusteFichaDiseno('${secId}','${itemId}')">✏️ Editar</button>`:''}
         </div>`:''}
         ${(!item.ficha_ajuste_pendiente&&item.ficha_control_pendiente)?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
           <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>

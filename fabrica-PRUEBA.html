@@ -3961,6 +3961,13 @@ function corregirFichaYEnviarCorte(secId,itemId){
   showToast(`✅ ${item.code} pasó a Pendiente armar tizada — falta ajustar y volver a controlar la ficha`);
 }
 
+// Deja registro automático en el historial de notas de la prenda (mismo notas_log que usa
+// "+ Agregar nota", visible con quién y cuándo) cada vez que se pide/resuelve algo importante,
+// para poder revisar después qué se modificó y cuándo.
+function logNotaAuto(secId,itemId,texto){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/notas_log`).push({texto,autor:currentUser,fecha:Date.now()});
+}
+
 // Peque ajustó la ficha técnica pedida tras la aprobación/corrección del molde — recién acá
 // pasa a pedirle el control a Ariel/Stef (antes de esto no debería aparecerles como pendiente).
 function marcarFichaAjustada(secId,itemId){
@@ -3971,6 +3978,7 @@ function marcarFichaAjustada(secId,itemId){
     ficha_control_pendiente:true,
     ficha_ajuste_resuelta_fecha:Date.now()
   });
+  logNotaAuto(secId,itemId,'✓ Peque marcó la ficha como ajustada — queda esperando control de Ariel/Stef');
   logActivity('Ajustó ficha (post-aprobación)',item.code);
   showToast('✓ Ficha ajustada — falta que Ariel/Stef la controlen');
 }
@@ -3991,10 +3999,16 @@ function toggleControlFichaCorregida(secId,itemId,campo){
   if(!item.ficha_link){ showToast('Cargá la ficha corregida primero'); return; }
   const nv=!(item[campo]||false);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/${campo}`).set(nv);
-  if(nv) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/ficha_control_pendiente`).set(false);
+  if(nv){
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/ficha_control_pendiente`).set(false);
+    const quien=campo.endsWith('ariel')?'Ariel':'Stef';
+    logNotaAuto(secId,itemId,`✅ ${quien} controló y dio por buena la ficha corregida`);
+  }
   logActivity(`Control ficha corregida ${nv?'✓':'✗'}`,item.code);
   showToast(nv?'✅ Ficha corregida controlada':'↩ Deshecho');
 }
+
+
 
 
 function toggleTelaEntregada(secId,itemId){
@@ -4563,6 +4577,7 @@ function pedirAjusteFichaDiseno(secId,itemId){
     ficha_confirmada_ok:false,
     nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (pedido en Diseño): ${notas.trim()}`
   });
+  logNotaAuto(secId,itemId,`⚠️ Pidió ajustar la ficha técnica: ${notas.trim()}`);
   logActivity('Pidió ajustar ficha (Diseño)',item.code);
   showToast('⚠️ Ficha marcada para ajustar — pendiente Peque');
 }
@@ -4574,6 +4589,7 @@ function marcarFichaOkDiseno(secId,itemId){
     ficha_confirmada_por:USER_DISPLAY[currentUser]||currentUser,
     ficha_confirmada_fecha:Date.now()
   });
+  logNotaAuto(secId,itemId,'✅ Confirmó que la ficha técnica está OK, sin cambios');
   logActivity('Confirmó ficha OK (Diseño)',item.code);
   showToast('✅ Ficha confirmada OK');
 }
@@ -4600,14 +4616,23 @@ function marcarAprobada(secId,itemId){
   // vuelve a preguntar: lo que haya quedado marcado (ficha_ajuste_pendiente / ficha_control_pendiente)
   // viaja con el ítem tal cual al pasar de sección.
   const fichaUpdates={};
+  // Si había texto cargado en "Modificaciones", antes de limpiarlo lo dejamos anotado en el
+  // historial de notas de la prenda — así no se pierde y no queda colgado de una vuelta vieja
+  // si la prenda vuelve a pasar por Diseño más adelante.
+  const notasLog={...(item.notas_log||{})};
+  if(item.modificaciones&&item.modificaciones.trim()){
+    const notaKey=db.ref().push().key;
+    notasLog[notaKey]={texto:`📝 Modificaciones al aprobar: ${item.modificaciones.trim()}`,autor:currentUser,fecha:Date.now()};
+  }
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
     // Se aprueba la prenda → el molde queda aprobado, pero no avanza a Pendiente armar tizada
     // hasta que Guada lo digitalice. Va a la sección "Molde - Pendiente Digitalizar" para que
     // se vea en el tablero (no se queda escondido en Diseño).
     const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
     if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
-    const newItemDig={...item, molde_aprobado:true, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), ...fichaUpdates};
+    const newItemDig={...item, molde_aprobado:true, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), notas_log:notasLog, ...fichaUpdates};
     delete newItemDig.estado;
+    delete newItemDig.modificaciones;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
     logActivity('Prenda aprobada — molde aprobado, a Pendiente Digitalizar (Guada)',item.code);
@@ -4616,8 +4641,9 @@ function marcarAprobada(secId,itemId){
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
-  const newItem={...item, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios), ...fichaUpdates};
+  const newItem={...item, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios), notas_log:notasLog, ...fichaUpdates};
   delete newItem.estado;
+  delete newItem.modificaciones;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra aprobada — a Pendiente armar tizada',item.code);
@@ -4651,6 +4677,9 @@ function marcarCorregirSinMuestra(secId,itemId){
   // solo viaja tal cual con el ítem (item.ficha_ajuste_pendiente ya viene seteado o no).
   if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a ${(item.modelista==='Adela'&&!item.molde_digitalizado)?'Molde - Pendiente Digitalizar':'Pendiente armar tizada'}?`)) return;
   const notaCorreccion=`🔧 Corrección sin nueva muestra${item.ficha_ajuste_pendiente?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
+  const notasLog={...(item.notas_log||{})};
+  const notaKey=db.ref().push().key;
+  notasLog[notaKey]={texto:notaCorreccion,autor:currentUser,fecha:Date.now()};
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
     const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
     if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
@@ -4659,7 +4688,8 @@ function marcarCorregirSinMuestra(secId,itemId){
       fecha_aprobada:Date.now(),
       aprobado_por:currentUser,
       fecha_etapa:Date.now(),
-      nota:(item.nota?item.nota+'\n':'')+notaCorreccion};
+      nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
+      notas_log:notasLog};
     delete newItemDig.estado;
     delete newItemDig.modificaciones;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
@@ -4675,7 +4705,8 @@ function marcarCorregirSinMuestra(secId,itemId){
     fecha_aprobada:Date.now(),
     aprobado_por:currentUser,
     fecha_etapa:Date.now(),
-    avios:resetAviosParaCorte(item.avios)};
+    avios:resetAviosParaCorte(item.avios),
+    notas_log:notasLog};
   delete newItem.estado;
   delete newItem.modificaciones;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
@@ -6161,6 +6192,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
           </div>
+          ${buildNotasHtml(secId,itemId,item,canDesign)}
         </div>
       </div>
       ${buildDemoraPanelHtml(sec,item,secId)}

@@ -11897,6 +11897,7 @@ function renderCosteoDetail(){
     return `<tr>
       <td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center;color:var(--text2)">${r.capas||'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center">
         <div style="display:flex;align-items:center;justify-content:center;gap:4px">
           <span style="${r.sobrante?'color:var(--green-text,#15803d);font-weight:600':'color:var(--text3)'}">${r.sobrante?sobrante.toFixed(2)+' kg':'—'}</span>
@@ -11951,7 +11952,7 @@ function renderCosteoDetail(){
         ${canEdit?`<button class="btn-sm" onclick="editCosteoProveedor('${costeoDetailKey}')">${e.proveedor?'✏️':'+ Cargar'}</button>`:''}
       </div>
       <table style="width:100%;border-collapse:collapse">
-        <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Sobrante</td><td style="padding:0 6px;text-align:center">A distribuir</td></tr>
+        <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Capas</td><td style="padding:0 6px;text-align:center">Sobrante</td><td style="padding:0 6px;text-align:center">A distribuir</td></tr>
         ${rollosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin rollos cargados</td></tr>'}
       </table>
       <div style="font-size:12px;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">

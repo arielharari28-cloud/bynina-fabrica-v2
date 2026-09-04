@@ -11969,9 +11969,8 @@ function renderCosteoDetail(){
         ${canEdit?`<button class="btn-sm" onclick="editCosteoPesoMetro('${costeoDetailKey}')">${e.peso_metro?'✏️':'+ Cargar'}</button>`:''}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
-        <span style="font-size:12px">Precio x kg:</span>
-        <span style="font-weight:700">${e.precio_kg?'$'+e.precio_kg:'Sin cargar'}</span>
-        ${canEdit?`<button class="btn-sm" onclick="editCosteoPrecioKg('${costeoDetailKey}')">${e.precio_kg?'✏️ Editar':'+ Cargar precio'}</button>`:''}
+        <span style="font-size:12px">Precio x kg: $</span>
+        ${canEdit?`<input type="number" min="0" step="0.01" value="${e.precio_kg||''}" placeholder="0" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:13px" onchange="setCosteoPrecioKg('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700">${e.precio_kg||'Sin cargar'}</span>`}
       </div>
       <div style="font-size:12px;margin-top:2px">Costo tela: <strong>$${t.costoTela.toFixed(2)}</strong></div>
       ${kgArticulosHtml}
@@ -12017,13 +12016,12 @@ function editCosteoKgArticulo(key,idx){
   logActivity('Editó kg por artículo (Costeo)',`Corte ${e.numero_corte} — ${art.code||art.name||''}: ${val.trim()} kg`);
   showToast('✓ Kilos guardados');
 }
-function editCosteoPrecioKg(key){
+function setCosteoPrecioKg(key,val){
   const e=costeosData[key]||{};
-  const val=prompt('Precio x kg de tela:',e.precio_kg||'');
-  if(val===null) return;
-  db.ref(`fabrica_v5/costeos/${key}/precio_kg`).set(val.trim().replace(',','.'));
-  logActivity('Editó precio x kg (Costeo)',`Corte ${e.numero_corte}: $${val.trim()}`);
-  showToast('✓ Precio x kg guardado');
+  const n=parseFloat(String(val).replace(',','.'));
+  if(isNaN(n)||n<0){ db.ref(`fabrica_v5/costeos/${key}/precio_kg`).remove(); return; }
+  db.ref(`fabrica_v5/costeos/${key}/precio_kg`).set(n);
+  logActivity('Editó precio x kg (Costeo)',`Corte ${e.numero_corte}: $${n}`);
 }
 function editCosteoLargoCapa(key){
   const e=costeosData[key]||{};

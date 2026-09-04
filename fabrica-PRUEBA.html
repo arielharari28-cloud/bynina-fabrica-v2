@@ -280,7 +280,8 @@
   .logi-prio-badge{display:inline-block;padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;margin-left:4px}
   .logi-prio-badge.alta{background:#fbe4e1;color:#b0392f}
   .logi-prio-badge.media{background:#fdf1d9;color:#b8860b}
-  .logi-prio-select{border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:11px}
+  .logi-prio-select{border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:11px;background:#fff;color:var(--text)}
+  .logi-prio-select option{background:#fff;color:var(--text)}
   .logi-proveedor-chip{display:inline-block;background:#e7e0f7;color:#5b4e9e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:2px}
   .logi-detail-header{display:flex;gap:12px;align-items:center;margin-bottom:14px}
   .logi-detail-header img{width:72px;height:72px;object-fit:cover;border-radius:12px;background:var(--surface2)}
@@ -9912,9 +9913,9 @@ function logiRenderBoard(){
   document.getElementById('logi-control-list').innerHTML = control.length ? logiOrdenarLista(control).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
   const dividirOrdenados = dividir.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
   document.getElementById('logi-dividir-list').innerHTML = dividirOrdenados.length ? dividirOrdenados.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de dividir 🎉</div>';
-  // Finalizados: siempre ordenado por N° de corte (no usa el selector "Ordenar por" de arriba,
-  // que aplica solo a conteo/control) para que sea fácil ubicar un corte puntual.
-  const doneOrdenados = done.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
+  // Finalizados: ordenado por fecha en que se cerró (más reciente arriba) — antes era por N°
+  // de corte, y un corte recién cerrado podía quedar perdido entre los viejos.
+  const doneOrdenados = done.slice().sort((a,b)=>(b[1].fecha_cerrado||0)-(a[1].fecha_cerrado||0));
   // Solo se mostraban los primeros 10 sin ninguna forma de ver el resto — un corte recién
   // dividido podía quedar "escondido" si había 10+ finalizados con número de corte menor.
   // Ahora: buscador propio (ignora el límite) + botón "Ver más" para el resto.
@@ -10870,7 +10871,19 @@ function logiCardHtml(id,it,cerrado){
           <span style="${it.recibido_deposito?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_deposito?`✓ Recibido en Depósito${it.recibido_deposito_por?' — '+USER_DISPLAY[it.recibido_deposito_por]:''}`:'Falta recibir en Depósito'}</span>
         </label>`:''}
       </div>`;
-      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${dividioInfo}${recepcionHtml}`;
+      // Dos pasos administrativos post-cierre, cada uno con su check + quién + cuándo, para
+      // saber de un vistazo qué corte ya está sacado el costo y cargado en Ninox.
+      const costeoNinoxHtml = `<div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" ${it.costo_sacado?'checked':''} onchange="logiToggleCostoSacado('${id}',this.checked)">
+          <span style="${it.costo_sacado?'color:#15803d':''}">${it.costo_sacado?`✓ Costo sacado${it.costo_sacado_por?' — '+USER_DISPLAY[it.costo_sacado_por]:''}`:'💰 Sacar costo'}</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" ${it.cargado_ninox?'checked':''} onchange="logiToggleCargadoNinox('${id}',this.checked)">
+          <span style="${it.cargado_ninox?'color:#15803d':''}">${it.cargado_ninox?`✓ Cargado a Ninox${it.cargado_ninox_por?' — '+USER_DISPLAY[it.cargado_ninox_por]:''}`:'📋 Cargar a Ninox'}</span>
+        </label>
+      </div>`;
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}`;
     } else {
       const pool = totalOk + totalDetalle;
       const avell = it.division_avellaneda;
@@ -11269,6 +11282,22 @@ function logiToggleRecibido(itemId,destino,checked){
   db.ref().update(updates);
   logActivity(checked?`Confirmó recepción en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`:`Desmarcó recepción en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`,logiItemsData[itemId]?.code||itemId);
 }
+// Dos checks administrativos sobre un corte ya Finalizado — no bloquean nada, son solo para
+// llevar registro de quién y cuándo sacó el costo / cargó el corte en Ninox.
+function logiToggleCostoSacado(itemId,checked){
+  const updates={};
+  updates[`fabrica_v5/logistica/items/${itemId}/costo_sacado`]=!!checked;
+  updates[`fabrica_v5/logistica/items/${itemId}/costo_sacado_por`]=checked?currentUser:null;
+  db.ref().update(updates);
+  logActivity(checked?'Marcó costo sacado':'Desmarcó costo sacado',logiItemsData[itemId]?.code||itemId);
+}
+function logiToggleCargadoNinox(itemId,checked){
+  const updates={};
+  updates[`fabrica_v5/logistica/items/${itemId}/cargado_ninox`]=!!checked;
+  updates[`fabrica_v5/logistica/items/${itemId}/cargado_ninox_por`]=checked?currentUser:null;
+  db.ref().update(updates);
+  logActivity(checked?'Marcó cargado a Ninox':'Desmarcó cargado a Ninox',logiItemsData[itemId]?.code||itemId);
+}
 
 // --- Forzar cualquier etapa a mano (solo Ariel) — para cortes viejos que quedaron mal
 // clasificados y no respetan el flujo normal de Logística (conteo/control/dividir/finalizado). ---
@@ -11636,12 +11665,14 @@ function renderCosteoTab(){
     const q=costeoSearch.trim().toLowerCase();
     entries=entries.filter(([,e])=>String(e.numero_corte||'').toLowerCase().includes(q));
   }
-  // Orden por N° de corte (numérico) — antes ordenaba por fecha de creación de la entrada.
+  // Orden por fecha de corte, de más nuevo a más viejo (antes ordenaba por N° de corte).
   entries=entries.slice().sort((a,b)=>{
-    const na=parseInt(String(a[1].numero_corte||'').match(/\d+/)?.[0]||'999999',10);
-    const nb=parseInt(String(b[1].numero_corte||'').match(/\d+/)?.[0]||'999999',10);
-    if(na!==nb) return na-nb;
-    return String(a[1].numero_corte||'').localeCompare(String(b[1].numero_corte||''),'es',{numeric:true});
+    const ta=parseFechaArToTs(a[1].fecha_corte)??-Infinity;
+    const tb=parseFechaArToTs(b[1].fecha_corte)??-Infinity;
+    if(tb!==ta) return tb-ta;
+    const na=parseInt(String(a[1].numero_corte||'').match(/\d+/)?.[0]||'0',10);
+    const nb=parseInt(String(b[1].numero_corte||'').match(/\d+/)?.[0]||'0',10);
+    return nb-na;
   });
   if(!todasLasEntries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
   if(!entries.length){ cont.innerHTML=botonBackfill+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+`<div class="empty-state">Ningún corte coincide con la búsqueda</div>`; return; }

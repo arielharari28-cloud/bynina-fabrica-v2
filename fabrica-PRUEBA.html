@@ -3947,7 +3947,8 @@ function corregirFichaYEnviarCorte(secId,itemId){
   const newItem={...item,
     nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
     base_aprobada:true,
-    ficha_control_pendiente:true,
+    ficha_ajuste_pendiente:true,
+    ficha_ajuste_fecha:Date.now(),
     fecha_aprobada:Date.now(),
     fecha_ingreso:Date.now(),
     fecha_etapa:Date.now(),
@@ -3960,6 +3961,29 @@ function corregirFichaYEnviarCorte(secId,itemId){
   showToast(`✅ ${item.code} pasó a Pendiente armar tizada — falta ajustar y volver a controlar la ficha`);
 }
 
+// Peque ajustó la ficha técnica pedida tras la aprobación/corrección del molde — recién acá
+// pasa a pedirle el control a Ariel/Stef (antes de esto no debería aparecerles como pendiente).
+function marcarFichaAjustada(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(!item.ficha_link){ showToast('Cargá el link de la ficha ya ajustada primero'); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    ficha_ajuste_pendiente:false,
+    ficha_control_pendiente:true,
+    ficha_ajuste_resuelta_fecha:Date.now()
+  });
+  logActivity('Ajustó ficha (post-aprobación)',item.code);
+  showToast('✓ Ficha ajustada — falta que Ariel/Stef la controlen');
+}
+function deshacerFichaAjustada(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    ficha_ajuste_pendiente:true,
+    ficha_control_pendiente:false,
+    ficha_ajuste_resuelta_fecha:null
+  });
+  logActivity('Deshizo "ficha ajustada"',item.code);
+  showToast('↩ Vuelve a esperar que Peque la ajuste');
+}
 // Control de ficha corregida (molde ya corregido en moldería) — vuelve a pedir un ok de
 // Ariel/Stef una vez que Peque ajustó la ficha, antes de dejarlo avanzar a corte.
 function toggleControlFichaCorregida(secId,itemId,campo){
@@ -4532,7 +4556,7 @@ function marcarAprobada(secId,itemId){
     notaFicha=prompt('¿Qué hay que ajustar en la ficha?','')||'';
   }
   const fichaUpdates=tocaFicha
-    ? {ficha_control_pendiente:true, nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (molde aprobado sin cambios): ${notaFicha.trim()}`}
+    ? {ficha_ajuste_pendiente:true, ficha_ajuste_fecha:Date.now(), nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (molde aprobado sin cambios): ${notaFicha.trim()}`}
     : {};
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
     // Se aprueba la prenda → el molde queda aprobado, pero no avanza a Pendiente armar tizada
@@ -4592,7 +4616,7 @@ function marcarCorregirSinMuestra(secId,itemId){
       aprobado_por:currentUser,
       fecha_etapa:Date.now(),
       nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
-      ...(tocaFicha?{ficha_control_pendiente:true}:{})};
+      ...(tocaFicha?{ficha_ajuste_pendiente:true,ficha_ajuste_fecha:Date.now()}:{})};
     delete newItemDig.estado;
     delete newItemDig.modificaciones;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
@@ -4609,7 +4633,7 @@ function marcarCorregirSinMuestra(secId,itemId){
     aprobado_por:currentUser,
     fecha_etapa:Date.now(),
     avios:resetAviosParaCorte(item.avios),
-    ...(tocaFicha?{ficha_control_pendiente:true}:{})};
+    ...(tocaFicha?{ficha_ajuste_pendiente:true,ficha_ajuste_fecha:Date.now()}:{})};
   delete newItem.estado;
   delete newItem.modificaciones;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
@@ -6536,7 +6560,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div class="c-check ${item.en_ninox?'checked':''}" onclick="${canFicha?`toggleNinox('${secId}','${itemId}')`:''}">${item.en_ninox?'✓':''}</div>
           <span class="c-label ${item.en_ninox?'done':''}" style="font-size:11px">Cargado en Ninox</span>
         </div>`:''}
-        ${item.ficha_control_pendiente?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
+        ${item.ficha_ajuste_pendiente?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
+          <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Falta que Peque ajuste la ficha técnica pedida</div>
+          ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
+          ${canToggle?`<button class="btn-sm" onclick="marcarFichaAjustada('${secId}','${itemId}')">✓ Ficha ya ajustada</button>`:''}
+        </div>`:''}
+        ${(!item.ficha_ajuste_pendiente&&item.ficha_control_pendiente)?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
           <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
           ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
           ${canControlFichaCorreccion?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
@@ -6560,7 +6589,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
           if(esArmarTizada){
             faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
           }
-          if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida');
+          if(item.ficha_ajuste_pendiente) faltantes.push('Ajustar ficha técnica pedida');
+          else if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida (Ariel/Stef)');
           const list=faltantes.filter(Boolean);
           if(!list.length) return '';
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
@@ -8196,7 +8226,7 @@ function moveItem(secId,itemId,targetSecId){
     const esArmarTizada=(sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
     const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null,
       ...(esArmarTizada?[!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null]:[]),
-      item.ficha_control_pendiente?'Control de ficha corregida':null
+      item.ficha_ajuste_pendiente?'Ajustar ficha técnica pedida':(item.ficha_control_pendiente?'Control de ficha corregida (Ariel/Stef)':null)
     ].filter(Boolean);
     if(faltantes.length){
       showToast(`⏳ Pendiente completar Peque: falta ${faltantes.join(', ')}`);
@@ -8820,6 +8850,7 @@ function getMisPendientesPeque(){
       }
       const flist=faltantes.filter(Boolean);
       if(flist.length) list.push({secId,itemId,item,texto:'Falta '+flist.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
+      if(item.ficha_ajuste_pendiente) list.push({secId,itemId,item,texto:'Ajustar ficha técnica pedida',ts:item.ficha_ajuste_fecha||item.fecha_etapa||item.fecha_ingreso||0});
     });
   });
   Object.entries(sectionsData[SEC_PREP]?.items||{}).forEach(([itemId,item])=>{
@@ -8855,7 +8886,7 @@ function getMisPendientesArielStef(){
   });
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(item.ficha_control_pendiente) list.push({secId,itemId,item,texto:'Control de ficha corregida',ts:item.fecha_etapa||item.fecha_ingreso||0});
+      if(item.ficha_control_pendiente&&!item.ficha_ajuste_pendiente) list.push({secId,itemId,item,texto:'Control de ficha corregida',ts:item.fecha_etapa||item.fecha_ingreso||0});
       if(item.pedido_sin_avio) list.push({secId,itemId,item,texto:'Pidieron enviar sin esperar avío',ts:item.pedido_sin_avio.fecha||0});
     });
   });

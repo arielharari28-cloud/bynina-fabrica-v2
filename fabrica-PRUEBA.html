@@ -4034,6 +4034,7 @@ function toggleAviosEntregadosAdela(secId,itemId){
 function confirmarDigitalizacionYAvanzar(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(!item.molde_aprobado){ showToast('Todavía no se aprobó el molde'); return; }
+  if(!confirm(`¿Confirmás que ${item.code} está digitalizado y puede pasar a Pendiente armar tizada?`)) return;
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
   const newItem={...item, molde_digitalizado:true, fecha_etapa:Date.now(), avios:resetAviosParaCorte(item.avios)};
@@ -4541,23 +4542,63 @@ function deleteModFoto(secId,itemId,fotoId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mod_fotos/${fotoId}`).remove();
 }
 
+// Control de ficha desde "Diseño — probar muestra": Ariel/Stef deciden acá mismo, mientras
+// prueban la muestra, si la ficha técnica queda OK o si hace falta que Peque la ajuste. No
+// bloquea que la muestra avance (Aprobar / Corregir sin nueva muestra) — lo que si frena más
+// adelante es entrar a "Cortes próximos a sacar" mientras quede ficha_ajuste_pendiente o
+// ficha_control_pendiente sin resolver (ver moveItem).
+function pedirAjusteFichaDiseno(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  let notas=null;
+  while(true){
+    notas=prompt('¿Qué hay que ajustar en la ficha técnica?',notas||'');
+    if(notas===null) return;
+    if(notas.trim()) break;
+    alert('Contame qué ajustar antes de continuar.');
+  }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    ficha_ajuste_pendiente:true,
+    ficha_ajuste_fecha:Date.now(),
+    ficha_ajuste_por:USER_DISPLAY[currentUser]||currentUser,
+    ficha_confirmada_ok:false,
+    nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (pedido en Diseño): ${notas.trim()}`
+  });
+  logActivity('Pidió ajustar ficha (Diseño)',item.code);
+  showToast('⚠️ Ficha marcada para ajustar — pendiente Peque');
+}
+
+function marcarFichaOkDiseno(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    ficha_confirmada_ok:true,
+    ficha_confirmada_por:USER_DISPLAY[currentUser]||currentUser,
+    ficha_confirmada_fecha:Date.now()
+  });
+  logActivity('Confirmó ficha OK (Diseño)',item.code);
+  showToast('✅ Ficha confirmada OK');
+}
+
+function deshacerFichaOkDiseno(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
+    ficha_confirmada_ok:false,
+    ficha_confirmada_por:null,
+    ficha_confirmada_fecha:null
+  });
+  logActivity('Deshizo confirmación de ficha OK (Diseño)',item.code);
+  showToast('↩ Deshecho');
+}
+
 function marcarAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const fotos=Object.keys(item.fotos_prueba||{});
   if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
   if(!confirm(`¿Aprobar ${item.code} y pasarla a Pendiente armar tizada?`)) return;
-  // El molde puede quedar aprobado tal cual la prenda que se probó, y aun así haber algo para
-  // ajustar en la Ficha Técnica (una medida mal anotada, un dato que falta, etc.) — no implica
-  // que el molde esté mal, así que no pasa por "Corregir sin nueva muestra". Queda un pendiente
-  // de ficha aparte, para que Peque la ajuste y Ariel/Stef la vuelvan a controlar.
-  const tocaFicha=confirm(`El molde de ${item.code} queda aprobado tal cual la muestra probada.\n\n¿Hay algo para ajustar en la Ficha Técnica antes de pasar a producción?\n\nAceptar = sí, hay que ajustar la ficha.\nCancelar = no, está todo perfecto.`);
-  let notaFicha='';
-  if(tocaFicha){
-    notaFicha=prompt('¿Qué hay que ajustar en la ficha?','')||'';
-  }
-  const fichaUpdates=tocaFicha
-    ? {ficha_ajuste_pendiente:true, ficha_ajuste_fecha:Date.now(), nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (molde aprobado sin cambios): ${notaFicha.trim()}`}
-    : {};
+  // El estado de la ficha (OK / falta ajustar / falta controlar) ya se decide en la propia card
+  // de Diseño — probar muestra, con el toggle "Ficha OK" / "Necesita modificación". Acá no se
+  // vuelve a preguntar: lo que haya quedado marcado (ficha_ajuste_pendiente / ficha_control_pendiente)
+  // viaja con el ítem tal cual al pasar de sección.
+  const fichaUpdates={};
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
     // Se aprueba la prenda → el molde queda aprobado, pero no avanza a Pendiente armar tizada
     // hasta que Guada lo digitalice. Va a la sección "Molde - Pendiente Digitalizar" para que
@@ -4604,9 +4645,11 @@ function marcarCorregirSinMuestra(secId,itemId){
     showToast('Cargá las modificaciones antes de continuar');
     return;
   }
-  const tocaFicha=confirm('¿También hay que modificar la Ficha Técnica?\n\nAceptar = sí, hay que corregir la ficha.\nCancelar = no, solo se corrige el molde.');
+  // El estado de la ficha (OK / falta ajustar / falta controlar) ya se decide en la propia card
+  // de Diseño con el toggle "Ficha OK" / "Necesita modificación" — acá no se vuelve a preguntar,
+  // solo viaja tal cual con el ítem (item.ficha_ajuste_pendiente ya viene seteado o no).
   if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a Pendiente armar tizada?`)) return;
-  const notaCorreccion=`🔧 Corrección sin nueva muestra${tocaFicha?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
+  const notaCorreccion=`🔧 Corrección sin nueva muestra${item.ficha_ajuste_pendiente?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
     const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
     if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
@@ -4615,8 +4658,7 @@ function marcarCorregirSinMuestra(secId,itemId){
       fecha_aprobada:Date.now(),
       aprobado_por:currentUser,
       fecha_etapa:Date.now(),
-      nota:(item.nota?item.nota+'\n':'')+notaCorreccion,
-      ...(tocaFicha?{ficha_ajuste_pendiente:true,ficha_ajuste_fecha:Date.now()}:{})};
+      nota:(item.nota?item.nota+'\n':'')+notaCorreccion};
     delete newItemDig.estado;
     delete newItemDig.modificaciones;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
@@ -4632,8 +4674,7 @@ function marcarCorregirSinMuestra(secId,itemId){
     fecha_aprobada:Date.now(),
     aprobado_por:currentUser,
     fecha_etapa:Date.now(),
-    avios:resetAviosParaCorte(item.avios),
-    ...(tocaFicha?{ficha_ajuste_pendiente:true,ficha_ajuste_fecha:Date.now()}:{})};
+    avios:resetAviosParaCorte(item.avios)};
   delete newItem.estado;
   delete newItem.modificaciones;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
@@ -6065,6 +6106,35 @@ function buildItem(secId,itemId,item,sec,idx,total){
               : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
             ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
           </div>
+          ${(()=>{
+            const canControlFicha=(currentUser==='ariel'||currentUser==='stef');
+            if(item.ficha_ajuste_pendiente){
+              return `<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
+                <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Falta que Peque ajuste la ficha técnica pedida</div>
+                ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
+                ${canDesign?`<button class="btn-sm" onclick="marcarFichaAjustada('${secId}','${itemId}')">✓ Ficha ya ajustada</button>`:''}
+              </div>`;
+            }
+            if(item.ficha_control_pendiente){
+              return `<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
+                <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
+                ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
+                ${canControlFicha?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
+                <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
+              </div>`;
+            }
+            if(item.ficha_confirmada_ok){
+              return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+                <span style="font-size:11px;color:var(--accent)">✅ Ficha OK confirmada${item.ficha_confirmada_por?` por ${item.ficha_confirmada_por}`:''}</span>
+                ${canControlFicha?`<button class="btn-sm" onclick="deshacerFichaOkDiseno('${secId}','${itemId}')">↩ Deshacer</button>`:''}
+              </div>`;
+            }
+            return canControlFicha?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
+              <span style="font-size:11px;color:var(--text2)">Ficha técnica:</span>
+              <button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarFichaOkDiseno('${secId}','${itemId}')">✅ Ficha OK</button>
+              <button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAjusteFichaDiseno('${secId}','${itemId}')">⚠️ Necesita modificación</button>
+            </div>`:'';
+          })()}
           <div class="diseno-panel">
             <div>
               <div class="diseno-field-label">Fotos — cómo queda puesta</div>

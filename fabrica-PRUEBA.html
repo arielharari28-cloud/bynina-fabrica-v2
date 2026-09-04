@@ -11616,7 +11616,19 @@ const COSTEO_OTROS_CAMPOS=[
   {key:'tizas_moldes_muestras',label:'Tizas / Moldes / Muestras (desarrollo)'},
 ];
 function costeoTotales(entry){
-  const kgTotal=Object.values(entry.rollos||{}).reduce((s,r)=>s+numAr2(r&&r.kgmts),0);
+  // Kg usado real por rollo = capas × largo de capa × peso x metro (igual que en Orden de
+  // corte) — esto resta el sobrante que queda en cada rollo. Si a algún rollo le falta capas
+  // o no está cargado el largo/peso del corte, se usa el kg total cargado como respaldo (no
+  // hay forma de calcular el usado real sin esos datos).
+  const largo=numAr2(entry.largo_capa);
+  const pesoM=numAr2(entry.peso_metro);
+  const kgTotal=Object.values(entry.rollos||{}).reduce((s,r)=>{
+    if(!r) return s;
+    const capas=numAr2(r.capas);
+    const kgmts=numAr2(r.kgmts);
+    const usado=(largo&&pesoM&&capas)?capas*largo*pesoM:kgmts;
+    return s+usado;
+  },0);
   const precioKg=numAr2(entry.precio_kg);
   const costoTela=precioKg?kgTotal*precioKg:0;
   const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
@@ -11882,8 +11894,20 @@ function renderCosteoDetail(){
   if(!e){ cont.innerHTML=`<button class="btn-sm" onclick="closeCosteoDetail()">← Volver</button><div class="empty-state">Este corte ya no está en Costeo</div>`; return; }
   const t=costeoTotales(e);
   const canEdit=(currentUser==='ariel'||currentUser==='stef');
-  const rollosRows=Object.values(e.rollos||{}).filter(r=>r&&(r.color||r.kgmts)).map(r=>`
-    <tr><td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td></tr>`).join('');
+  const largoNum=numAr2(e.largo_capa), pesoMNum=numAr2(e.peso_metro);
+  const rollosRows=Object.values(e.rollos||{}).filter(r=>r&&(r.color||r.kgmts)).map(r=>{
+    const capas=numAr2(r.capas), kgmts=numAr2(r.kgmts);
+    const tieneCalc=largoNum&&pesoMNum&&capas;
+    const usado=tieneCalc?capas*largoNum*pesoMNum:kgmts;
+    const sobrante=tieneCalc?kgmts-usado:null;
+    return `<tr>
+      <td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center">${capas||'—'}</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center;font-weight:600">${usado?usado.toFixed(2)+' kg':'—'}</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center;${sobrante>0?'color:var(--green-text,#15803d)':''}">${sobrante!=null?sobrante.toFixed(2)+' kg':'—'}</td>
+    </tr>`;
+  }).join('');
   const aviosRows=(e.avios||[]).map(a=>`
     <tr><td style="padding:3px 6px;font-size:12px">${a.nombre||'—'}${a.proveedor?` · ${a.proveedor}`:''}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${a.cantidad||'—'} × $${a.precio||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:right">$${(numAr2(a.cantidad)*numAr2(a.precio)).toFixed(2)}</td></tr>`).join('');
   const articulos=e.articulos||[];
@@ -11928,9 +11952,12 @@ function renderCosteoDetail(){
         <span style="font-weight:700;font-size:12px">${e.proveedor||'Sin especificar'}</span>
         ${canEdit?`<button class="btn-sm" onclick="editCosteoProveedor('${costeoDetailKey}')">${e.proveedor?'✏️':'+ Cargar'}</button>`:''}
       </div>
-      <table style="width:100%;border-collapse:collapse">${rollosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin rollos cargados</td></tr>'}</table>
+      <table style="width:100%;border-collapse:collapse">
+        <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Capas</td><td style="padding:0 6px;text-align:center">Usado</td><td style="padding:0 6px;text-align:center">Sobrante</td></tr>
+        ${rollosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin rollos cargados</td></tr>'}
+      </table>
       <div style="font-size:12px;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
-        <span>Total: <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
+        <span>Total usado (ya descuenta sobrante): <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
         <span>· Largo capa: <strong>${e.largo_capa||'—'}</strong></span>
         ${canEdit?`<button class="btn-sm" onclick="editCosteoLargoCapa('${costeoDetailKey}')">${e.largo_capa?'✏️':'+ Cargar'}</button>`:''}
         <span>· Peso x m: <strong>${e.peso_metro||'—'}</strong></span>

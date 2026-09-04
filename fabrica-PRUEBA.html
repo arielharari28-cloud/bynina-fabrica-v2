@@ -8756,7 +8756,7 @@ const TAB_VISIBILITY={
   emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
-  noemi:['tab-btn-logistica'],
+  noemi:['tab-btn-logistica','tab-btn-web'],
   // Noelia ve todas las pestañas (pediste "que vea todo") — la restricción real de que solo
   // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
   // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
@@ -10852,8 +10852,7 @@ function logiCardHtml(id,it,cerrado){
           <span style="${it.recibido_deposito?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_deposito?`✓ Recibido en Depósito${it.recibido_deposito_por?' — '+USER_DISPLAY[it.recibido_deposito_por]:''}`:'Falta recibir en Depósito'}</span>
         </label>`:''}
       </div>`;
-      const medidasHtml = buildMedidasHtml(id,it,true);
-      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${dividioInfo}${recepcionHtml}${medidasHtml}`;
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${dividioInfo}${recepcionHtml}`;
     } else {
       const pool = totalOk + totalDetalle;
       const avell = it.division_avellaneda;
@@ -10870,6 +10869,11 @@ function logiCardHtml(id,it,cerrado){
       extraCerradoHtml = `${plataHtml}${divisionHtml}${dividirBtn}`;
     }
   }
+  // Medidas: se puede cargar apenas hay talles (grilla cargada), sin esperar a que el corte
+  // esté Cerrado/dividido — así Noemí/Nahuel/Emir pueden ir completándolas antes, y no queda
+  // trabado esperando que Ariel marque "dividido" para recién ahí poder subir a la web.
+  const medidasHtml = buildMedidasHtml(id,it,true);
+  extraCerradoHtml += medidasHtml;
   return `<div class="logi-card ${cerrado?'logi-cerrado':''}" onclick="logiOpenDetail('${id}')">
     ${foto}
     <div class="logi-info">
@@ -10911,10 +10915,28 @@ function medidasTalles(it){
 function medidasCompletas(it){
   const talles=medidasTalles(it);
   if(!talles.length) return false;
+  const sinManga=!!it.medidas_sin_manga;
   return talles.every(t=>{
     const m=(it.medidas||{})[t];
-    return m && String(m.largo||'').trim() && String(m.ancho||'').trim() && String(m.manga||'').trim();
+    return m && String(m.largo||'').trim() && String(m.ancho||'').trim() && (sinManga||String(m.manga||'').trim());
   });
+}
+function logiSetSinManga(itemId,val){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/medidas_sin_manga`).set(val);
+}
+// Copia las medidas ya cargadas de otro artículo (por código) — para bases que comparten
+// molde/medidas, como varias estampadas del mismo corte base, sin tener que tipear de nuevo.
+function logiCopiarMedidas(itemId){
+  const it=logiItemsData[itemId];
+  const code=(prompt('¿De qué código querés copiar las medidas?','')||'').trim();
+  if(!code) return;
+  const origen=Object.values(logiItemsData||{}).find(o=>o.code&&o.code.trim().toLowerCase()===code.toLowerCase()&&o!==it);
+  if(!origen){ showToast(`No encontré ningún artículo con código ${code}`); return; }
+  if(!origen.medidas||!Object.keys(origen.medidas).length){ showToast(`${code} todavía no tiene medidas cargadas`); return; }
+  if(!confirm(`¿Copiar las medidas de ${code} a ${it.code||'este artículo'}? Se van a pisar las medidas que ya tenga cargadas.`)) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}`).update({medidas:origen.medidas,medidas_sin_manga:!!origen.medidas_sin_manga});
+  logActivity('Copió medidas de otro artículo',`${it.code||''} ← ${code}`);
+  showToast(`📏 Medidas copiadas de ${code}`);
 }
 function logiSetMedida(itemId,talle,campo,val){
   db.ref(`fabrica_v5/logistica/items/${itemId}/medidas/${talle}/${campo}`).set(val.trim());
@@ -10923,6 +10945,7 @@ function buildMedidasHtml(id,it,canEdit){
   const talles=medidasTalles(it);
   if(!talles.length) return '';
   const completas=medidasCompletas(it);
+  const sinManga=!!it.medidas_sin_manga;
   const filas=talles.map(t=>{
     const m=(it.medidas||{})[t]||{};
     const campo=(nombre,label)=>canEdit
@@ -10930,7 +10953,7 @@ function buildMedidasHtml(id,it,canEdit){
       : `<span style="font-size:11.5px">${m[nombre]||'—'}</span>`;
     return `<div style="display:flex;align-items:center;gap:6px">
       <span style="font-size:11px;font-weight:700;min-width:28px">${t}</span>
-      ${campo('largo','Largo')}${campo('ancho','Ancho')}${campo('manga','Manga')}
+      ${campo('largo','Largo')}${campo('ancho','Ancho')}${sinManga?'<span style="width:52px;font-size:11px;color:var(--text3);font-style:italic">No lleva</span>':campo('manga','Manga')}
     </div>`;
   }).join('');
   return `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:6px;background:var(--surface2);border-radius:8px;padding:8px">
@@ -10940,6 +10963,12 @@ function buildMedidasHtml(id,it,canEdit){
     </div>
     <div style="display:flex;gap:6px;font-size:10px;color:var(--text3);padding-left:34px;margin-bottom:2px"><span style="width:52px">Largo</span><span style="width:52px">Ancho</span><span style="width:52px">Manga</span></div>
     <div style="display:flex;flex-direction:column;gap:4px">${filas}</div>
+    ${canEdit?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px">
+      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px" onclick="event.stopPropagation()">
+        <input type="checkbox" ${sinManga?'checked':''} onchange="event.stopPropagation();logiSetSinManga('${id}',this.checked)"> No lleva mangas
+      </label>
+      <button class="btn-sm" onclick="event.stopPropagation();logiCopiarMedidas('${id}')">📋 Copiar medidas de...</button>
+    </div>`:''}
   </div>`;
 }
 

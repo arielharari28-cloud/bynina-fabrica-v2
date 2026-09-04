@@ -9913,9 +9913,16 @@ function logiRenderBoard(){
   document.getElementById('logi-control-list').innerHTML = control.length ? logiOrdenarLista(control).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
   const dividirOrdenados = dividir.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
   document.getElementById('logi-dividir-list').innerHTML = dividirOrdenados.length ? dividirOrdenados.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de dividir 🎉</div>';
-  // Finalizados: ordenado por fecha en que se cerró (más reciente arriba) — antes era por N°
-  // de corte, y un corte recién cerrado podía quedar perdido entre los viejos.
-  const doneOrdenados = done.slice().sort((a,b)=>(b[1].fecha_cerrado||0)-(a[1].fecha_cerrado||0));
+  // Finalizados: ordenado por fecha en que se cerró (más reciente arriba). Si a un corte le
+  // falta fecha_cerrado (cortes cerrados antes de que existiera este campo), usamos la fecha
+  // de entrega como respaldo, y si empatan, el ID de Firebase (que sí es siempre cronológico
+  // por orden de creación) para que el orden no quede "como caiga".
+  const doneOrdenados = done.slice().sort((a,b)=>{
+    const ta=a[1].fecha_cerrado||logiParseFechaEntregado(a[1].fecha_entregado)||0;
+    const tb=b[1].fecha_cerrado||logiParseFechaEntregado(b[1].fecha_entregado)||0;
+    if(tb!==ta) return tb-ta;
+    return String(b[0]).localeCompare(String(a[0]));
+  });
   // Solo se mostraban los primeros 10 sin ninguna forma de ver el resto — un corte recién
   // dividido podía quedar "escondido" si había 10+ finalizados con número de corte menor.
   // Ahora: buscador propio (ignora el límite) + botón "Ver más" para el resto.

@@ -10499,6 +10499,7 @@ function webColorSlug(color){
   return String(color||'').trim().toLowerCase().replace(/[.#$\[\]\/]/g,'_').replace(/\s+/g,'_');
 }
 let webSearch='';
+let costeoSearch='';
 function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
@@ -10632,9 +10633,28 @@ function logiCardHtml(id,it,cerrado){
       const webBadge = !colores.length ? '' : (coloresSubidos===colores.length
         ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">🌐 Subido a la web</span>`
         : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">🌐 Faltan colores (${coloresSubidos}/${colores.length})</span>`);
+      // Costo pendiente: cruza con la entrada de Costeo de este N° de corte — si todavía no
+      // tiene precio x kg cargado, se avisa acá mismo (no hace falta ir a revisar Costeo aparte).
+      const corteKeyCosteo=corteKeyFrom(it.numero_corte);
+      const costeoEntry=corteKeyCosteo?costeosData[corteKeyCosteo]:null;
+      const costoBadge = !costeoEntry ? '' : (costeoEntry.precio_kg
+        ? '' // ya tiene costo, no hace falta mostrar nada extra acá
+        : `<span class="logi-badge" style="background:#fef3c7;color:#92400e">💰 Pendiente hacer costo</span>`);
       const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}${it.division_avellaneda!=null?` · Avellaneda: <strong>${it.division_avellaneda}</strong> · Depósito: <strong>${it.division_deposito||0}</strong>`:''}</div>`;
+      // Recepción por destino: quien recibe físicamente en cada punto lo tilda acá — así queda
+      // registrado quién y cuándo, en vez de tener que preguntar si ya llegó.
+      const recepcionHtml = `<div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
+        ${it.division_avellaneda?`<label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" ${it.recibido_avellaneda?'checked':''} onchange="logiToggleRecibido('${id}','avellaneda',this.checked)">
+          <span style="${it.recibido_avellaneda?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_avellaneda?`✓ Recibido en Avellaneda${it.recibido_avellaneda_por?' — '+USER_DISPLAY[it.recibido_avellaneda_por]:''}`:'Falta recibir en Avellaneda'}</span>
+        </label>`:''}
+        ${it.division_deposito?`<label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" ${it.recibido_deposito?'checked':''} onchange="logiToggleRecibido('${id}','deposito',this.checked)">
+          <span style="${it.recibido_deposito?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_deposito?`✓ Recibido en Depósito${it.recibido_deposito_por?' — '+USER_DISPLAY[it.recibido_deposito_por]:''}`:'Falta recibir en Depósito'}</span>
+        </label>`:''}
+      </div>`;
       const medidasHtml = buildMedidasHtml(id,it,true);
-      extraCerradoHtml = `<div style="margin-top:4px">${webBadge}</div>${plataHtml}${dividioInfo}${medidasHtml}`;
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${dividioInfo}${recepcionHtml}${medidasHtml}`;
     } else {
       const pool = totalOk + totalDetalle;
       const avell = it.division_avellaneda;
@@ -10991,6 +11011,19 @@ function logiMarcarDividido(itemId){
   showToast('✅ Dividido — pasó a Finalizados');
 }
 
+// Confirmación de recepción por destino (Avellaneda/local o Depósito-mayorista) una vez
+// dividido — para saber que la mercadería efectivamente llegó a cada punto, sin tener que
+// preguntar. Abierto a cualquiera de Logística, ya que quien confirma es quien la recibe ahí.
+function logiToggleRecibido(itemId,destino,checked){
+  const campo = destino==='avellaneda' ? 'recibido_avellaneda' : 'recibido_deposito';
+  const campoPor = destino==='avellaneda' ? 'recibido_avellaneda_por' : 'recibido_deposito_por';
+  const updates={};
+  updates[`fabrica_v5/logistica/items/${itemId}/${campo}`]=!!checked;
+  updates[`fabrica_v5/logistica/items/${itemId}/${campoPor}`]=checked?currentUser:null;
+  db.ref().update(updates);
+  logActivity(checked?`Confirmó recepción en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`:`Desmarcó recepción en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`,logiItemsData[itemId]?.code||itemId);
+}
+
 // --- Forzar cualquier etapa a mano (solo Ariel) — para cortes viejos que quedaron mal
 // clasificados y no respetan el flujo normal de Logística (conteo/control/dividir/finalizado). ---
 function logiForzarEtapa(itemId,etapa){
@@ -11345,14 +11378,28 @@ function buildPrendasPorMesHtml(entries){
 }
 function renderCosteoTab(){
   const cont=document.getElementById('costeo-list');
-  const entries=Object.entries(costeosData||{}).sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
+  const todasLasEntries=Object.entries(costeosData||{});
+  let entries=todasLasEntries;
   const puedeBackfill=(currentUser==='ariel'||currentUser==='stef');
   const botonBackfill=puedeBackfill?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
     <button class="btn-sm" onclick="backfillCosteosExistentes()">🔄 Actualizar con cortes ya subidos</button>
     <button class="btn-sm" onclick="openCosteoManualModal()">➕ Agregar corte manual</button>
   </div>`:'';
-  if(!entries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
-  cont.innerHTML=botonBackfill+buildPrendasPorMesHtml(entries)+entries.map(([key,e])=>{
+  const buscadorHtml=`<input type="text" placeholder="Buscar N° de corte…" value="${costeoSearch.replace(/"/g,'&quot;')}" oninput="costeoSearch=this.value;renderCosteoTab()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px">`;
+  if(costeoSearch.trim()){
+    const q=costeoSearch.trim().toLowerCase();
+    entries=entries.filter(([,e])=>String(e.numero_corte||'').toLowerCase().includes(q));
+  }
+  // Orden por N° de corte (numérico) — antes ordenaba por fecha de creación de la entrada.
+  entries=entries.slice().sort((a,b)=>{
+    const na=parseInt(String(a[1].numero_corte||'').match(/\d+/)?.[0]||'999999',10);
+    const nb=parseInt(String(b[1].numero_corte||'').match(/\d+/)?.[0]||'999999',10);
+    if(na!==nb) return na-nb;
+    return String(a[1].numero_corte||'').localeCompare(String(b[1].numero_corte||''),'es',{numeric:true});
+  });
+  if(!todasLasEntries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
+  if(!entries.length){ cont.innerHTML=botonBackfill+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+`<div class="empty-state">Ningún corte coincide con la búsqueda</div>`; return; }
+  cont.innerHTML=botonBackfill+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+entries.map(([key,e])=>{
     const t=costeoTotales(e);
     const articulosTxt=(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ');
     const faltaPrecio=!e.precio_kg;

@@ -11616,19 +11616,16 @@ const COSTEO_OTROS_CAMPOS=[
   {key:'tizas_moldes_muestras',label:'Tizas / Moldes / Muestras (desarrollo)'},
 ];
 function costeoTotales(entry){
-  // Kg usado real por rollo = capas × largo de capa × peso x metro (igual que en Orden de
-  // corte) — esto resta el sobrante que queda en cada rollo. Si a algún rollo le falta capas
-  // o no está cargado el largo/peso del corte, se usa el kg total cargado como respaldo (no
-  // hay forma de calcular el usado real sin esos datos).
-  const largo=numAr2(entry.largo_capa);
-  const pesoM=numAr2(entry.peso_metro);
-  const kgTotal=Object.values(entry.rollos||{}).reduce((s,r)=>{
-    if(!r) return s;
-    const capas=numAr2(r.capas);
-    const kgmts=numAr2(r.kgmts);
-    const usado=(largo&&pesoM&&capas)?capas*largo*pesoM:kgmts;
-    return s+usado;
-  },0);
+  // Kg cargado: suma automática de lo cargado por rollo (no se toca).
+  // Kg sobrante: lo carga Ariel/Stef a mano por rollo (no siempre el cálculo por capas
+  // refleja la realidad del corte). Kg a distribuir/usado para el costo = cargado - sobrante.
+  let kgCargado=0, kgSobrante=0;
+  Object.values(entry.rollos||{}).forEach(r=>{
+    if(!r) return;
+    kgCargado+=numAr2(r.kgmts);
+    kgSobrante+=numAr2(r.sobrante);
+  });
+  const kgTotal=Math.max(0,kgCargado-kgSobrante);
   const precioKg=numAr2(entry.precio_kg);
   const costoTela=precioKg?kgTotal*precioKg:0;
   const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
@@ -11636,7 +11633,7 @@ function costeoTotales(entry){
   const costoTotal=costoTela+costoAvios+costoOtros;
   const piezas=entry.piezas_totales||0;
   const costoPrenda=piezas?costoTotal/piezas:0;
-  return{kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda};
+  return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda};
 }
 function parseFechaCorteToYM(fechaStr){
   // Espera "DD/MM/AAAA" (como lo tipean en el prompt de Marcar cortado). Si no matchea, se ignora.
@@ -11894,18 +11891,19 @@ function renderCosteoDetail(){
   if(!e){ cont.innerHTML=`<button class="btn-sm" onclick="closeCosteoDetail()">← Volver</button><div class="empty-state">Este corte ya no está en Costeo</div>`; return; }
   const t=costeoTotales(e);
   const canEdit=(currentUser==='ariel'||currentUser==='stef');
-  const largoNum=numAr2(e.largo_capa), pesoMNum=numAr2(e.peso_metro);
-  const rollosRows=Object.values(e.rollos||{}).filter(r=>r&&(r.color||r.kgmts)).map(r=>{
-    const capas=numAr2(r.capas), kgmts=numAr2(r.kgmts);
-    const tieneCalc=largoNum&&pesoMNum&&capas;
-    const usado=tieneCalc?capas*largoNum*pesoMNum:kgmts;
-    const sobrante=tieneCalc?kgmts-usado:null;
+  const rollosRows=Object.entries(e.rollos||{}).filter(([,r])=>r&&(r.color||r.kgmts)).map(([rk,r])=>{
+    const kgmts=numAr2(r.kgmts), sobrante=numAr2(r.sobrante);
+    const usado=Math.max(0,kgmts-sobrante);
     return `<tr>
       <td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td>
-      <td style="padding:3px 6px;font-size:12px;text-align:center">${capas||'—'}</td>
-      <td style="padding:3px 6px;font-size:12px;text-align:center;font-weight:600">${usado?usado.toFixed(2)+' kg':'—'}</td>
-      <td style="padding:3px 6px;font-size:12px;text-align:center;${sobrante>0?'color:var(--green-text,#15803d)':''}">${sobrante!=null?sobrante.toFixed(2)+' kg':'—'}</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center">
+        <div style="display:flex;align-items:center;justify-content:center;gap:4px">
+          <span style="${r.sobrante?'color:var(--green-text,#15803d);font-weight:600':'color:var(--text3)'}">${r.sobrante?sobrante.toFixed(2)+' kg':'—'}</span>
+          ${canEdit?`<button class="btn-sm" onclick="editCosteoSobranteRollo('${costeoDetailKey}','${rk}')">${r.sobrante?'✏️':'+ Cargar'}</button>`:''}
+        </div>
+      </td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center;font-weight:600">${kgmts?usado.toFixed(2)+' kg':'—'}</td>
     </tr>`;
   }).join('');
   const aviosRows=(e.avios||[]).map(a=>`
@@ -11953,12 +11951,16 @@ function renderCosteoDetail(){
         ${canEdit?`<button class="btn-sm" onclick="editCosteoProveedor('${costeoDetailKey}')">${e.proveedor?'✏️':'+ Cargar'}</button>`:''}
       </div>
       <table style="width:100%;border-collapse:collapse">
-        <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Capas</td><td style="padding:0 6px;text-align:center">Usado</td><td style="padding:0 6px;text-align:center">Sobrante</td></tr>
+        <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Sobrante</td><td style="padding:0 6px;text-align:center">A distribuir</td></tr>
         ${rollosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin rollos cargados</td></tr>'}
       </table>
       <div style="font-size:12px;margin-top:4px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
-        <span>Total usado (ya descuenta sobrante): <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
-        <span>· Largo capa: <strong>${e.largo_capa||'—'}</strong></span>
+        <span>Total cargado: <strong>${t.kgCargado.toFixed(2)} kg</strong></span>
+        <span>· Sobrante: <strong>${t.kgSobrante.toFixed(2)} kg</strong></span>
+        <span>· A distribuir: <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
+      </div>
+      <div style="font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
+        <span>Largo capa: <strong>${e.largo_capa||'—'}</strong></span>
         ${canEdit?`<button class="btn-sm" onclick="editCosteoLargoCapa('${costeoDetailKey}')">${e.largo_capa?'✏️':'+ Cargar'}</button>`:''}
         <span>· Peso x m: <strong>${e.peso_metro||'—'}</strong></span>
         ${canEdit?`<button class="btn-sm" onclick="editCosteoPesoMetro('${costeoDetailKey}')">${e.peso_metro?'✏️':'+ Cargar'}</button>`:''}
@@ -12027,6 +12029,19 @@ function editCosteoLargoCapa(key){
   db.ref(`fabrica_v5/costeos/${key}/largo_capa`).set(val.trim().replace(',','.'));
   logActivity('Editó largo de capa (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
   showToast('✓ Largo de capa guardado');
+}
+// Sobrante manual por rollo: Ariel/Stef lo cargan a mano (no es un cálculo automático) — se
+// resta del kg cargado de ese rollo para saber cuántos kilos realmente hay que distribuir/costear.
+function editCosteoSobranteRollo(key,rolloKey){
+  const e=costeosData[key]||{};
+  const r=(e.rollos||{})[rolloKey];
+  if(!r){ showToast('No encontré ese rollo'); return; }
+  const val=prompt(`Sobrante de ${r.color||'este rollo'} (kg) — se resta de los ${r.kgmts||0} kg cargados:`,r.sobrante||'');
+  if(val===null) return;
+  const num=val.trim()===''?'':val.trim().replace(',','.');
+  db.ref(`fabrica_v5/costeos/${key}/rollos/${rolloKey}/sobrante`).set(num);
+  logActivity('Editó sobrante de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${num||0} kg`);
+  showToast('✓ Sobrante guardado');
 }
 function editCosteoPesoMetro(key){
   const e=costeosData[key]||{};

@@ -3637,6 +3637,13 @@ function coloresParaTela(telaNombre,telaProveedor){
     Object.values((g&&g.capas)||{}).forEach(c=>{ if(c&&c.color&&c.color.trim()) set.add(c.color.trim()); });
     Object.values((g&&g.rollos)||{}).forEach(r=>{ if(r&&r.color&&r.color.trim()) set.add(r.color.trim()); });
   });
+  // Catálogo manual (panel "🎨 Colores por tela") — colores cargados/editados a mano ahí también
+  // cuentan como sugeridos acá, aunque todavía no se hayan usado en ningún corte real.
+  if(telaNombre&&telaNombre.trim()){
+    const key=sanitizeStr(telaNombre);
+    const catalogo=(telasColoresData[key]&&telasColoresData[key].colores)||[];
+    catalogo.forEach(c=>{ if(c&&c.trim()) set.add(c.trim()); });
+  }
   return [...set].sort();
 }
 
@@ -6957,6 +6964,28 @@ function ordenCorteAddColorFromInput(){
   ordenCorteAddColor(val);
   inp.value='';
 }
+function ordenCorteAddNuevoColor(){
+  const item=sectionsData[ordenCtx.secId].items[ordenCtx.itemId];
+  const tela=item.tela||item.tela_nombre||'';
+  if(!tela.trim()){ showToast('Este ítem no tiene tela cargada todavía'); return; }
+  const nombre=prompt('Nombre del color nuevo:');
+  if(nombre===null) return;
+  const val=nombre.trim();
+  if(!val) return;
+  const key=sanitizeStr(tela);
+  const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
+  if(!colores.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
+    colores.push(val);
+    db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+    telasColoresData[key]={nombre:tela,colores};
+  }
+  if(!ordenCtx.coloresSugeridos) ordenCtx.coloresSugeridos=[];
+  if(!ordenCtx.coloresSugeridos.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
+    ordenCtx.coloresSugeridos=[...ordenCtx.coloresSugeridos,val].sort();
+  }
+  ordenCorteAddColor(val);
+  showToast(`✓ "${val}" agregado al catálogo de ${tela} y a la orden`);
+}
 function ordenCorteAddTodosSugeridos(){
   (ordenCtx.coloresSugeridos||[]).forEach(c=>ordenCorteAddColor(c));
 }
@@ -7085,7 +7114,10 @@ function renderOrdenCorteModal(){
         </div>
       </div>
     </div>
-    <button class="btn-sm" onclick="ordenCorteAddColorFromInput()" style="width:100%;padding:8px">+ Agregar color</button>
+    <div style="display:flex;gap:6px">
+      <button class="btn-sm" onclick="ordenCorteAddColorFromInput()" style="flex:1;padding:8px">+ Agregar color</button>
+      <button class="btn-sm" onclick="ordenCorteAddNuevoColor()" style="flex:1;padding:8px;background:var(--accent-bg);color:var(--accent)">+ Nuevo color (no está en la lista)</button>
+    </div>
     ${tableHtml}
     <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
       <input type="checkbox" id="oc-dtf-check" ${ordenCtx.dtf?'checked':''} onchange="ordenCorteToggleDtf(this.checked)" style="width:16px;height:16px">

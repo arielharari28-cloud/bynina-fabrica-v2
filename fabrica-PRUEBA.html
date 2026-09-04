@@ -3254,6 +3254,8 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
   db.ref('fabrica_v5/costeos').on('value',snap=>{
     costeosData=snap.val()||{};
     if(!document.getElementById('tab-costeo').classList.contains('hidden')) renderCosteoTab();
+    const detailEl=document.getElementById('costeo-detail-screen');
+    if(detailEl&&!detailEl.classList.contains('hidden')&&costeoDetailKey) renderCosteoDetail();
   });
   db.ref('fabrica_v5/proveedores').on('value',snap=>{
     const v=snap.val();

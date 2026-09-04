@@ -2532,6 +2532,8 @@ function getResponsable(sec,item,secId){
     return item.modelista||'Peque';
   }
   if(tipo==='muestra_diseno'){
+    if(item.ficha_control_pendiente) return 'Ariel y Stef';
+    if(item.ficha_ajuste_pendiente) return 'Peque';
     if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 'Peque'; // Guada no tiene usuario propio; lo gestiona Peque
     return 'Ariel y Stef';
   }
@@ -2631,6 +2633,8 @@ function getProximaAccion(sec,item,secId){
   if(tipo==='muestra_lista') return item.taller_elegido?`Falta marcar enviado · Taller: ${item.taller_elegido}`:'Falta elegir taller y enviar';
   if(tipo==='muestra_en_taller') return 'Esperando que el taller entregue';
   if(tipo==='muestra_diseno'){
+    if(item.ficha_control_pendiente) return '📋 Falta que Ariel/Stef controlen la ficha corregida';
+    if(item.ficha_ajuste_pendiente) return '📋 Falta que Peque ajuste la ficha técnica pedida';
     if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return '🖨️ Falta digitalizar el molde (Guada)';
     const fotos=Object.keys(item.fotos_prueba||{});
     if(!fotos.length) return 'Falta cargar foto de cómo queda puesta';
@@ -5168,6 +5172,11 @@ function umbralAtraso(sec,item,secId){
 // Muestra "Ingresó: fecha · hace X días" y "En esta etapa: hace Y días" en la tarjeta
 function procesoInfoHtml(item,secId,itemId){
   const parts=[];
+  const fCreado=item.fecha_creado||item.fecha_ingreso;
+  if(fCreado){
+    const d=diasEntre(fCreado);
+    parts.push(`🌱 Creado hace ${d} día${d!==1?'s':''}`);
+  }
   if(item.fecha_ingreso){
     const d=diasEntre(item.fecha_ingreso);
     parts.push(`📅 Ingresó ${fmtFecha(item.fecha_ingreso)} · hace ${d} día${d!==1?'s':''}`);
@@ -5175,6 +5184,15 @@ function procesoInfoHtml(item,secId,itemId){
   if(item.fecha_etapa){
     const d=diasEntre(item.fecha_etapa);
     parts.push(`⏱ En esta etapa hace ${d} día${d!==1?'s':''}`);
+  }
+  if(fCreado){
+    // Tiempo en diseño/moldería: desde que se creó hasta que se aprobó (fecha_aprobada) y pasó
+    // a producción. Si todavía no se aprobó, sigue corriendo; una vez aprobada queda congelado
+    // (no sigue sumando días de corte/taller/producción).
+    const dDesarrollo=diasEntreTs(fCreado,item.fecha_aprobada);
+    if(dDesarrollo!=null){
+      parts.push(`🎨 ${item.fecha_aprobada?'Estuvo':'Lleva'} en desarrollo ${dDesarrollo} día${dDesarrollo!==1?'s':''}`);
+    }
   }
   let html='';
   if(parts.length) html+=`<div style="font-size:11px;color:var(--text2);margin-top:4px">${parts.join(' &nbsp;·&nbsp; ')}</div>`;
@@ -8199,9 +8217,9 @@ function quickAdd(secId){
   let ni;
   const ahora=Date.now();
   if(sec.tipo==='muestra_prep'){
-    ni={code:'',name:val,fecha_ingreso:ahora,fecha_etapa:ahora};
+    ni={code:'',name:val,fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora};
   } else {
-    ni={code:val,name:'',done:false,avios:{},fecha_ingreso:ahora,fecha_etapa:ahora};
+    ni={code:val,name:'',done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora};
     if(sec.tipo==='muestra_pend'||sec.tipo==='muestra_cort'){ni.ficha=false;ni.lleva_avios=null;}
   }
   db.ref(`fabrica_v5/sections/${secId}/items`).push(ni);
@@ -8252,7 +8270,7 @@ function confirmRepoAdd(){
     base_aprobada:true,
     base_ref_sec:refSec,base_ref_id:refId,
     reposicion:true,reposicion_ref_sec:refSec,reposicion_ref_id:refId,
-    done:false,avios:{},fecha_ingreso:ahora,fecha_etapa:ahora
+    done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora
   };
   db.ref(`fabrica_v5/sections/${repoAddSecId}/items`).push(ni);
   logActivity('Agregó ítem (reposición)',ref.code||ref.name||'');
@@ -8322,7 +8340,7 @@ function confirmBaseAdd(){
     base_aprobada:true,
     base_ref_sec:refSec,base_ref_id:refId,base_ref_manual:refManual,
     nota:`Base ya aprobada — cargado directo en Pendiente armar tizada${ref?.code||ref?.name?` (base: ${ref?.code||''} ${ref?.name||''})`.trim():''}`,
-    done:false,avios:{},fecha_ingreso:ahora,fecha_etapa:ahora
+    done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora
   };
   db.ref(`fabrica_v5/sections/${baseAddSecId}/items`).push(ni);
   logActivity('Agregó artículo nuevo desde base (sin moldería)',`${name} ← ${ref?.code||ref?.name||refManual||''}`);

@@ -14,6 +14,7 @@
     --green-bg:#dcfce7;--green-text:#166534;
     --radius:10px;--shadow:0 1px 3px rgba(0,0,0,.08);
   }
+  input[type="checkbox"]{accent-color:var(--accent)}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 
@@ -256,7 +257,7 @@
   .logi-card .logi-name{font-size:13px;color:var(--text2);margin-top:1px}
   .logi-card .logi-fecha{font-size:11px;color:var(--text3);margin-top:4px}
   .logi-card .logi-progress{margin-top:6px;font-size:11px;color:var(--accent);font-weight:700}
-  .logi-card.logi-cerrado{opacity:.6}
+  .logi-card.logi-cerrado{}
   .logi-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
   .logi-badge.logi-pend{background:#fbe4e1;color:#b0392f}
   .logi-badge.logi-controlar{background:#fdf1d9;color:#b8860b}
@@ -10754,10 +10755,25 @@ function renderWebTab(){
       </label>`;
     }).join('');
     const avisoMedidas = completas ? '' : `<div style="background:#fee2e2;color:#b91c1c;font-weight:700;font-size:12px;border-radius:8px;padding:6px 10px;margin-bottom:8px">⚠️ Faltan medidas de este artículo — cargalas antes de subir a la web</div>`;
+    const recepcionInfoParts=[];
+    if(it.division_avellaneda){
+      recepcionInfoParts.push(it.recibido_avellaneda_fecha
+        ? `✓ Avellaneda: hace ${diasEntre(it.recibido_avellaneda_fecha)} día${diasEntre(it.recibido_avellaneda_fecha)!==1?'s':''}`
+        : `⏳ Falta recibir en Avellaneda`);
+    }
+    if(it.division_deposito){
+      recepcionInfoParts.push(it.recibido_deposito_fecha
+        ? `✓ Depósito: hace ${diasEntre(it.recibido_deposito_fecha)} día${diasEntre(it.recibido_deposito_fecha)!==1?'s':''}`
+        : `⏳ Falta recibir en Depósito`);
+    }
+    const recepcionInfoHtml = recepcionInfoParts.length
+      ? `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">${recepcionInfoParts.join(' · ')}</div>`
+      : '';
     return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px;${completas?'':'border:2px solid #ef4444'}">
       ${avisoMedidas}
       <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
       <div class="logi-name" style="margin-bottom:6px">${it.name||''}</div>
+      ${recepcionInfoHtml}
       ${buildMedidasHtml(id,it,true)}
       ${rows}
     </div>`;
@@ -10874,11 +10890,11 @@ function logiCardHtml(id,it,cerrado){
       const recepcionHtml = `<div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
         ${it.division_avellaneda?`<label style="display:flex;align-items:center;gap:5px;cursor:pointer">
           <input type="checkbox" ${it.recibido_avellaneda?'checked':''} onchange="logiToggleRecibido('${id}','avellaneda',this.checked)">
-          <span style="${it.recibido_avellaneda?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_avellaneda?`✓ Recibido en Avellaneda${it.recibido_avellaneda_por?' — '+USER_DISPLAY[it.recibido_avellaneda_por]:''}`:'Falta recibir en Avellaneda'}</span>
+          <span style="${it.recibido_avellaneda?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_avellaneda?`✓ Recibido en Avellaneda${it.recibido_avellaneda_por?' — '+USER_DISPLAY[it.recibido_avellaneda_por]:''}${it.recibido_avellaneda_fecha?` (hace ${diasEntre(it.recibido_avellaneda_fecha)} día${diasEntre(it.recibido_avellaneda_fecha)!==1?'s':''})`:''}`:'Falta recibir en Avellaneda'}</span>
         </label>`:''}
         ${it.division_deposito?`<label style="display:flex;align-items:center;gap:5px;cursor:pointer">
           <input type="checkbox" ${it.recibido_deposito?'checked':''} onchange="logiToggleRecibido('${id}','deposito',this.checked)">
-          <span style="${it.recibido_deposito?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_deposito?`✓ Recibido en Depósito${it.recibido_deposito_por?' — '+USER_DISPLAY[it.recibido_deposito_por]:''}`:'Falta recibir en Depósito'}</span>
+          <span style="${it.recibido_deposito?'color:#15803d':'color:var(--danger);font-weight:700'}">${it.recibido_deposito?`✓ Recibido en Depósito${it.recibido_deposito_por?' — '+USER_DISPLAY[it.recibido_deposito_por]:''}${it.recibido_deposito_fecha?` (hace ${diasEntre(it.recibido_deposito_fecha)} día${diasEntre(it.recibido_deposito_fecha)!==1?'s':''})`:''}`:'Falta recibir en Depósito'}</span>
         </label>`:''}
       </div>`;
       // Dos pasos administrativos post-cierre, cada uno con su check + quién + cuándo, para
@@ -11286,9 +11302,11 @@ function logiMarcarDividido(itemId){
 function logiToggleRecibido(itemId,destino,checked){
   const campo = destino==='avellaneda' ? 'recibido_avellaneda' : 'recibido_deposito';
   const campoPor = destino==='avellaneda' ? 'recibido_avellaneda_por' : 'recibido_deposito_por';
+  const campoFecha = destino==='avellaneda' ? 'recibido_avellaneda_fecha' : 'recibido_deposito_fecha';
   const updates={};
   updates[`fabrica_v5/logistica/items/${itemId}/${campo}`]=!!checked;
   updates[`fabrica_v5/logistica/items/${itemId}/${campoPor}`]=checked?currentUser:null;
+  updates[`fabrica_v5/logistica/items/${itemId}/${campoFecha}`]=checked?Date.now():null;
   db.ref().update(updates);
   logActivity(checked?`Confirmó recepción en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`:`Desmarcó recepción en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`,logiItemsData[itemId]?.code||itemId);
 }

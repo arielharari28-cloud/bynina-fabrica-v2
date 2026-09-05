@@ -11691,10 +11691,13 @@ function renderCosteoTab(){
   </div>`;
   // id fijo + guardamos foco/cursor antes de re-renderizar: sin esto, cada letra tipeada
   // reconstruye el <input> entero y el usuario pierde el foco después de cada tecla.
-  const buscadorHtml=`<input id="costeo-search-input" type="text" placeholder="Buscar N° de corte…" value="${costeoSearch.replace(/"/g,'&quot;')}" oninput="costeoSearch=this.value;renderCosteoTab()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px">`;
+  const buscadorHtml=`<input id="costeo-search-input" type="text" placeholder="Buscar por N° de corte o artículo…" value="${costeoSearch.replace(/"/g,'&quot;')}" oninput="costeoSearch=this.value;renderCosteoTab()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px">`;
   if(costeoSearch.trim()){
     const q=costeoSearch.trim().toLowerCase();
-    entries=entries.filter(([,e])=>String(e.numero_corte||'').toLowerCase().includes(q));
+    entries=entries.filter(([,e])=>
+      String(e.numero_corte||'').toLowerCase().includes(q)
+      || (e.articulos||[]).some(a=>String(a.code||'').toLowerCase().includes(q)||String(a.name||'').toLowerCase().includes(q))
+    );
   }
   entries=entries.slice().sort((a,b)=>{
     if(costeoOrdenPor==='corte'){

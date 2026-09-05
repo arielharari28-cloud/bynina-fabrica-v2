@@ -11981,7 +11981,11 @@ function renderCosteoDetail(){
   cont.innerHTML=`
     <button class="btn-sm" onclick="closeCosteoDetail()">← Volver al tablero</button>
     <div style="font-weight:800;font-size:17px;margin-top:8px">✂️ Corte N° ${e.numero_corte||'—'}</div>
-    <div style="font-size:12px;color:var(--text2);margin:2px 0 10px">${(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ')||'(sin artículos)'} · Cortado: ${e.fecha_corte||'—'} · ${t.piezas} prendas</div>
+    <div style="font-size:12px;color:var(--text2);margin:2px 0 4px">${(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ')||'(sin artículos)'} · Cortado: ${e.fecha_corte||'—'}</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+      <span style="font-size:12px">Piezas totales cortadas (incluye fallados):</span>
+      ${canEdit?`<input type="number" min="0" step="1" value="${e.piezas_totales||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoPiezasTotales('${costeoDetailKey}',this.value)">`:`<strong style="font-size:12px">${t.piezas}</strong>`}
+    </div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Tela</div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
@@ -12082,6 +12086,15 @@ function setCosteoPesoMetro(key,val){
   const v=String(val).trim().replace(',','.');
   db.ref(`fabrica_v5/costeos/${key}/peso_metro`).set(v);
   logActivity('Editó peso x metro (Costeo)',`Corte ${e.numero_corte}: ${v}`);
+}
+// Piezas totales: la cantidad completa que salió del corte, incluyendo fallados — el costo
+// por prenda se reparte entre todo lo cortado, no solo lo que salió "ok" en Logística.
+function setCosteoPiezasTotales(key,val){
+  const e=costeosData[key]||{};
+  const n=parseInt(val,10);
+  if(isNaN(n)||n<0) return;
+  db.ref(`fabrica_v5/costeos/${key}/piezas_totales`).set(n);
+  logActivity('Editó piezas totales (Costeo)',`Corte ${e.numero_corte}: ${n}`);
 }
 function setCosteoTela(key,val){
   const e=costeosData[key]||{};

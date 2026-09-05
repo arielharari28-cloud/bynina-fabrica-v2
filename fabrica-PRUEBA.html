@@ -10727,6 +10727,7 @@ function webColorSlug(color){
 }
 let webSearch='';
 let costeoSearch='';
+let costeoOrdenPor='fecha'; // 'fecha' | 'corte'
 function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
@@ -11671,6 +11672,9 @@ function buildPrendasPorMesHtml(entries){
 }
 function renderCosteoTab(){
   const cont=document.getElementById('costeo-list');
+  const searchInputEl=document.getElementById('costeo-search-input');
+  const hadFocus = document.activeElement===searchInputEl;
+  const selStart = hadFocus?searchInputEl.selectionStart:null;
   const todasLasEntries=Object.entries(costeosData||{});
   let entries=todasLasEntries;
   const puedeBackfill=(currentUser==='ariel'||currentUser==='stef');
@@ -11678,13 +11682,27 @@ function renderCosteoTab(){
     <button class="btn-sm" onclick="backfillCosteosExistentes()">🔄 Actualizar con cortes ya subidos</button>
     <button class="btn-sm" onclick="openCosteoManualModal()">➕ Agregar corte manual</button>
   </div>`:'';
-  const buscadorHtml=`<input type="text" placeholder="Buscar N° de corte…" value="${costeoSearch.replace(/"/g,'&quot;')}" oninput="costeoSearch=this.value;renderCosteoTab()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px">`;
+  const ordenHtml=`<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+    <span style="font-size:12px;color:var(--text2)">Ordenar por:</span>
+    <select onchange="costeoOrdenPor=this.value;renderCosteoTab()" style="border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px">
+      <option value="fecha" ${costeoOrdenPor==='fecha'?'selected':''}>Más nuevo primero</option>
+      <option value="corte" ${costeoOrdenPor==='corte'?'selected':''}>N° de corte</option>
+    </select>
+  </div>`;
+  // id fijo + guardamos foco/cursor antes de re-renderizar: sin esto, cada letra tipeada
+  // reconstruye el <input> entero y el usuario pierde el foco después de cada tecla.
+  const buscadorHtml=`<input id="costeo-search-input" type="text" placeholder="Buscar N° de corte…" value="${costeoSearch.replace(/"/g,'&quot;')}" oninput="costeoSearch=this.value;renderCosteoTab()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:10px">`;
   if(costeoSearch.trim()){
     const q=costeoSearch.trim().toLowerCase();
     entries=entries.filter(([,e])=>String(e.numero_corte||'').toLowerCase().includes(q));
   }
-  // Orden por fecha de corte, de más nuevo a más viejo (antes ordenaba por N° de corte).
   entries=entries.slice().sort((a,b)=>{
+    if(costeoOrdenPor==='corte'){
+      const na=parseInt(String(a[1].numero_corte||'').match(/\d+/)?.[0]||'999999',10);
+      const nb=parseInt(String(b[1].numero_corte||'').match(/\d+/)?.[0]||'999999',10);
+      if(na!==nb) return na-nb;
+      return String(a[1].numero_corte||'').localeCompare(String(b[1].numero_corte||''),'es',{numeric:true});
+    }
     const ta=parseFechaArToTs(a[1].fecha_corte)??-Infinity;
     const tb=parseFechaArToTs(b[1].fecha_corte)??-Infinity;
     if(tb!==ta) return tb-ta;
@@ -11692,9 +11710,20 @@ function renderCosteoTab(){
     const nb=parseInt(String(b[1].numero_corte||'').match(/\d+/)?.[0]||'0',10);
     return nb-na;
   });
+  const finish=()=>{
+    if(hadFocus){
+      const newInput=document.getElementById('costeo-search-input');
+      if(newInput){ newInput.focus(); if(selStart!=null) newInput.setSelectionRange(selStart,selStart); }
+    }
+  };
   if(!todasLasEntries.length){ cont.innerHTML=botonBackfill+'<div class="empty-state">Todavía no se marcó ningún corte como realizado 🎉</div>'; return; }
-  if(!entries.length){ cont.innerHTML=botonBackfill+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+`<div class="empty-state">Ningún corte coincide con la búsqueda</div>`; return; }
-  cont.innerHTML=botonBackfill+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+entries.map(([key,e])=>{
+  if(!entries.length){ cont.innerHTML=botonBackfill+ordenHtml+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+`<div class="empty-state">Ningún corte coincide con la búsqueda</div>`; finish(); return; }
+  const puedeEditarPrecios=(currentUser==='ariel'||currentUser==='stef');
+  const campoPrecio=(key,label,campo,val)=>`<div style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
+    <span style="font-size:10px;color:var(--text3)">${label}:</span>
+    ${puedeEditarPrecios?`<input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:11px" onchange="setCosteoPrecioVenta('${key}','${campo}',this.value)">`:`<strong style="font-size:11px">${val?'$'+val:'—'}</strong>`}
+  </div>`;
+  cont.innerHTML=botonBackfill+ordenHtml+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+entries.map(([key,e])=>{
     const t=costeoTotales(e);
     const articulosTxt=(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ');
     const faltaPrecio=!e.precio_kg;
@@ -11707,8 +11736,21 @@ function renderCosteoTab(){
       <div style="font-size:11px;color:var(--text3);margin-top:2px">✂️ Cortado: ${e.fecha_corte||'—'} · ${t.kgTotal.toFixed(2)} kg · ${t.piezas} prendas</div>
       ${(e.tela||e.proveedor)?`<div style="font-size:11px;color:var(--text3);margin-top:2px">🧵 ${e.tela||'(tela sin especificar)'}${e.proveedor?' · '+e.proveedor:''}</div>`:''}
       <div style="font-size:13px;font-weight:700;color:var(--accent);margin-top:4px">${faltaPrecio?'Costo pendiente':'Costo total: $'+t.costoTotal.toFixed(2)+(t.piezas?' · $'+t.costoPrenda.toFixed(2)+'/prenda':'')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)">
+        ${campoPrecio(key,'Lista local','precio_lista_local',e.precio_lista_local)}
+        ${campoPrecio(key,'TN minorista','precio_tn_minorista',e.precio_tn_minorista)}
+        ${campoPrecio(key,'TN mayorista','precio_tn_mayorista',e.precio_tn_mayorista)}
+      </div>
     </div>`;
   }).join('');
+  finish();
+}
+function setCosteoPrecioVenta(key,campo,val){
+  const e=costeosData[key]||{};
+  const n=parseFloat(String(val).replace(',','.'));
+  if(isNaN(n)||n<0){ db.ref(`fabrica_v5/costeos/${key}/${campo}`).remove(); return; }
+  db.ref(`fabrica_v5/costeos/${key}/${campo}`).set(n);
+  logActivity(`Editó ${campo} (Costeo)`,`Corte ${e.numero_corte}: $${n}`);
 }
 // Los cortes marcados como realizados ANTES de que existiera Costeo nunca generaron su entrada
 // automática. Este botón los busca (por sección, cualquiera con numero_corte + fecha_corte) y
@@ -11901,10 +11943,7 @@ function renderCosteoDetail(){
       <td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center;color:var(--text2)">${r.capas||'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center">
-        <div style="display:flex;align-items:center;justify-content:center;gap:4px">
-          <span style="${r.sobrante?'color:var(--green-text,#15803d);font-weight:600':'color:var(--text3)'}">${r.sobrante?sobrante.toFixed(2)+' kg':'—'}</span>
-          ${canEdit?`<button class="btn-sm" onclick="editCosteoSobranteRollo('${costeoDetailKey}','${rk}')">${r.sobrante?'✏️':'+ Cargar'}</button>`:''}
-        </div>
+        <input type="number" min="0" step="0.01" value="${r.sobrante||''}" placeholder="0" ${canEdit?'':'disabled'} style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoSobranteRollo('${costeoDetailKey}','${rk}',this.value)">
       </td>
       <td style="padding:3px 6px;font-size:12px;text-align:center;font-weight:600">${kgmts?usado.toFixed(2)+' kg':'—'}</td>
     </tr>`;
@@ -11932,10 +11971,9 @@ function renderCosteoDetail(){
   const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>`
     <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
       <span style="font-size:12px">${c.label}</span>
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="font-weight:700;font-size:12px">${e[c.key]?'$'+e[c.key]:'—'}</span>
-        ${canEdit?`<button class="btn-sm" onclick="editCosteoOtroCampo('${costeoDetailKey}','${c.key}','${c.label}')">✏️</button>`:''}
-      </div>
+      ${canEdit
+        ?`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px">$</span><input type="number" min="0" step="0.01" value="${e[c.key]||''}" placeholder="0" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoOtroCampo('${costeoDetailKey}','${c.key}',this.value)"></div>`
+        :`<span style="font-weight:700;font-size:12px">${e[c.key]?'$'+e[c.key]:'—'}</span>`}
     </div>`).join('');
   cont.innerHTML=`
     <button class="btn-sm" onclick="closeCosteoDetail()">← Volver al tablero</button>
@@ -11945,13 +11983,11 @@ function renderCosteoDetail(){
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Tela</div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
         <span style="font-size:12px">Tela:</span>
-        <span style="font-weight:700;font-size:12px">${e.tela||'Sin especificar'}</span>
-        ${canEdit?`<button class="btn-sm" onclick="editCosteoTela('${costeoDetailKey}')">${e.tela?'✏️':'+ Cargar'}</button>`:''}
+        ${canEdit?`<input type="text" value="${(e.tela||'').replace(/"/g,'&quot;')}" placeholder="Sin especificar" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoTela('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700;font-size:12px">${e.tela||'Sin especificar'}</span>`}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="font-size:12px">Proveedor:</span>
-        <span style="font-weight:700;font-size:12px">${e.proveedor||'Sin especificar'}</span>
-        ${canEdit?`<button class="btn-sm" onclick="editCosteoProveedor('${costeoDetailKey}')">${e.proveedor?'✏️':'+ Cargar'}</button>`:''}
+        ${canEdit?`<input type="text" value="${(e.proveedor||'').replace(/"/g,'&quot;')}" placeholder="Sin especificar" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoProveedor('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700;font-size:12px">${e.proveedor||'Sin especificar'}</span>`}
       </div>
       <table style="width:100%;border-collapse:collapse">
         <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Capas</td><td style="padding:0 6px;text-align:center">Sobrante</td><td style="padding:0 6px;text-align:center">A distribuir</td></tr>
@@ -11962,11 +11998,11 @@ function renderCosteoDetail(){
         <span>· Sobrante: <strong>${t.kgSobrante.toFixed(2)} kg</strong></span>
         <span>· A distribuir: <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
       </div>
-      <div style="font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:4px">
-        <span>Largo capa: <strong>${e.largo_capa||'—'}</strong></span>
-        ${canEdit?`<button class="btn-sm" onclick="editCosteoLargoCapa('${costeoDetailKey}')">${e.largo_capa?'✏️':'+ Cargar'}</button>`:''}
-        <span>· Peso x m: <strong>${e.peso_metro||'—'}</strong></span>
-        ${canEdit?`<button class="btn-sm" onclick="editCosteoPesoMetro('${costeoDetailKey}')">${e.peso_metro?'✏️':'+ Cargar'}</button>`:''}
+      <div style="font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
+        <span>Largo capa:</span>
+        ${canEdit?`<input type="number" min="0" step="0.01" value="${e.largo_capa||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoLargoCapa('${costeoDetailKey}',this.value)">`:`<strong>${e.largo_capa||'—'}</strong>`}
+        <span>· Peso x m:</span>
+        ${canEdit?`<input type="number" min="0" step="0.01" value="${e.peso_metro||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoPesoMetro('${costeoDetailKey}',this.value)">`:`<strong>${e.peso_metro||'—'}</strong>`}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
         <span style="font-size:12px">Precio x kg: $</span>
@@ -11997,13 +12033,12 @@ function renderCosteoDetail(){
     ${canEdit?`<button class="btn-danger" onclick="deleteCosteo('${costeoDetailKey}')">Eliminar del tablero de Costeo</button>`:''}
   `;
 }
-function editCosteoOtroCampo(key,campo,label){
+function setCosteoOtroCampo(key,campo,val){
   const e=costeosData[key]||{};
-  const val=prompt(`${label}:`,e[campo]||'');
-  if(val===null) return;
-  db.ref(`fabrica_v5/costeos/${key}/${campo}`).set(val.trim().replace(',','.'));
-  logActivity(`Editó ${label} (Costeo)`,`Corte ${e.numero_corte}: $${val.trim()}`);
-  showToast(`✓ ${label} guardado`);
+  const n=parseFloat(String(val).replace(',','.'));
+  if(isNaN(n)||n<0){ db.ref(`fabrica_v5/costeos/${key}/${campo}`).remove(); return; }
+  db.ref(`fabrica_v5/costeos/${key}/${campo}`).set(n);
+  logActivity(`Editó ${campo} (Costeo)`,`Corte ${e.numero_corte}: $${n}`);
 }
 function editCosteoKgArticulo(key,idx){
   const e=costeosData[key]||{};
@@ -12023,50 +12058,39 @@ function setCosteoPrecioKg(key,val){
   db.ref(`fabrica_v5/costeos/${key}/precio_kg`).set(n);
   logActivity('Editó precio x kg (Costeo)',`Corte ${e.numero_corte}: $${n}`);
 }
-function editCosteoLargoCapa(key){
+function setCosteoLargoCapa(key,val){
   const e=costeosData[key]||{};
-  const val=prompt('Largo de capa (metros):',e.largo_capa||'');
-  if(val===null) return;
-  db.ref(`fabrica_v5/costeos/${key}/largo_capa`).set(val.trim().replace(',','.'));
-  logActivity('Editó largo de capa (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
-  showToast('✓ Largo de capa guardado');
+  const v=String(val).trim().replace(',','.');
+  db.ref(`fabrica_v5/costeos/${key}/largo_capa`).set(v);
+  logActivity('Editó largo de capa (Costeo)',`Corte ${e.numero_corte}: ${v}`);
 }
 // Sobrante manual por rollo: Ariel/Stef lo cargan a mano (no es un cálculo automático) — se
 // resta del kg cargado de ese rollo para saber cuántos kilos realmente hay que distribuir/costear.
-function editCosteoSobranteRollo(key,rolloKey){
+function setCosteoSobranteRollo(key,rolloKey,val){
   const e=costeosData[key]||{};
   const r=(e.rollos||{})[rolloKey];
-  if(!r){ showToast('No encontré ese rollo'); return; }
-  const val=prompt(`Sobrante de ${r.color||'este rollo'} (kg) — se resta de los ${r.kgmts||0} kg cargados:`,r.sobrante||'');
-  if(val===null) return;
-  const num=val.trim()===''?'':val.trim().replace(',','.');
-  db.ref(`fabrica_v5/costeos/${key}/rollos/${rolloKey}/sobrante`).set(num);
-  logActivity('Editó sobrante de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${num||0} kg`);
-  showToast('✓ Sobrante guardado');
+  if(!r) return;
+  const v=String(val).trim().replace(',','.');
+  db.ref(`fabrica_v5/costeos/${key}/rollos/${rolloKey}/sobrante`).set(v===''?'':v);
+  logActivity('Editó sobrante de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${v||0} kg`);
 }
-function editCosteoPesoMetro(key){
+function setCosteoPesoMetro(key,val){
   const e=costeosData[key]||{};
-  const val=prompt('Peso x metro:',e.peso_metro||'');
-  if(val===null) return;
-  db.ref(`fabrica_v5/costeos/${key}/peso_metro`).set(val.trim().replace(',','.'));
-  logActivity('Editó peso x metro (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
-  showToast('✓ Peso x metro guardado');
+  const v=String(val).trim().replace(',','.');
+  db.ref(`fabrica_v5/costeos/${key}/peso_metro`).set(v);
+  logActivity('Editó peso x metro (Costeo)',`Corte ${e.numero_corte}: ${v}`);
 }
-function editCosteoTela(key){
+function setCosteoTela(key,val){
   const e=costeosData[key]||{};
-  const val=prompt('Tela de este corte:',e.tela||'');
-  if(val===null) return;
-  db.ref(`fabrica_v5/costeos/${key}/tela`).set(val.trim());
-  logActivity('Editó tela (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
-  showToast('✓ Tela guardada');
+  const v=String(val).trim();
+  db.ref(`fabrica_v5/costeos/${key}/tela`).set(v);
+  logActivity('Editó tela (Costeo)',`Corte ${e.numero_corte}: ${v}`);
 }
-function editCosteoProveedor(key){
+function setCosteoProveedor(key,val){
   const e=costeosData[key]||{};
-  const val=prompt('Proveedor de la tela:',e.proveedor||'');
-  if(val===null) return;
-  db.ref(`fabrica_v5/costeos/${key}/proveedor`).set(val.trim());
-  logActivity('Editó proveedor de tela (Costeo)',`Corte ${e.numero_corte}: ${val.trim()}`);
-  showToast('✓ Proveedor guardado');
+  const v=String(val).trim();
+  db.ref(`fabrica_v5/costeos/${key}/proveedor`).set(v);
+  logActivity('Editó proveedor de tela (Costeo)',`Corte ${e.numero_corte}: ${v}`);
 }
 function editCosteoNotas(key){
   const e=costeosData[key]||{};

@@ -9792,16 +9792,26 @@ function fmtTime(ts){
 // cuentan y controlan con las mismas herramientas de siempre. Ese conteo es lo único que
 // mueve "Entregado"/"En taller" en la tarjeta de Fábrica — no hay carga por duplicado.
 function logiAbrirNuevaEntregaCorte(){
-  const secFin=sectionsData&&sectionsData['sFIN'];
-  if(!secFin){ showToast('No encontré la sección de Cortes en talleres'); return; }
-  const candidatos=Object.entries(secFin.items||{})
-    .map(([id,it])=>({id,it,resumen:resumenEntregasFabrica(it,id)}))
-    .filter(x=>x.resumen.enTaller>0)
-    .sort((a,b)=>(a.it.numero_corte||'').localeCompare(b.it.numero_corte||'',undefined,{numeric:true}));
+  // Busca candidatos en las TRES secciones donde un corte puede estar esperando que lo cuenten:
+  // recién salido de costura (sFIN), en Taller de Estampado, o en Taller de Terminación. Antes
+  // solo miraba sFIN, así que un corte que ya había pasado a Estampado/Terminación con el botón
+  // manual "Entregado" quedaba sin forma de abrirle el conteo (nunca aparecía en esta lista).
+  const secsIds=['sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION];
+  const SEC_TAG={[SEC_ESTAMPADO_TALLER]:' · en Estampado',[SEC_TALLER_TERMINACION]:' · en Terminación'};
+  let candidatos=[];
+  secsIds.forEach(secId=>{
+    const sec=sectionsData&&sectionsData[secId];
+    if(!sec) return;
+    Object.entries(sec.items||{}).forEach(([id,it])=>{
+      const resumen=resumenEntregasFabrica(it,id);
+      if(resumen.enTaller>0) candidatos.push({id,it,secId,resumen});
+    });
+  });
   if(!candidatos.length){ showToast('No hay cortes con saldo pendiente en taller'); return; }
-  const listHtml=candidatos.map(x=>`<div class="logi-note-btn" style="display:block;text-align:left;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="logiCrearEntregaDesdeCorte('sFIN','${x.id}')">
+  candidatos.sort((a,b)=>(a.it.numero_corte||'').localeCompare(b.it.numero_corte||'',undefined,{numeric:true}));
+  const listHtml=candidatos.map(x=>`<div class="logi-note-btn" style="display:block;text-align:left;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="logiCrearEntregaDesdeCorte('${x.secId}','${x.id}')">
     <div style="font-weight:700;font-size:13px">Corte ${(x.it.numero_corte||'?').toString().replace(/</g,'&lt;')} — ${(x.it.code||'').replace(/</g,'&lt;')}</div>
-    <div style="font-size:11px;color:var(--text3)">${(x.it.name||'').replace(/</g,'&lt;')} · Taller: ${(x.it.taller_corte||'—').replace(/</g,'&lt;')} · Pendiente: ${x.resumen.enTaller} de ${x.resumen.totalEsperado}</div>
+    <div style="font-size:11px;color:var(--text3)">${(x.it.name||'').replace(/</g,'&lt;')} · Taller: ${(x.it.taller_corte||'—').replace(/</g,'&lt;')} · Pendiente: ${x.resumen.enTaller} de ${x.resumen.totalEsperado}${SEC_TAG[x.secId]||''}</div>
   </div>`).join('');
   document.getElementById('logi-nueva-entrega-list').innerHTML=listHtml;
   document.getElementById('logi-nueva-entrega-modal').classList.add('logi-show');
@@ -9860,6 +9870,14 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
 function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId){
   const item=sectionsData[secId]&&sectionsData[secId].items[itemId];
   if(!item) return; // Puede haber sido movido/eliminado ya por otra vía.
+  // Si el corte ya está en Taller de Estampado o de Terminación, ya está en el lugar correcto
+  // del flujo (llegó ahí por el botón manual "Entregado"). Abrir acá la primera entrega solo
+  // habilita el conteo — no lo volvemos a mover, porque reinsertarlo le cambiaría el itemId y
+  // rompería el enlace fabrica_item_id que la entrega recién creada ya está usando.
+  if(secId===SEC_ESTAMPADO_TALLER||secId===SEC_TALLER_TERMINACION){
+    showToast('📦 Entrega abierta en Logística — falta que la cuenten');
+    return;
+  }
   const hoy=new Date();
   const fechaFinal=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);

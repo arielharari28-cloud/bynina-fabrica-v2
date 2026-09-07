@@ -7514,7 +7514,8 @@ function openRollosModal(secId,itemId){
     requeridoPorColor,
     liquidar:!!(grupo&&grupo.liquidar_tela),
     largo:numAr(item.largo_capa),
-    peso:numAr(item.peso_metro)
+    peso:numAr(item.peso_metro),
+    curvaSum:Object.values(item.curva_valores||{}).reduce((s,v)=>s+(parseInt(v)||0),0)
   };
   const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||''}));
   rollosCtx.rows=filasExistentes;
@@ -7535,6 +7536,7 @@ function rollosUpdateField(rowId,field,val){
   if(field==='color'){ renderRollosModal(); return; } // el color cambia a qué barra de "faltan" suma, hace falta rehacer el resumen entero
   rollosRefreshRow(rowId);
   rollosRefreshResumen();
+  rollosRefreshTotales();
 }
 function rollosCalc(row){
   const capas=numAr(row.capas);
@@ -7616,7 +7618,19 @@ function renderRollosModal(){
       ${!rows.length?`<div class="oc-hint" style="padding:8px 0">No hay rollos cargados todavía.</div>`:''}
     </div>
     <button class="btn-sm" onclick="rollosAddRow()" style="width:100%;padding:8px;margin-top:8px">+ Agregar rollo</button>
+    <div id="rol-totales" style="text-align:right;font-size:12px;margin-top:8px;color:var(--text2)">${rollosTotalesTexto()}</div>
   `;
+}
+// Total capas (suma de todas las filas) y total prendas (capas × curva de este ítem) — para
+// que el encimador vea de un vistazo cuánto va a salir en total, sin tener que sumarlo a mano.
+function rollosTotalesTexto(){
+  const totalCapas=rollosCtx.rows.reduce((s,r)=>s+(parseFloat(r.capas)||0),0);
+  const totalPrendas=totalCapas*(rollosCtx.curvaSum||0);
+  return `Total capas: <strong>${totalCapas}</strong> · Total prendas: <strong>${totalPrendas}</strong>`;
+}
+function rollosRefreshTotales(){
+  const el=document.getElementById('rol-totales');
+  if(el) el.innerHTML=rollosTotalesTexto();
 }
 function saveRollos(){
   const{secId,itemId,rows,corteKey}=rollosCtx;

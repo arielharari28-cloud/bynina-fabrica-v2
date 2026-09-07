@@ -11747,6 +11747,23 @@ const COSTEO_OTROS_CAMPOS=[
   {key:'fletes',label:'Fletes'},
   {key:'tizas_moldes_muestras',label:'Tizas / Moldes / Muestras (desarrollo)'},
 ];
+// Costo de taller automático: suma precio_taller × cantidad (OK + Detalle) de todos los
+// ítems de Logística que compartan este N° de corte — así no hay que tipearlo a mano si ya
+// está cargado en Logística. Si Ariel/Stef cargan un valor manual en "Costo de Taller", ese
+// manual gana siempre (por si el precio real terminó siendo otro).
+function costoTallerAutomatico(entry){
+  const key=corteKeyFrom(entry.numero_corte);
+  if(!key) return 0;
+  let total=0;
+  Object.values(logiItemsData||{}).forEach(it=>{
+    if(!it||!it.precio_taller) return;
+    if(corteKeyFrom(it.numero_corte)!==key) return;
+    const filas=Object.values(it.grilla||{});
+    const cant=filas.reduce((s,f)=>s+(f.ok||0)+(f.detalle||0),0);
+    total+=it.precio_taller*cant;
+  });
+  return total;
+}
 function costeoTotales(entry){
   // Kg cargado: suma automática de lo cargado por rollo (no se toca).
   // Kg sobrante: lo carga Ariel/Stef a mano por rollo (no siempre el cálculo por capas
@@ -11761,9 +11778,15 @@ function costeoTotales(entry){
   const precioKg=numAr2(entry.precio_kg);
   const costoTela=precioKg?kgTotal*precioKg:0;
   const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
-  const costoOtros=COSTEO_OTROS_CAMPOS.reduce((s,c)=>s+numAr2(entry[c.key]),0);
-  const costoTotal=costoTela+costoAvios+costoOtros;
   const piezas=entry.piezas_totales||0;
+  // Todos los campos de "Otros gastos" se anotan POR PRENDA (no el total del corte) — se
+  // multiplican x piezas acá para sumarlos al costo total. "Costo de Taller" es el único con
+  // un valor automático (de Logística) cuando no se cargó nada a mano, y ese ya viene como total.
+  const costoOtros=COSTEO_OTROS_CAMPOS.reduce((s,c)=>{
+    if(c.key==='costo_taller'&&!entry.costo_taller) return s+costoTallerAutomatico(entry);
+    return s+numAr2(entry[c.key])*piezas;
+  },0);
+  const costoTotal=costoTela+costoAvios+costoOtros;
   const costoPrenda=piezas?costoTotal/piezas:0;
   return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda};
 }
@@ -12104,16 +12127,27 @@ function renderCosteoDetail(){
       ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma (${sumKg.toFixed(2)} kg) no coincide con el total cargado (${t.kgTotal.toFixed(2)} kg)</div>`:''}
     </div>`;
   })():'';
-  const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>`
+  const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>{
+    const esTaller=c.key==='costo_taller';
+    const autoTotal=esTaller?costoTallerAutomatico(e):0;
+    const autoUnit=(esTaller&&t.piezas)?autoTotal/t.piezas:0;
+    const tieneManual=e[c.key]!=null&&e[c.key]!=='';
+    // Todos los campos se anotan y se muestran POR PRENDA — "Costo de Taller" es el único con
+    // un valor automático (de Logística) cuando no se cargó nada a mano acá.
+    const valorInput=tieneManual?e[c.key]:(esTaller&&autoUnit?autoUnit.toFixed(2):'');
+    const totalMostrado=tieneManual?numAr2(e[c.key])*t.piezas:(esTaller?autoTotal:0);
+    const unitMostrado=tieneManual?numAr2(e[c.key]):(esTaller?autoUnit:0);
+    return `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
-      <span style="font-size:12px">${c.label}</span>
+      <span style="font-size:12px">${c.label} <span style="color:var(--text3);font-size:10px">(por prenda${(esTaller&&!tieneManual&&autoTotal)?', auto de Logística':''})</span></span>
       <div style="display:flex;align-items:center;gap:8px">
         ${canEdit
-          ?`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px">$</span><input type="number" min="0" step="0.01" value="${e[c.key]||''}" placeholder="0" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoOtroCampo('${costeoDetailKey}','${c.key}',this.value)"></div>`
-          :`<span style="font-weight:700;font-size:12px">${e[c.key]?'$'+e[c.key]:'—'}</span>`}
-        ${t.piezas?`<span style="font-size:11px;color:var(--text3);min-width:80px;text-align:right">$${(numAr2(e[c.key])/t.piezas).toFixed(2)}/u</span>`:''}
+          ?`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px">$</span><input type="number" min="0" step="0.01" value="${valorInput}" placeholder="0" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoOtroCampo('${costeoDetailKey}','${c.key}',this.value)"><span style="font-size:10px;color:var(--text3)">/u</span></div>`
+          :`<span style="font-weight:700;font-size:12px">${totalMostrado?'$'+totalMostrado.toFixed(2):'—'}</span>`}
+        ${t.piezas?`<span style="font-size:11px;color:var(--text3);min-width:80px;text-align:right">$${unitMostrado.toFixed(2)}/u</span>`:''}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   cont.innerHTML=`
     <button class="btn-sm" onclick="closeCosteoDetail()">← Volver al tablero</button>
     <div style="font-weight:800;font-size:17px;margin-top:8px">✂️ Corte N° ${e.numero_corte||'—'}</div>

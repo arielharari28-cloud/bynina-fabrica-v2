@@ -10796,6 +10796,14 @@ function logiSetPrecioTaller(itemId,val){
   db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).set(n);
   logActivity('Cargó precio de taller',`${logiItemsData[itemId]?.code||itemId}: $${n}`);
 }
+// Costo/precios de venta para ítems de proveedor externo (sin N° de corte, no tienen entrada
+// en Costeo por tela) — se guardan directo en el ítem de Logística.
+function setLogiPrecioVenta(itemId,campo,val){
+  const n=parseFloat(String(val).replace(',','.'));
+  if(isNaN(n)||n<0){ db.ref(`fabrica_v5/logistica/items/${itemId}/${campo}`).remove(); return; }
+  db.ref(`fabrica_v5/logistica/items/${itemId}/${campo}`).set(n);
+  logActivity(`Editó ${campo} (proveedor)`,`${logiItemsData[itemId]?.code||itemId}: $${n}`);
+}
 
 // (El toggle manual de "dividido" se reemplazó por logiMarcarDividido, que además mueve
 // el corte de "Pendiente dividir" a "Finalizado" — ver más abajo, junto a logiCerrarConteo.)
@@ -10970,13 +10978,23 @@ function logiCardHtml(id,it,cerrado){
       const campoPrecioLogi=(campo,label,val)=>`<span style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
         ${label}: <input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:12px" onchange="setCosteoPrecioVenta('${corteKeyCosteo}','${campo}',this.value)">
       </span>`;
-      const preciosVentaHtml = (puedeVerPlata&&corteKeyCosteo) ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+      // Para ítems que vienen de un proveedor externo (sin N° de corte, no pasan por Costeo/tela)
+      // se guardan estos mismos campos directo en el propio ítem de Logística.
+      const campoPrecioLogi2=(itemId,campo,label,val)=>`<span style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
+        ${label}: <input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:12px" onchange="setLogiPrecioVenta('${itemId}','${campo}',this.value)">
+      </span>`;
+      const preciosVentaHtml = puedeVerPlata ? (corteKeyCosteo ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoTotales(costeoEntry).costoPrenda.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
         ${campoPrecioLogi('precio_lista_local','Lista local',costeoEntry.precio_lista_local)}
         ${campoPrecioLogi('precio_tn_minorista','TN minorista',costeoEntry.precio_tn_minorista)}
         ${campoPrecioLogi('precio_tn_mayorista','TN mayorista',costeoEntry.precio_tn_mayorista)}
         <button class="btn-sm" onclick="event.stopPropagation();openCosteoDetail('${corteKeyCosteo}')" style="padding:2px 8px;font-size:11px">✏️ Editar en Costeo</button>
-      </div>` : '';
+      </div>` : (it.origen==='proveedor' ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        ${campoPrecioLogi2(id,'precio_costo','Costo',it.precio_costo)}
+        ${campoPrecioLogi2(id,'precio_lista_local','Lista local',it.precio_lista_local)}
+        ${campoPrecioLogi2(id,'precio_tn_minorista','TN minorista',it.precio_tn_minorista)}
+        ${campoPrecioLogi2(id,'precio_tn_mayorista','TN mayorista',it.precio_tn_mayorista)}
+      </div>` : '')) : '';
       const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}${it.division_avellaneda!=null?` · Avellaneda: <strong>${it.division_avellaneda}</strong> · Depósito: <strong>${it.division_deposito||0}</strong>`:''}</div>`;
       // Recepción por destino: quien recibe físicamente en cada punto lo tilda acá — así queda
       // registrado quién y cuándo, en vez de tener que preguntar si ya llegó.

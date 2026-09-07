@@ -7001,6 +7001,7 @@ function buildOrdenCtx(secId,itemId){
   const curvaValores=item.curva_valores||{};
   const corteKey=corteKeyFrom(item.numero_corte);
   const ctx={secId,itemId,talles,curvaValores,corteKey};
+  ctx.telaUsada=item.tela||item.tela_nombre||'';
   ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor);
   const grupo=gruposCorteData[corteKey];
   const capasGrupo=grupo?grupo.capas:(item.capas||null);
@@ -7247,6 +7248,7 @@ function renderOrdenCorteModal(){
   const yaAgregados=new Set(colores.map(c=>(c.color||'').trim().toLowerCase()));
   const sugeridosDisponibles=(ordenCtx.coloresSugeridos||[]).filter(c=>!yaAgregados.has(c.trim().toLowerCase()));
   const sugeridosHtml=sugeridosDisponibles.length?`<div style="margin-top:8px">
+    <div style="font-size:10px;color:#b45309;background:#fef3c7;border-radius:4px;padding:3px 6px;margin-bottom:4px">🔍 Diagnóstico temporal — tela usada para filtrar: "${(ordenCtx.telaUsada||'(sin tela)').replace(/</g,'&lt;')}"</div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:4px">🎨 Ya usados con esta tela — tocá para agregar:</div>
     <div class="chip-box" style="background:var(--surface2);cursor:default">
       ${sugeridosDisponibles.map(c=>`<span class="chip" style="cursor:pointer;background:var(--accent-bg);color:var(--accent)" onclick="ordenCorteAddColor('${c.replace(/'/g,"\\'")}')">+ ${c.replace(/</g,'&lt;')}</span>`).join('')}

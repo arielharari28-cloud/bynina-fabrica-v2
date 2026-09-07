@@ -574,6 +574,7 @@
     <div style="padding:0 14px 6px;display:flex;gap:6px">
       <input type="text" id="colores-tela-nuevo" placeholder="Nuevo color..." style="flex:1;padding:7px;border:1px solid var(--border);border-radius:8px;font-size:13px">
       <button class="btn-sm" onclick="addColorATela()">+ Agregar</button>
+      <button class="btn-danger" style="white-space:nowrap" onclick="vaciarColoresTela()">🗑 Vaciar</button>
     </div>
     <div class="notif-list" id="colores-tela-lista"></div>
   </div>
@@ -8786,6 +8787,22 @@ function removeColorDeTela(idx){
   telasColoresData[key]={nombre:tela,colores,eliminados};
   renderColoresTelaLista();
   showToast(borrado?`✓ "${borrado}" borrado`:'✓ Borrado');
+}
+// Vacía de un saque todo el catálogo de una tela — pensado para limpiar telas que quedaron
+// "contaminadas" con colores de otra tela mientras existió el bug de cortes en curso mezclados
+// (ej. Ceylan). Como ese bug ya está arreglado, después de vaciar el auto-import de arriba
+// va a traer de nuevo solo el historial real de esa tela (si no tiene, va a quedar vacía).
+function vaciarColoresTela(){
+  const tela=document.getElementById('colores-tela-select').value;
+  if(!tela){ showToast('Elegí una tela primero'); return; }
+  const key=sanitizeStr(tela);
+  const cantidad=((telasColoresData[key]&&telasColoresData[key].colores)||[]).length;
+  if(!cantidad){ showToast('Esta tela ya no tiene colores cargados'); return; }
+  if(!confirm(`¿Vaciar los ${cantidad} colores cargados para "${tela}"? Esto no borra los cortes reales, solo el catálogo de esta tela — si tiene historial real, se vuelve a armar solo.`)) return;
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores:[],eliminados:[]});
+  telasColoresData[key]={nombre:tela,colores:[],eliminados:[]};
+  renderColoresTelaLista();
+  showToast(`✓ "${tela}" vaciada`);
 }
 
 // ---- Búsqueda global: busca por código, nombre o N° de corte en TODAS las secciones ----

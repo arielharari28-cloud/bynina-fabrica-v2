@@ -3647,11 +3647,15 @@ function coloresParaTela(telaNombre,telaProveedor){
   });
   // Catálogo manual (panel "🎨 Colores por tela") — colores cargados/editados a mano ahí también
   // cuentan como sugeridos acá, aunque todavía no se hayan usado en ningún corte real.
+  let eliminados=[];
   if(telaNombre&&telaNombre.trim()){
     const key=sanitizeStr(telaNombre);
     const catalogo=(telasColoresData[key]&&telasColoresData[key].colores)||[];
     catalogo.forEach(c=>{ if(c&&c.trim()) set.add(c.trim()); });
+    eliminados=(telasColoresData[key]&&telasColoresData[key].eliminados)||[];
   }
+  // Si lo borraste a mano en "Colores por tela", que no vuelva a aparecer sugerido acá tampoco.
+  eliminados.forEach(c=>set.delete(c));
   return [...set].sort();
 }
 
@@ -7155,10 +7159,12 @@ function ordenCorteAddNuevoColor(){
   if(!val) return;
   const key=sanitizeStr(tela);
   const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
+  const eliminados=((telasColoresData[key]&&telasColoresData[key].eliminados)||[]).filter(c=>c!==val);
   if(!colores.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
     colores.push(val);
-    db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
-    telasColoresData[key]={nombre:tela,colores};
+    colores.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+    db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores,eliminados});
+    telasColoresData[key]={nombre:tela,colores,eliminados};
   }
   if(!ordenCtx.coloresSugeridos) ordenCtx.coloresSugeridos=[];
   if(!ordenCtx.coloresSugeridos.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
@@ -8710,15 +8716,18 @@ function renderColoresTelaLista(){
   if(!tela){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Elegí una tela arriba</div>'; return; }
   const key=sanitizeStr(tela);
   const catalogo=(telasColoresData[key]&&telasColoresData[key].colores)||[];
+  const eliminados=(telasColoresData[key]&&telasColoresData[key].eliminados)||[];
   // Además de lo cargado a mano acá, sumamos los colores que ya se usaron de verdad en cortes
   // (misma fuente que usa el modal de Orden de corte) — así este panel no queda desactualizado
   // respecto a lo que Emir/Ariel ya vienen usando, y los podés editar/borrar como a los demás.
+  // Los que se borraron a mano (eliminados) NO se vuelven a importar solos, si no el botón ✕
+  // no serviría de nada — quedaría reapareciendo el color apenas se vuelve a abrir el panel.
   const merged=coloresParaTela(tela,'');
-  const faltanImportar=merged.filter(c=>!catalogo.includes(c));
+  const faltanImportar=merged.filter(c=>!catalogo.includes(c)&&!eliminados.includes(c));
   if(faltanImportar.length){
     const nuevos=[...catalogo,...faltanImportar].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-    db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores:nuevos});
-    telasColoresData[key]={nombre:tela,colores:nuevos};
+    db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores:nuevos,eliminados});
+    telasColoresData[key]={nombre:tela,colores:nuevos,eliminados};
   }
   const colores=(telasColoresData[key]&&telasColoresData[key].colores)||[];
   if(!colores.length){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Todavía no hay colores cargados para esta tela</div>'; return; }
@@ -8734,6 +8743,7 @@ function renderColoresTelaLista(){
 function renameColorDeTela(idx){
   const tela=document.getElementById('colores-tela-select').value;
   const key=sanitizeStr(tela);
+  const eliminados=(telasColoresData[key]&&telasColoresData[key].eliminados)||[];
   const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
   const actual=colores[idx];
   const nuevo=prompt('Nuevo nombre para el color:',actual);
@@ -8741,7 +8751,10 @@ function renameColorDeTela(idx){
   const limpio=nuevo.trim();
   if(!limpio||limpio===actual) return;
   colores[idx]=limpio;
-  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+  colores.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores,eliminados});
+  telasColoresData[key]={nombre:tela,colores,eliminados};
+  renderColoresTelaLista();
   showToast(`✓ "${actual}" ahora es "${limpio}"`);
 }
 function addColorATela(){
@@ -8752,16 +8765,27 @@ function addColorATela(){
   if(!color) return;
   const key=sanitizeStr(tela);
   const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
+  // Si lo habías borrado antes, al volver a cargarlo a mano deja de estar excluido.
+  const eliminados=((telasColoresData[key]&&telasColoresData[key].eliminados)||[]).filter(c=>c!==color);
   if(!colores.includes(color)) colores.push(color);
-  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+  colores.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores,eliminados});
+  telasColoresData[key]={nombre:tela,colores,eliminados};
+  renderColoresTelaLista();
   input.value='';
 }
 function removeColorDeTela(idx){
   const tela=document.getElementById('colores-tela-select').value;
   const key=sanitizeStr(tela);
   const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
-  colores.splice(idx,1);
-  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores});
+  const [borrado]=colores.splice(idx,1);
+  // Se guarda en "eliminados" para que el auto-import de arriba no lo vuelva a traer solo
+  // la próxima vez que se abra el panel (ya que sigue existiendo en el histórico de cortes).
+  const eliminados=[...(((telasColoresData[key]&&telasColoresData[key].eliminados)||[])),borrado].filter(Boolean);
+  db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores,eliminados});
+  telasColoresData[key]={nombre:tela,colores,eliminados};
+  renderColoresTelaLista();
+  showToast(borrado?`✓ "${borrado}" borrado`:'✓ Borrado');
 }
 
 // ---- Búsqueda global: busca por código, nombre o N° de corte en TODAS las secciones ----

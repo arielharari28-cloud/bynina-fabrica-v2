@@ -10960,10 +10960,23 @@ function logiCardHtml(id,it,cerrado){
       // Costo pendiente: cruza con la entrada de Costeo de este N° de corte — si todavía no
       // tiene precio x kg cargado, se avisa acá mismo (no hace falta ir a revisar Costeo aparte).
       const corteKeyCosteo=corteKeyFrom(it.numero_corte);
-      const costeoEntry=corteKeyCosteo?costeosData[corteKeyCosteo]:null;
-      const costoBadge = !costeoEntry ? '' : (costeoEntry.precio_kg
-        ? '' // ya tiene costo, no hace falta mostrar nada extra acá
-        : `<span class="logi-badge" style="background:#fef3c7;color:#92400e">💰 Pendiente hacer costo</span>`);
+      // Ojo: antes esto se ocultaba entero si el corte todavía no tenía entrada en Costeo
+      // (costeosData[key] undefined) — pero eso es justo lo que se quiere ver/cargar apenas
+      // se cierra, así que se trata como entrada vacía en vez de no mostrar nada.
+      const costeoEntry=corteKeyCosteo?(costeosData[corteKeyCosteo]||{}):null;
+      const costoBadge = (!costeoEntry||costeoEntry.precio_kg) ? '' : `<span class="logi-badge" style="background:#fef3c7;color:#92400e">💰 Pendiente hacer costo</span>`;
+      // Precios de venta y costo por prenda — mismos datos que en la solapa Costeo, y editables
+      // directo desde acá (se guardan en la misma entrada de Costeo, la crea si todavía no existe).
+      const campoPrecioLogi=(campo,label,val)=>`<span style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
+        ${label}: <input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:12px" onchange="setCosteoPrecioVenta('${corteKeyCosteo}','${campo}',this.value)">
+      </span>`;
+      const preciosVentaHtml = (puedeVerPlata&&corteKeyCosteo) ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoTotales(costeoEntry).costoPrenda.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
+        ${campoPrecioLogi('precio_lista_local','Lista local',costeoEntry.precio_lista_local)}
+        ${campoPrecioLogi('precio_tn_minorista','TN minorista',costeoEntry.precio_tn_minorista)}
+        ${campoPrecioLogi('precio_tn_mayorista','TN mayorista',costeoEntry.precio_tn_mayorista)}
+        <button class="btn-sm" onclick="event.stopPropagation();openCosteoDetail('${corteKeyCosteo}')" style="padding:2px 8px;font-size:11px">✏️ Editar en Costeo</button>
+      </div>` : '';
       const dividioInfo = `<div class="logi-fecha" style="margin-top:4px">✅ Dividido${it.cerrado_por?' por '+USER_DISPLAY[it.cerrado_por]:''}${it.division_avellaneda!=null?` · Avellaneda: <strong>${it.division_avellaneda}</strong> · Depósito: <strong>${it.division_deposito||0}</strong>`:''}</div>`;
       // Recepción por destino: quien recibe físicamente en cada punto lo tilda acá — así queda
       // registrado quién y cuándo, en vez de tener que preguntar si ya llegó.
@@ -10989,7 +11002,7 @@ function logiCardHtml(id,it,cerrado){
           <span style="${it.cargado_ninox?'color:#15803d':''}">${it.cargado_ninox?`✓ Cargado a Ninox${it.cargado_ninox_por?' — '+USER_DISPLAY[it.cargado_ninox_por]:''}`:'📋 Cargar a Ninox'}</span>
         </label>
       </div>`;
-      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}`;
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${preciosVentaHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}`;
     } else {
       const pool = totalOk + totalDetalle;
       const avell = it.division_avellaneda;

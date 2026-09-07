@@ -6573,6 +6573,14 @@ function buildItem(secId,itemId,item,sec,idx,total){
       <div class="cortada-row"><div class="c-check ${item.taller_ninox_salida?'checked':''}" onclick="${canTocarChecklist?`toggleChecklistTaller('${secId}','${itemId}','taller_ninox_salida')`:''}">${item.taller_ninox_salida?'✓':''}</div><span class="c-label ${item.taller_ninox_salida?'done':''}">Salida en Ninox realizada</span></div>
       ${(secId==='sLT'&&avios.length&&item.lleva_avios!==false)?`<div class="cortada-row"><div class="c-check ${aviosSinRecibir.length===0?'checked':''}" title="Se completa solo cuando todos los avíos figuren Recibido — no se puede tildar a mano">${aviosSinRecibir.length===0?'✓':''}</div><span class="c-label ${aviosSinRecibir.length===0?'done':''}">Avíos entregados${aviosSinRecibir.length?` — faltan: ${aviosSinRecibir.map(([,a])=>a.nombre).join(', ')}`:''}</span></div>`:''}
     </div>`:'';
+  // Después de marcar cortado, Emir tiene que bajar el stock de la tela usada en el Excel a mano.
+  // Es solo una confirmación (no pide rollo/texto): el detalle de rollos ya se cargó en el
+  // paso de Encimado. Lo puede tildar Emir, o Ariel/Stef si hace falta corregir.
+  const canStockTela = currentUser==='emir'||currentUser==='ariel'||currentUser==='stef';
+  const stockBajadoHtml = item.done ? `<div class="cortada-row">
+      <div class="c-check ${item.stock_bajado_tela?'checked':''}" onclick="${canStockTela?`toggleStockBajadoTela('${secId}','${itemId}')`:''}">${item.stock_bajado_tela?'✓':''}</div>
+      <span class="c-label ${item.stock_bajado_tela?'done':''}">📦 Bajado de stock tela <span style="font-size:10px;color:var(--text2)">(Emir)</span>${(item.stock_bajado_tela&&item.stock_bajado_tela_ts)?` — ${new Date(item.stock_bajado_tela_ts).toLocaleDateString('es-AR')}`:''}</span>
+    </div>` : '';
   const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
   const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
@@ -6752,6 +6760,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${pedidoSinAvioHtml}
         ${aviosHtml}
         ${checklistPreTallerHtml}
+        ${stockBajadoHtml}
         ${buildPasosExtraHtml(secId,itemId,item,canFicha)}
         </div>
         <div class="item-actions">
@@ -7826,6 +7835,17 @@ function toggleChecklistTaller(secId,itemId,campo){
   const nv=!(item[campo]||false);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/${campo}`).set(nv);
   logActivity(`Checklist salida a taller: ${campo} ${nv?'✓':'✗'}`,item.code);
+}
+
+// Confirmación de Emir de que ya descontó a mano, en el Excel, el stock de tela usada en este
+// corte (el detalle de qué rollo/color se usó ya quedó cargado en el paso de Encimado).
+function toggleStockBajadoTela(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const nv=!(item.stock_bajado_tela||false);
+  const updates={stock_bajado_tela:nv, stock_bajado_tela_por: nv?currentUser:null, stock_bajado_tela_ts: nv?Date.now():null};
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
+  logActivity(nv?'Bajó stock de tela (Excel)':'Deshizo bajado de stock de tela',item.code||item.name||'');
+  showToast(nv?'✅ Stock de tela bajado':'↩ Deshecho');
 }
 
 function sacarATaller(secId,itemId){

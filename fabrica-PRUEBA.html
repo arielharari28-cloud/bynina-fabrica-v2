@@ -7002,6 +7002,9 @@ function buildOrdenCtx(secId,itemId){
   const corteKey=corteKeyFrom(item.numero_corte);
   const ctx={secId,itemId,talles,curvaValores,corteKey};
   ctx.telaUsada=item.tela||item.tela_nombre||'';
+  ctx.debugTela=item.tela||'(vacío)';
+  ctx.debugTelaNombre=item.tela_nombre||'(vacío)';
+  ctx.debugCode=item.code||item.name||'(sin código)';
   ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor);
   const grupo=gruposCorteData[corteKey];
   const capasGrupo=grupo?grupo.capas:(item.capas||null);
@@ -7248,13 +7251,17 @@ function renderOrdenCorteModal(){
   const yaAgregados=new Set(colores.map(c=>(c.color||'').trim().toLowerCase()));
   const sugeridosDisponibles=(ordenCtx.coloresSugeridos||[]).filter(c=>!yaAgregados.has(c.trim().toLowerCase()));
   const sugeridosHtml=sugeridosDisponibles.length?`<div style="margin-top:8px">
-    <div style="font-size:10px;color:#b45309;background:#fef3c7;border-radius:4px;padding:3px 6px;margin-bottom:4px">🔍 Diagnóstico temporal — tela usada para filtrar: "${(ordenCtx.telaUsada||'(sin tela)').replace(/</g,'&lt;')}"</div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:4px">🎨 Ya usados con esta tela — tocá para agregar:</div>
     <div class="chip-box" style="background:var(--surface2);cursor:default">
       ${sugeridosDisponibles.map(c=>`<span class="chip" style="cursor:pointer;background:var(--accent-bg);color:var(--accent)" onclick="ordenCorteAddColor('${c.replace(/'/g,"\\'")}')">+ ${c.replace(/</g,'&lt;')}</span>`).join('')}
     </div>
     ${sugeridosDisponibles.length>1?`<button class="btn-sm" style="margin-top:6px" onclick="ordenCorteAddTodosSugeridos()">+ Agregar los ${sugeridosDisponibles.length} de una</button>`:''}
   </div>`:'';
+  const diagnosticoHtml=`<div style="font-size:10px;color:#b45309;background:#fef3c7;border-radius:4px;padding:6px 8px;margin-bottom:8px;line-height:1.5">
+    🔍 Diagnóstico temporal — ítem: "${(ordenCtx.debugCode||'').replace(/</g,'&lt;')}" (itemId: ${ordenCtx.itemId}, secId: ${ordenCtx.secId})<br>
+    item.tela = "${(ordenCtx.debugTela||'').replace(/</g,'&lt;')}" · item.tela_nombre = "${(ordenCtx.debugTelaNombre||'').replace(/</g,'&lt;')}"<br>
+    tela usada para filtrar colores: "${(ordenCtx.telaUsada||'(sin tela)').replace(/</g,'&lt;')}"
+  </div>`;
   const curvaResumen=talles.map(t=>`${t}:${curvaValores[t]||0}`).join(' · ');
   const headerCols=talles.map(t=>`<th>${t}</th>`).join('');
   const bodyRows=colores.map(row=>{
@@ -7280,6 +7287,7 @@ function renderOrdenCorteModal(){
     <div class="oc-hint">Total general: <strong id="oc-total-general">${totalGeneral}</strong> prendas</div>
   </div>`:`<div class="oc-hint">Agregá al menos un color para armar la tabla.</div>`;
   document.getElementById('modal-orden-corte-body').innerHTML=`
+    ${diagnosticoHtml}
     <div class="oc-fields-row">
       <div class="oc-field-block">
         <label>Colores de esta tela</label>

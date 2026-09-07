@@ -384,7 +384,11 @@
   .est-estado-pendiente-corte{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#fbeadb;color:#b8600b}
   .est-estado-pendiente-taller{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#fdf3d0;color:#8a6d00}
   .est-estado-en-taller{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#e3ddfb;color:#4b2fb3}
+  .est-estado-en-costura{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#e3ddfb;color:#4b2fb3}
+  .est-estado-en-terminacion{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#fce7f3;color:#9d174d}
+  .est-estado-listo-estampar{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#fae8ff;color:#a21caf}
   .est-estado-entregado{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#d9f2df;color:#177a3e}
+  .est-estado-finalizado{display:inline-block;margin-top:4px;padding:2px 8px;border-radius:10px;background:#d9f2df;color:#177a3e}
   .section-label{font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin:10px 0 6px}
   .est-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
   .est-card-inner{border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface2)}
@@ -1209,6 +1213,10 @@ const EST_ESTADOS=[
 // Sin límite fijo: el corte se puede dividir en tantas estampas como haga falta.
 let estampadosData={};
 let estFilter='todos', estSearch='', estTelaFiltro='todas';
+// Vista aparte de la del filtro por estado de estampa: acá separamos los cortes cuyo circuito
+// de corte (costura → estampado → revisión) ya terminó, para que no se mezclen con los activos
+// en la vista de todos los días.
+let estVistaFinalizados=false;
 let estCtx={estId:null,estampaId:null,fotoId:null};
 
 async function uploadCloudinaryRaw(file){
@@ -1583,17 +1591,27 @@ function renderEstampadosTab(){
 
   const counts={todos:totalEst};
   EST_ESTADOS.forEach(s=>{ counts[s.key]=lista.reduce((a,c)=>a+Object.values(c.estampas).filter(x=>x.estado===s.key).length,0); });
+  // Cacheamos el estado del corte vinculado (en costura / listo para estampar / terminación /
+  // finalizado) una sola vez por corte acá, para no recalcularlo dos veces (filtro + tarjeta).
+  const estadoPorCorte={};
+  lista.forEach(c=>{ estadoPorCorte[c.id]=estadoCorteVinculado(c.numero); });
+  const totalFinalizados=lista.filter(c=>estadoPorCorte[c.id]&&estadoPorCorte[c.id].cls==='finalizado').length;
   const filtrosEl=document.getElementById('estampas-filtros');
   filtrosEl.innerHTML=[{key:'todos',label:'Todos'},...EST_ESTADOS].map(s=>
     `<button class="filter-pill ${estFilter===s.key?'active':''}" onclick="estFilter='${s.key}';renderEstampadosTab()">${s.label} <span class="cnt">${counts[s.key]||0}</span></button>`
-  ).join('');
+  ).join('')
+  +`<button class="filter-pill" style="margin-left:10px;border-color:#177a3e;${estVistaFinalizados?'background:#177a3e;color:#fff':'color:#177a3e'}" onclick="estVistaFinalizados=!estVistaFinalizados;renderEstampadosTab()">✅ Finalizados <span class="cnt">${totalFinalizados}</span></button>`;
 
   const telas=[...new Set(lista.map(c=>(c.tela||'').trim()).filter(Boolean))].sort();
   const telaSel=document.getElementById('estampas-tela-filter');
   telaSel.innerHTML='<option value="todas">Todas las telas</option>'+telas.map(t=>`<option value="${t}" ${estTelaFiltro===t?'selected':''}>${t}</option>`).join('');
   telaSel.value=telas.includes(estTelaFiltro)?estTelaFiltro:'todas';
 
-  let visibles=lista;
+  // La vista "Finalizados" es aparte: muestra solo los cortes cuyo circuito ya terminó, y la
+  // vista normal (default) los oculta para no mezclar cortes activos con cortes ya cerrados.
+  let visibles=lista.filter(c=>estVistaFinalizados
+    ? (estadoPorCorte[c.id]&&estadoPorCorte[c.id].cls==='finalizado')
+    : !(estadoPorCorte[c.id]&&estadoPorCorte[c.id].cls==='finalizado'));
   if(estTelaFiltro!=='todas') visibles=visibles.filter(c=>(c.tela||'').trim()===estTelaFiltro);
   if(estSearch.trim()){ const q=estSearch.trim().toLowerCase(); visibles=visibles.filter(c=>String(c.numero||'').toLowerCase().includes(q)); }
   if(estFilter!=='todos') visibles=visibles.filter(c=>Object.values(c.estampas).some(x=>x.estado===estFilter));
@@ -1602,7 +1620,7 @@ function renderEstampadosTab(){
 
   if(!visibles.length){
     const filtrando=estFilter!=='todos'||estTelaFiltro!=='todas'||estSearch.trim();
-    cont.innerHTML=`<div class="empty-state">${filtrando?'Ningún corte coincide con la búsqueda o los filtros.':'Todavía no hay cortes acá — agregá uno o mandalo desde una tarjeta de fabrica con "🎨 Marcar para estampado DTF".'}</div>`;
+    cont.innerHTML=`<div class="empty-state">${estVistaFinalizados?'Todavía no hay cortes finalizados.':(filtrando?'Ningún corte coincide con la búsqueda o los filtros.':'Todavía no hay cortes acá — agregá uno o mandalo desde una tarjeta de fabrica con "🎨 Marcar para estampado DTF".')}</div>`;
     return;
   }
 
@@ -1685,7 +1703,7 @@ function renderEstampadosTab(){
     const itemLinkeado=c.link_secId&&c.link_itemId&&sectionsData[c.link_secId]&&sectionsData[c.link_secId].items[c.link_itemId];
     const yaCortado=itemLinkeado?!!itemLinkeado.fecha_corte:null; // null = no lo pudimos determinar
     const avisoNoCortado=(yaCortado===false)?`<div style="font-size:11px;font-weight:700;color:#b8860b;background:#fbf1d8;border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ Todavía no se cortó este corte — las cantidades son estimadas (de la ficha), no confirmadas. Avanzar solo con el dibujo, no cerrar cantidades por color todavía.</div>`:'';
-    const estadoCorte=estadoCorteVinculado(c.numero);
+    const estadoCorte=estadoPorCorte[c.id];
     const estadoCorteHtml=estadoCorte?`<span class="chip est-estado-${estadoCorte.cls}" style="font-size:11px;font-weight:600">${estadoCorte.label}</span>`:'';
     const idx=visibles.findIndex(x=>x.id===c.id);
     const ordenBtns=(currentUser==='ariel'||currentUser==='stef')?`
@@ -2795,13 +2813,20 @@ function estadoCorteVinculado(numero){
       if(corteKeyFrom(item.numero_corte)===key){
         let label,cls;
         if(!item.fecha_corte){ label='⏳ Pendiente corte'; cls='pendiente-corte'; }
-        else if(secId==='sFIN'||secId===SEC_ESTAMPADO_TALLER||secId===SEC_TALLER_TERMINACION){ label='🧵 En taller'; cls='en-taller'; }
-        else { label='📦 Pendiente sacar a taller'; cls='pendiente-taller'; } // sLT/s4/s5/s6: ya cortado, esperando salir
+        // Distinguimos las 3 etapas de "ya cortado y en el circuito del taller" — antes se
+        // mostraban todas como "🧵 En taller", que es justo lo que no dejaba ver en Estampas
+        // si un corte ya estaba entregado y listo para estampar o si todavía seguía en costura.
+        else if(secId===SEC_ESTAMPADO_TALLER){ label='🎨 Entregado — listo para estampar'; cls='listo-estampar'; }
+        else if(secId===SEC_TALLER_TERMINACION){ label='🧵 En taller de terminación'; cls='en-terminacion'; }
+        else if(secId==='sFIN'){ label='🧶 Todavía en el taller (costura)'; cls='en-costura'; }
+        else { label='📦 Pendiente sacar a taller'; cls='pendiente-taller'; } // sLT/s4/s5/s6
         return {secId,itemId,item,label,cls};
       }
     }
   }
-  return {secId:null,itemId:null,item:null,label:'✅ Entregado',cls:'entregado'}; // ya no está en ningún tablero de corte
+  // Ya no está en ningún tablero de corte de fabrica: pasó Estampado y Revisión Final (o fue
+  // directo a Revisión si no llevaba estampado) — el circuito de corte terminó para él.
+  return {secId:null,itemId:null,item:null,label:'✅ Finalizado',cls:'finalizado'};
 }
 function grupoCorteOf(item){
   const key=corteKeyFrom(item&&item.numero_corte);
@@ -6278,6 +6303,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${item.numero_corte?`<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:700">${item.numero_corte}</strong></div>`:''}
           ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
@@ -6325,6 +6351,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
+          ${item.numero_corte?`<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:700">${item.numero_corte}</strong></div>`:''}
           ${buildTelaBaseLineHtml(item)}
           ${procesoInfoHtml(item,secId,itemId)}
           ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
@@ -9803,6 +9830,13 @@ function logiAbrirNuevaEntregaCorte(){
     const sec=sectionsData&&sectionsData[secId];
     if(!sec) return;
     Object.entries(sec.items||{}).forEach(([id,it])=>{
+      // Si este corte ya tiene una entrega abierta en Logística (creada pero todavía sin
+      // cerrar — en conteo, en control o pendiente dividir), no lo mostramos de nuevo acá:
+      // ya está en curso, y volver a elegirlo generaría una segunda entrega duplicada para
+      // el mismo saldo. Solo vuelve a aparecer si esa entrega se cierra y todavía queda
+      // saldo real pendiente (entrega parcial).
+      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.fabrica_item_id===id&&lit.estado!=='cerrado');
+      if(tieneEntregaAbierta) return;
       const resumen=resumenEntregasFabrica(it,id);
       if(resumen.enTaller>0) candidatos.push({id,it,secId,resumen});
     });

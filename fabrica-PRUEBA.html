@@ -3622,6 +3622,10 @@ function coloresParaTela(telaNombre,telaProveedor){
   const norm=s=>(s||'').trim().toLowerCase();
   const tn=norm(telaNombre), tp=norm(telaProveedor);
   const set=new Set();
+  // Mapa corteKey → tela normalizada, sacado de los ítems reales — lo necesitamos para poder
+  // filtrar por tela también los cortes EN CURSO (grupos_corte), que no tienen su propio campo
+  // de tela y hasta ahora se sumaban todos juntos sin importar la tela (ver bug abajo).
+  const telaPorCorte={};
   Object.values(sectionsData||{}).forEach(sec=>{
     Object.values((sec&&sec.items)||{}).forEach(it=>{
       if(!it) return;
@@ -3631,6 +3635,8 @@ function coloresParaTela(telaNombre,telaProveedor){
       // terminaba trayendo colores de telas que en los hechos no son la misma.
       const itTela=norm(it.tela||it.tela_nombre);
       const itProv=norm(it.proveedor||it.tela_proveedor);
+      const ck=corteKeyFrom(it.numero_corte);
+      if(ck&&itTela) telaPorCorte[ck]=itTela;
       if(tn&&itTela!==tn) return;
       if(tp&&itProv!==tp) return;
       if(it.color&&it.color.trim()) set.add(it.color.trim());
@@ -3641,7 +3647,11 @@ function coloresParaTela(telaNombre,telaProveedor){
   });
   // Cortes en curso (grupos_corte) — los colores ya cargados ahí todavía no están "congelados"
   // en ningún ítem, así que si no los sumamos acá quedan afuera hasta que se marque cortado.
-  Object.values(gruposCorteData||{}).forEach(g=>{
+  // BUG que reportó Ariel: esto sumaba los colores de TODOS los cortes en curso sin fijarse de
+  // qué tela eran — por eso a cualquier tela le aparecían los colores de cualquier otra que
+  // también estuviera con un corte abierto en ese momento. Ahora se filtra por telaPorCorte.
+  Object.entries(gruposCorteData||{}).forEach(([ck,g])=>{
+    if(tn&&telaPorCorte[ck]!==tn) return;
     Object.values((g&&g.capas)||{}).forEach(c=>{ if(c&&c.color&&c.color.trim()) set.add(c.color.trim()); });
     Object.values((g&&g.rollos)||{}).forEach(r=>{ if(r&&r.color&&r.color.trim()) set.add(r.color.trim()); });
   });
@@ -7005,10 +7015,6 @@ function buildOrdenCtx(secId,itemId){
   const curvaValores=item.curva_valores||{};
   const corteKey=corteKeyFrom(item.numero_corte);
   const ctx={secId,itemId,talles,curvaValores,corteKey};
-  ctx.telaUsada=item.tela||item.tela_nombre||'';
-  ctx.debugTela=item.tela||'(vacío)';
-  ctx.debugTelaNombre=item.tela_nombre||'(vacío)';
-  ctx.debugCode=item.code||item.name||'(sin código)';
   ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor);
   const grupo=gruposCorteData[corteKey];
   const capasGrupo=grupo?grupo.capas:(item.capas||null);
@@ -7263,11 +7269,6 @@ function renderOrdenCorteModal(){
     </div>
     ${sugeridosDisponibles.length>1?`<button class="btn-sm" style="margin-top:6px" onclick="ordenCorteAddTodosSugeridos()">+ Agregar los ${sugeridosDisponibles.length} de una</button>`:''}
   </div>`:'';
-  const diagnosticoHtml=`<div style="font-size:10px;color:#b45309;background:#fef3c7;border-radius:4px;padding:6px 8px;margin-bottom:8px;line-height:1.5">
-    🔍 Diagnóstico temporal — ítem: "${(ordenCtx.debugCode||'').replace(/</g,'&lt;')}" (itemId: ${ordenCtx.itemId}, secId: ${ordenCtx.secId})<br>
-    item.tela = "${(ordenCtx.debugTela||'').replace(/</g,'&lt;')}" · item.tela_nombre = "${(ordenCtx.debugTelaNombre||'').replace(/</g,'&lt;')}"<br>
-    tela usada para filtrar colores: "${(ordenCtx.telaUsada||'(sin tela)').replace(/</g,'&lt;')}"
-  </div>`;
   const curvaResumen=talles.map(t=>`${t}:${curvaValores[t]||0}`).join(' · ');
   const headerCols=talles.map(t=>`<th>${t}</th>`).join('');
   const bodyRows=colores.map(row=>{
@@ -7293,7 +7294,6 @@ function renderOrdenCorteModal(){
     <div class="oc-hint">Total general: <strong id="oc-total-general">${totalGeneral}</strong> prendas</div>
   </div>`:`<div class="oc-hint">Agregá al menos un color para armar la tabla.</div>`;
   document.getElementById('modal-orden-corte-body').innerHTML=`
-    ${diagnosticoHtml}
     <div class="oc-fields-row">
       <div class="oc-field-block">
         <label>Colores de esta tela</label>

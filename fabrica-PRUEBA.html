@@ -6910,10 +6910,18 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const requeridoPorColor={};
   Object.values(grupo.capas||{}).forEach(r=>{ if(r.color) requeridoPorColor[r.color]=(requeridoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
   const cargadoPorColor={};
-  Object.values(grupo.rollos||{}).forEach(r=>{ if(r&&r.color) cargadoPorColor[r.color]=(cargadoPorColor[r.color]||0)+(parseFloat(r.capas)||0); });
+  const rollosSinKg=[];
+  Object.values(grupo.rollos||{}).forEach(r=>{
+    if(!r||!r.color) return;
+    cargadoPorColor[r.color]=(cargadoPorColor[r.color]||0)+(parseFloat(r.capas)||0);
+    // No solo capas: si no cargaron el Kg/Mts del rollo, Costeo se queda sin con qué calcular
+    // el costo de tela de este corte — por eso también es obligatorio antes de poder cortar.
+    if(!parseFloat(r.kgmts)) rollosSinKg.push(r.color);
+  });
   const coloresOrden=Object.keys(requeridoPorColor);
   const faltantesRollos=coloresOrden.filter(c=>(cargadoPorColor[c]||0)<requeridoPorColor[c]);
-  const rollosCompletos=esLiquidar?(rollosCount>0):(coloresOrden.length>0&&faltantesRollos.length===0);
+  const faltanKg=[...new Set(rollosSinKg)];
+  const rollosCompletos=esLiquidar?(rollosCount>0):(coloresOrden.length>0&&faltantesRollos.length===0&&faltanKg.length===0);
 
   // Si faltan capas (puede ser que no llegue la tela o no quieran abrir un rollo entero por
   // 1 sola capa), Emir/Peque pueden pedirle a Ariel/Stef que autoricen igual marcar el
@@ -6926,15 +6934,22 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       ? `<button class="btn-advance" disabled title="Falta que Emir marque la tiza como impresa" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>`
       : '';
   } else if(!rollosCompletos&&!esLiquidar){
-    if(pedidoCapas){
+    if(pedidoCapas&&faltantesRollos.length){
       encimadoBtnHtml=canAutorizarCapas
         ? `<button class="btn-advance" onclick="autorizarCapasIncompletas('${secId}','${itemId}')">✅ Autorizar y marcar encimado terminado</button>
            <button class="btn-sm" onclick="rechazarCapasIncompletas('${secId}','${itemId}')">✖ Rechazar pedido</button>`
         : `<span class="c-label" style="font-size:11px;color:var(--warn-text);flex:0">🔔 Esperando autorización de Ariel/Stef</span>`;
-    } else {
+    } else if(faltantesRollos.length){
       encimadoBtnHtml=canRollosEncimado
         ? `<button class="btn-advance" disabled title="Cargá los rollos de todos los colores primero" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>
            <button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionCapas('${secId}','${itemId}')">🔔 Pedir autorización (faltan capas)</button>`
+        : '';
+    } else {
+      // Acá las capas ya están completas — lo único que falta es el Kg/Mts. Esto es obligatorio
+      // siempre (no tiene sentido "autorizar sin Kg", ahí sí se rompe el costeo de tela), así
+      // que no hay botón para saltearlo — solo indica qué falta cargar.
+      encimadoBtnHtml=canRollosEncimado
+        ? `<button class="btn-advance" disabled title="Falta cargar el Kg/Mts de algún rollo" style="opacity:.45;cursor:not-allowed">🧷 Encimado terminado</button>`
         : '';
     }
   } else if(!rollosCompletos&&esLiquidar){
@@ -6950,7 +6965,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
         ${rollosCompletos&&tizaImpresa&&canRollosEncimado
           ? `<button class="btn-advance" onclick="setEncimadoTerminado('${secId}','${itemId}',true)">🧷 Encimado terminado</button>`
           : encimadoBtnHtml}
-      </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}${(!rollosCompletos&&esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Cargá al menos un rollo (tela a liquidar) para poder marcar el encimado terminado.</div>`:''}`
+      </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar&&faltantesRollos.length)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar&&!faltantesRollos.length&&faltanKg.length)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Falta cargar el Kg/Mts de: <strong>${faltanKg.join(', ')}</strong> (las capas ya están, pero sin el Kg/Mts Costeo no puede calcular el costo de tela)</div>`:''}${(!rollosCompletos&&esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Cargá al menos un rollo (tela a liquidar) para poder marcar el encimado terminado.</div>`:''}`
     : `<div class="cortada-row">
         <span class="c-label">🧷 Encimado: <strong style="color:var(--green-text)">Terminado</strong></span>
         ${canCortar?`<button class="btn-sm" onclick="setEncimadoTerminado('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
@@ -12122,7 +12137,11 @@ function renderCosteoDetail(){
     const calc=(largoNum&&pesoMNum&&capas)?capas*largoNum*pesoMNum:null;
     return `<tr>
       <td style="padding:3px 6px;font-size:12px">${r.color||'—'}</td>
-      <td style="padding:3px 6px;font-size:12px;text-align:center">${r.kgmts||'—'} kg</td>
+      <td style="padding:3px 6px;font-size:12px;text-align:center">
+        ${canEdit
+          ?`<input type="number" min="0" step="0.01" value="${r.kgmts||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoKgRollo('${costeoDetailKey}','${rk}',this.value)"> kg`
+          :`${r.kgmts||'—'} kg`}
+      </td>
       <td style="padding:3px 6px;font-size:12px;text-align:center;color:var(--text2)">${r.capas||'—'}</td>
       <td style="padding:3px 6px;font-size:11px;color:var(--text2);font-style:${r.nota?'normal':'italic'}">${r.nota?r.nota.replace(/</g,'&lt;'):'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center;color:var(--text3)">${calc!=null?calc.toFixed(2)+' kg':'—'}</td>
@@ -12298,6 +12317,17 @@ function setCosteoSobranteRollo(key,rolloKey,val){
   const v=String(val).trim().replace(',','.');
   db.ref(`fabrica_v5/costeos/${key}/rollos/${rolloKey}/sobrante`).set(v===''?'':v);
   logActivity('Editó sobrante de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${v||0} kg`);
+}
+// Corrige el Kg/Mts cargado de un rollo directo desde Costeo — para cuando quedó vacío porque
+// Emir marcó el corte sin cargarlo (el encimado ahora lo exige, pero esto tapa los cortes viejos
+// que ya quedaron así, sin tener que ir a buscar el ítem original).
+function setCosteoKgRollo(key,rolloKey,val){
+  const e=costeosData[key]||{};
+  const r=(e.rollos||{})[rolloKey];
+  if(!r) return;
+  const v=String(val).trim().replace(',','.');
+  db.ref(`fabrica_v5/costeos/${key}/rollos/${rolloKey}/kgmts`).set(v===''?'':v);
+  logActivity('Editó Kg/Mts de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${v||0} kg`);
 }
 function setCosteoPesoMetro(key,val){
   const e=costeosData[key]||{};

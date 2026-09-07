@@ -8699,6 +8699,17 @@ function renderColoresTelaLista(){
   const cont=document.getElementById('colores-tela-lista');
   if(!tela){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Elegí una tela arriba</div>'; return; }
   const key=sanitizeStr(tela);
+  const catalogo=(telasColoresData[key]&&telasColoresData[key].colores)||[];
+  // Además de lo cargado a mano acá, sumamos los colores que ya se usaron de verdad en cortes
+  // (misma fuente que usa el modal de Orden de corte) — así este panel no queda desactualizado
+  // respecto a lo que Emir/Ariel ya vienen usando, y los podés editar/borrar como a los demás.
+  const merged=coloresParaTela(tela,'');
+  const faltanImportar=merged.filter(c=>!catalogo.includes(c));
+  if(faltanImportar.length){
+    const nuevos=[...catalogo,...faltanImportar].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+    db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores:nuevos});
+    telasColoresData[key]={nombre:tela,colores:nuevos};
+  }
   const colores=(telasColoresData[key]&&telasColoresData[key].colores)||[];
   if(!colores.length){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Todavía no hay colores cargados para esta tela</div>'; return; }
   cont.innerHTML=colores.map((c,i)=>`

@@ -2435,6 +2435,7 @@ function buildBaseTizadaHtml(secId,itemId,item,canEdit){
       <span style="font-size:10px;color:var(--text3);font-style:italic">(manual)</span>
       <button class="btn-sm" onclick="editBaseTizadaManual('${secId}','${itemId}')">✏️ Editar</button>
       <button class="btn-sm" onclick="clearBaseTizadaManual('${secId}','${itemId}')">↩ Elegir de la lista</button>
+      <button class="btn-sm" onclick="deshacerBaseAprobada('${secId}','${itemId}')" style="border-color:var(--warn-text);color:var(--warn-text)">↩ No es base existente</button>
     </div>`;
   }
   return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;flex-wrap:wrap">
@@ -2445,7 +2446,17 @@ function buildBaseTizadaHtml(secId,itemId,item,canEdit){
       ${optsHtml}
     </select>
     ${base&&base.ficha_link?`<a href="${base.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:11px">📋 Ver ficha de la base</a>`:''}
+    <button class="btn-sm" onclick="deshacerBaseAprobada('${secId}','${itemId}')" style="border-color:var(--warn-text);color:var(--warn-text)">↩ No es base existente</button>
   </div>`;
+}
+// El checkbox "Base ya aprobada" se oculta solo una vez que el ítem está en Pendiente armar
+// tizada con base_aprobada=true (se reemplaza por este selector) — sin este botón no había
+// forma de volver atrás desde acá si se tildó por error.
+function deshacerBaseAprobada(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({base_aprobada:false,base_ref_sec:null,base_ref_id:null,base_ref_manual:null});
+  logActivity('Deshizo "Base ya aprobada"',item.code||item.name||'');
+  showToast('↩ Deshecho — ya no figura como base existente');
 }
 
 function onBaseTizadaChange(secId,itemId,sel){

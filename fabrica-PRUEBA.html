@@ -11843,13 +11843,16 @@ const COSTEO_OTROS_CAMPOS=[
 // ítems de Logística que compartan este N° de corte — así no hay que tipearlo a mano si ya
 // está cargado en Logística. Si Ariel/Stef cargan un valor manual en "Costo de Taller", ese
 // manual gana siempre (por si el precio real terminó siendo otro).
-function costoTallerAutomatico(entry){
+function costoTallerAutomatico(entry,articuloCode){
   const key=corteKeyFrom(entry.numero_corte);
   if(!key) return 0;
   let total=0;
   Object.values(logiItemsData||{}).forEach(it=>{
     if(!it||!it.precio_taller) return;
     if(corteKeyFrom(it.numero_corte)!==key) return;
+    // Si se pide el automático de un artículo puntual, solo suma los ítems de Logística de
+    // ese código — así, en un corte con varios artículos, cada uno se lleva su propia parte.
+    if(articuloCode&&it.code!==articuloCode) return;
     const filas=Object.values(it.grilla||{});
     const cant=filas.reduce((s,f)=>s+(f.ok||0)+(f.detalle||0),0);
     total+=it.precio_taller*cant;
@@ -11866,21 +11869,50 @@ function costeoTotales(entry){
     kgCargado+=numAr2(r.kgmts);
     kgSobrante+=numAr2(r.sobrante);
   });
-  const kgTotal=Math.max(0,kgCargado-kgSobrante);
+  const kgTotalRollos=Math.max(0,kgCargado-kgSobrante);
+  // Si ya repartiste el kilaje por artículo (aunque no hayas cargado rollos con sobrante),
+  // eso es el dato más específico y real — se usa como el kg total del corte para costear.
+  // Si no repartiste nada por artículo todavía, se sigue usando lo cargado por rollo, como antes.
+  const sumKgArticulos=(entry.articulos||[]).reduce((s,a)=>s+numAr2(a.kg),0);
+  const kgTotal=sumKgArticulos>0?sumKgArticulos:kgTotalRollos;
   const precioKg=numAr2(entry.precio_kg);
   const costoTela=precioKg?kgTotal*precioKg:0;
   const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
-  const piezas=entry.piezas_totales||0;
-  // Todos los campos de "Otros gastos" se anotan POR PRENDA (no el total del corte) — se
-  // multiplican x piezas acá para sumarlos al costo total. "Costo de Taller" es el único con
-  // un valor automático (de Logística) cuando no se cargó nada a mano, y ese ya viene como total.
-  const costoOtros=COSTEO_OTROS_CAMPOS.reduce((s,c)=>{
-    if(c.key==='costo_taller'&&!entry.costo_taller) return s+costoTallerAutomatico(entry);
-    return s+numAr2(entry[c.key])*piezas;
-  },0);
+  // Igual que con el kilaje: si ya repartiste piezas por artículo, "Otros gastos" (taller,
+  // estampado, etc) se calcula artículo por artículo — cada uno con su propio $/prenda si lo
+  // cargaste, o el valor compartido del corte si no. Si ningún artículo tiene piezas propias
+  // todavía, sigue funcionando igual que antes (un solo $/prenda para todo el corte).
+  const articulos=entry.articulos||[];
+  const sumPiezasArticulos=articulos.reduce((s,a)=>s+(parseInt(a.piezas,10)||0),0);
+  let piezas,costoOtros;
+  if(sumPiezasArticulos>0){
+    piezas=sumPiezasArticulos;
+    costoOtros=articulos.reduce((sArt,a)=>{
+      const piezasArt=parseInt(a.piezas,10)||0;
+      if(!piezasArt) return sArt;
+      return sArt+COSTEO_OTROS_CAMPOS.reduce((s,c)=>{
+        const propio=a[c.key];
+        const tienePropio=propio!=null&&propio!=='';
+        if(c.key==='costo_taller'&&!tienePropio&&!entry.costo_taller){
+          return s+costoTallerAutomatico(entry,a.code||a.name);
+        }
+        const valor=tienePropio?propio:entry[c.key];
+        return s+numAr2(valor)*piezasArt;
+      },0);
+    },0);
+  } else {
+    piezas=entry.piezas_totales||0;
+    // Todos los campos de "Otros gastos" se anotan POR PRENDA (no el total del corte) — se
+    // multiplican x piezas acá para sumarlos al costo total. "Costo de Taller" es el único con
+    // un valor automático (de Logística) cuando no se cargó nada a mano, y ese ya viene como total.
+    costoOtros=COSTEO_OTROS_CAMPOS.reduce((s,c)=>{
+      if(c.key==='costo_taller'&&!entry.costo_taller) return s+costoTallerAutomatico(entry);
+      return s+numAr2(entry[c.key])*piezas;
+    },0);
+  }
   const costoTotal=costoTela+costoAvios+costoOtros;
   const costoPrenda=piezas?costoTotal/piezas:0;
-  return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda};
+  return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
 }
 function parseFechaCorteToYM(fechaStr){
   // Espera "DD/MM/AAAA" (como lo tipean en el prompt de Marcar cortado). Si no matchea, se ignora.
@@ -12210,23 +12242,63 @@ function renderCosteoDetail(){
   const kgArticulosHtml=articulos.length>1?(()=>{
     const sumKg=articulos.reduce((s,a)=>s+numAr2(a.kg),0);
     const dif=Math.abs(sumKg-t.kgTotal);
+    const sumPiezas=articulos.reduce((s,a)=>s+(parseInt(a.piezas,10)||0),0);
+    const difPiezas=Math.abs(sumPiezas-(e.piezas_totales||0));
     const filas=articulos.map((a,i)=>{
       const kgArt=numAr2(a.kg);
       const costoArt=precioKgRef&&kgArt?kgArt*precioKgRef:0;
+      const piezasArt=parseInt(a.piezas,10)||0;
+      // Filas de "otros gastos" propias de este artículo — solo se muestran una vez que tiene
+      // piezas cargadas (si no, no hay con qué multiplicar el $/prenda todavía). De paso se
+      // acumula el subtotal para poder mostrar el costo por unidad consolidado más abajo.
+      let costoOtrosArt=0;
+      const otrosArtRows=piezasArt?COSTEO_OTROS_CAMPOS.map(c=>{
+        const esTaller=c.key==='costo_taller';
+        const tienePropio=a[c.key]!=null&&a[c.key]!=='';
+        const autoTaller=(esTaller&&!tienePropio&&!e.costo_taller)?costoTallerAutomatico(e,a.code||a.name):0;
+        const valorInput=tienePropio?a[c.key]:(esTaller&&autoTaller?(autoTaller/piezasArt).toFixed(2):(e[c.key]||''));
+        const subtotalArt=tienePropio?numAr2(a[c.key])*piezasArt:(esTaller?autoTaller:numAr2(e[c.key])*piezasArt);
+        costoOtrosArt+=subtotalArt;
+        return `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:1px 0 1px 14px">
+          <span style="font-size:11px;color:var(--text2)">${c.label}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            ${canEdit?`<div style="display:flex;align-items:center;gap:3px"><span style="font-size:11px">$</span><input type="number" min="0" step="0.01" value="${valorInput}" placeholder="${e[c.key]||'0'}" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:11px" onchange="setCosteoArticuloOtroGasto('${costeoDetailKey}',${i},'${c.key}',this.value)"><span style="font-size:10px;color:var(--text3)">/u</span></div>`:''}
+            <span style="font-size:11px;color:var(--text3);min-width:70px;text-align:right">$${subtotalArt.toFixed(2)}</span>
+          </div>
+        </div>`;
+      }).join(''):`<div style="padding-left:14px;font-size:11px;color:var(--text3);font-style:italic">Cargá piezas de este artículo para poder asignarle taller/estampado/etc.</div>`;
+      // Consolidado del artículo: tela + todos los otros gastos, total y por unidad — esto es
+      // lo que sirve para fijar precio de venta de este artículo puntual.
+      const costoTotalArt=costoArt+costoOtrosArt;
+      const resumenArt=piezasArt?`
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;padding-top:3px;border-top:1px dashed var(--border)">
+          <span style="font-size:11px;font-weight:700">Costo total ${a.code||a.name||''}</span>
+          <span style="font-size:12px;font-weight:800;color:var(--accent)">$${costoTotalArt.toFixed(2)} · $${(costoTotalArt/piezasArt).toFixed(2)}/u</span>
+        </div>`:'';
       return `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
-        <span style="font-size:12px">${a.code||a.name||'(artículo '+(i+1)+')'}</span>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:12px">${a.kg?a.kg+' kg':'sin asignar'}</span>
-          ${costoArt?`<span style="font-size:12px;color:var(--text2)">· $${costoArt.toFixed(2)} de tela</span>`:''}
-          ${canEdit?`<button class="btn-sm" onclick="editCosteoKgArticulo('${costeoDetailKey}',${i})">✏️</button>`:''}
+      <div style="padding:4px 0;${i>0?'border-top:1px dashed var(--border);margin-top:4px':''}">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:12px;font-weight:600">${a.code||a.name||'(artículo '+(i+1)+')'}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px">${a.kg?a.kg+' kg':'sin asignar'}</span>
+            ${costoArt?`<span style="font-size:12px;color:var(--text2)">· $${costoArt.toFixed(2)} de tela</span>`:''}
+            ${canEdit?`<button class="btn-sm" onclick="editCosteoKgArticulo('${costeoDetailKey}',${i})">✏️ kg</button>`:''}
+          </div>
         </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+          <span style="font-size:11px;color:var(--text2)">Piezas: <strong>${piezasArt||'sin asignar'}</strong></span>
+          ${canEdit?`<button class="btn-sm" onclick="editCosteoPiezasArticulo('${costeoDetailKey}',${i})">✏️ piezas</button>`:''}
+        </div>
+        ${otrosArtRows}
+        ${resumenArt}
       </div>`;
     }).join('');
     return `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">
-      <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos por artículo (este corte tiene ${articulos.length})</div>
+      <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos, piezas y otros gastos por artículo (este corte tiene ${articulos.length})</div>
       ${filas}
-      ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma (${sumKg.toFixed(2)} kg) no coincide con el total cargado (${t.kgTotal.toFixed(2)} kg)</div>`:'<div style="font-size:11px;color:var(--text3);margin-top:2px">✓ Repartido completo — suma igual al total de tela del corte ($'+t.costoTela.toFixed(2)+')</div>'}
+      ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ La suma de kg (${sumKg.toFixed(2)}) no coincide con el total de tela del corte (${t.kgTotal.toFixed(2)} kg)</div>`:'<div style="font-size:11px;color:var(--text3);margin-top:4px">✓ Kilos repartidos completos — suma igual al total de tela ($'+t.costoTela.toFixed(2)+')</div>'}
+      ${(e.piezas_totales&&sumPiezas>0&&difPiezas>0)?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma de piezas por artículo (${sumPiezas}) no coincide con las piezas totales del corte (${e.piezas_totales})</div>`:''}
     </div>`;
   })():'';
   const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>{
@@ -12277,6 +12349,7 @@ function renderCosteoDetail(){
         <span>Total cargado: <strong>${t.kgCargado.toFixed(2)} kg</strong></span>
         <span>· Sobrante: <strong>${t.kgSobrante.toFixed(2)} kg</strong></span>
         <span>· A distribuir: <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
+        ${t.kgDeArticulos?'<span style="font-size:11px;color:var(--text3)">(tomado de la suma de "Kilos por artículo" de abajo, no de rollos cargados)</span>':''}
       </div>
       <div style="font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
         <span>Largo capa:</span>
@@ -12352,6 +12425,33 @@ function editCosteoKgArticulo(key,idx){
   db.ref(`fabrica_v5/costeos/${key}/articulos`).set(arts);
   logActivity('Editó kg por artículo (Costeo)',`Corte ${e.numero_corte} — ${art.code||art.name||''}: ${val.trim()} kg`);
   showToast('✓ Kilos guardados');
+}
+// Piezas propias de este artículo (no las totales del corte) — necesarias para poder repartir
+// "otros gastos" (taller, estampado, etc) artículo por artículo, ya que esos valores son $/prenda.
+function editCosteoPiezasArticulo(key,idx){
+  const e=costeosData[key]||{};
+  const arts=[...(e.articulos||[])];
+  const art=arts[idx]||{};
+  const val=prompt(`Piezas de ${art.code||art.name||'este artículo'} (de las ${e.piezas_totales||'—'} totales del corte):`,art.piezas||'');
+  if(val===null) return;
+  const n=parseInt(val,10);
+  if(isNaN(n)||n<0){ const {piezas,...resto}=art; arts[idx]=resto; }
+  else arts[idx]={...art,piezas:n};
+  db.ref(`fabrica_v5/costeos/${key}/articulos`).set(arts);
+  logActivity('Editó piezas por artículo (Costeo)',`Corte ${e.numero_corte} — ${art.code||art.name||''}: ${val.trim()}`);
+  showToast('✓ Piezas guardadas');
+}
+// Un campo de "otros gastos" (taller, estampado, etc) propio de un artículo. Si se borra,
+// vuelve a usar el valor compartido del corte para ese artículo, como respaldo.
+function setCosteoArticuloOtroGasto(key,idx,campo,val){
+  const e=costeosData[key]||{};
+  const arts=[...(e.articulos||[])];
+  const art=arts[idx]||{};
+  const n=parseFloat(String(val).replace(',','.'));
+  if(isNaN(n)||n<0){ const copia={...art}; delete copia[campo]; arts[idx]=copia; }
+  else arts[idx]={...art,[campo]:n};
+  db.ref(`fabrica_v5/costeos/${key}/articulos`).set(arts);
+  logActivity(`Editó ${campo} del artículo (Costeo)`,`Corte ${e.numero_corte} — ${art.code||art.name||''}: $${val}`);
 }
 function setCosteoPrecioKg(key,val){
   const e=costeosData[key]||{};

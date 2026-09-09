@@ -5559,6 +5559,7 @@ function buildItem(secId,itemId,item,sec){
               :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
           const btns=canCheck?`
             ${(!rec&&!hasDate)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}
+            ${(!rec&&hasDate)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}
             ${!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`:
               `<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`}`:'' ;
           return `<div class="avio-item">
@@ -5630,7 +5631,7 @@ function buildItem(secId,itemId,item,sec){
         :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
       const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
-        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
+        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec&&hasDate?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:'')+(!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
           :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`)):'';
       return `<div class="avio-row-n">
         <div class="avio-dot" style="background:${dot}"></div>
@@ -5754,7 +5755,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
           const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
           const canRecibir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
-          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibir)
+          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
             ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`
             :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
           return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
@@ -5840,7 +5841,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
             :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
             :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibir)
+          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
             ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
             :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
           return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
@@ -6337,7 +6338,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
         const canPedirTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
         const canRecibirTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
-        const btns=`${(!rec&&!hasDate&&canPedirTerm)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibirTerm)
+        const btns=`${(!rec&&!hasDate&&canPedirTerm)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedirTerm)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibirTerm)
           ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
           :(rec&&canRecibirTerm)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
         return `<div class="avio-row-n"><div class="avio-dot" style="background:${dot}"></div>
@@ -6505,7 +6506,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
       const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
       const canRecibir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
-      const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&canRecibir)
+      const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
         ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
         :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
       const costoLine=`<div style="font-size:10px;color:var(--text3);margin-left:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -8262,6 +8263,15 @@ function marcarAvioPedidoHoy(secId,itemId,avioId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_pedido`).set(hoy);
   logActivity('Avío pedido',`${avio.nombre} — ${item.code} (${hoy})`);
   showToast(`📅 Pedido hoy (${hoy})`);
+}
+// Deshace el "Pedido" de un avío (borra la fecha_pedido) — para cuando se tocó por error o el
+// pedido se canceló. Antes no existía forma de volver atrás de este paso puntual.
+function desmarcarAvioPedido(secId,itemId,avioId){
+  const item=sectionsData[secId].items[itemId];
+  const avio=item.avios[avioId];
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_pedido`).remove();
+  logActivity('Deshizo pedido de avío',`${avio.nombre} — ${item.code}`);
+  showToast('↩ Pedido de avío deshecho');
 }
 
 function marcarRecibido(secId,itemId,avioId){

@@ -8256,6 +8256,27 @@ function setLlevaAvios(secId,itemId,val){
   if(!val) checkListaParaTaller(secId,itemId,item.ficha||false,val,item.avios);
 }
 
+// Si un corte que estaba en "avío no pedido" (s4) ya tiene al menos un avío marcado como
+// pedido, pasa solo a "avío pedido, esperando recibir" (s5) — y al revés, si se deshace el
+// último pedido pendiente, vuelve a s4. Antes esto no se movía nunca solo; había que
+// arrastrarlo a mano.
+function checkCorteCambiaPorPedido(secId,itemId,avios){
+  if(secId!=='s4'&&secId!=='s5') return;
+  const item=sectionsData[secId]?.items?.[itemId];
+  if(!item) return;
+  const avList=Object.values(avios||{});
+  if(!avList.length) return;
+  const algunoPedido=avList.some(a=>a.fecha_pedido);
+  const targetSec=algunoPedido?'s5':'s4';
+  if(targetSec===secId) return;
+  ensureSeccionCorte(targetSec);
+  setTimeout(()=>{
+    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios,fecha_etapa:Date.now()});
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    logActivity(algunoPedido?'Avío pedido — corte pasa a "avío pedido"':'Corte vuelve a "avío no pedido"',item.code);
+    showToast(algunoPedido?`📅 ${item.code} pasó a "avío pedido"`:`⚠️ ${item.code} volvió a "avío no pedido"`);
+  },400);
+}
 function marcarAvioPedidoHoy(secId,itemId,avioId){
   const item=sectionsData[secId].items[itemId];
   const avio=item.avios[avioId];
@@ -8263,6 +8284,8 @@ function marcarAvioPedidoHoy(secId,itemId,avioId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_pedido`).set(hoy);
   logActivity('Avío pedido',`${avio.nombre} — ${item.code} (${hoy})`);
   showToast(`📅 Pedido hoy (${hoy})`);
+  const aviosAct={...item.avios,[avioId]:{...avio,fecha_pedido:hoy}};
+  checkCorteCambiaPorPedido(secId,itemId,aviosAct);
 }
 // Deshace el "Pedido" de un avío (borra la fecha_pedido) — para cuando se tocó por error o el
 // pedido se canceló. Antes no existía forma de volver atrás de este paso puntual.
@@ -8272,6 +8295,9 @@ function desmarcarAvioPedido(secId,itemId,avioId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_pedido`).remove();
   logActivity('Deshizo pedido de avío',`${avio.nombre} — ${item.code}`);
   showToast('↩ Pedido de avío deshecho');
+  const {fecha_pedido,...avioSinFecha}=avio;
+  const aviosAct={...item.avios,[avioId]:avioSinFecha};
+  checkCorteCambiaPorPedido(secId,itemId,aviosAct);
 }
 
 function marcarRecibido(secId,itemId,avioId){

@@ -2705,7 +2705,10 @@ const SEC_ESTAMPADO_TALLER = 'fabrica_estampado_taller';
 const SEC_TALLER_TERMINACION = 'fabrica_taller_terminacion';
 // Secciones que Ariel quiere ver aparte, en su propia pestaña "Talleres" (cortes que ya están
 // afuera cortándose/terminándose o volviendo de eso), en vez de mezcladas con el resto de Fábrica.
-const TALLERES_TAB_SECS = ['sFIN', SEC_ESTAMPADO_TALLER, SEC_TALLER_TERMINACION];
+// 's6' (corte ya en taller pero con avío todavía pendiente de recibir) faltaba acá — por eso
+// un corte sacado a taller con avío pendiente quedaba invisible en la pestaña Talleres, aunque
+// estuviera correctamente asignado.
+const TALLERES_TAB_SECS = ['sFIN', 's6', SEC_ESTAMPADO_TALLER, SEC_TALLER_TERMINACION];
 function esSeccionTalleres(secId,sec){
   return TALLERES_TAB_SECS.includes(secId) || ['revision_final','mejora','producto_perfecto'].includes(sec&&sec.tipo);
 }

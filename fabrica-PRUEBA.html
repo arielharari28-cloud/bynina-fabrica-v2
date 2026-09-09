@@ -11114,8 +11114,16 @@ function logiCardHtml(id,it,cerrado){
       const campoPrecioLogi2=(itemId,campo,label,val)=>`<span style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
         ${label}: <input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:12px" onchange="setLogiPrecioVenta('${itemId}','${campo}',this.value)">
       </span>`;
+      // Si el corte tiene varios artículos y este puntual ya está "migrado" (con piezas propias
+      // cargadas en Costeo), usamos SU costo real en vez del promedio del corte entero — antes
+      // acá siempre se mostraba el promedio parejo para todos los artículos del mismo corte,
+      // aunque tuvieran costos distintos.
+      const idxArticuloLogi=costeoEntry?(costeoEntry.articulos||[]).findIndex(a=>a.code===it.code):-1;
+      const costeoPrendaReal=(idxArticuloLogi>-1&&costeoArticuloMigrado((costeoEntry.articulos||[])[idxArticuloLogi]))
+        ?costeoArticuloTotales(costeoEntry,idxArticuloLogi).costoPrenda
+        :(costeoEntry?costeoTotales(costeoEntry).costoPrenda:0);
       const preciosVentaHtml = puedeVerPlata ? (corteKeyCosteo ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
-        <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoTotales(costeoEntry).costoPrenda.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
+        <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoPrendaReal.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
         ${campoPrecioLogi('precio_lista_local','Lista local',costeoEntry.precio_lista_local)}
         ${campoPrecioLogi('precio_tn_minorista','TN minorista',costeoEntry.precio_tn_minorista)}
         ${campoPrecioLogi('precio_tn_mayorista','TN mayorista',costeoEntry.precio_tn_mayorista)}
@@ -12307,6 +12315,16 @@ function renderCosteoDetail(){
           </div>
         </div>`;
       }).join(''):`<div style="padding-left:14px;font-size:11px;color:var(--text3);font-style:italic">Cargá piezas de este artículo para poder asignarle taller/estampado/etc.</div>`;
+      // Fila de Tela, en el mismo formato $/u que las demás — antes solo se veía como texto
+      // arriba ("$X de tela"), separado del resto; ahora queda listada junto con taller/etc.
+      const telaRowArt=piezasArt?`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:1px 0 1px 14px">
+          <span style="font-size:11px;color:var(--text2)">Tela</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--text3);min-width:70px;text-align:right">$${(costoArt/piezasArt).toFixed(2)}/u</span>
+            <span style="font-size:11px;color:var(--text3);min-width:70px;text-align:right">$${costoArt.toFixed(2)}</span>
+          </div>
+        </div>`:'';
       // Consolidado del artículo: tela + todos los otros gastos, total y por unidad — esto es
       // lo que sirve para fijar precio de venta de este artículo puntual.
       const costoTotalArt=costoArt+costoOtrosArt;
@@ -12329,6 +12347,7 @@ function renderCosteoDetail(){
           <span style="font-size:11px;color:var(--text2)">Piezas: <strong>${piezasArt||'sin asignar'}</strong></span>
           ${canEdit?`<button class="btn-sm" onclick="editCosteoPiezasArticulo('${costeoDetailKey}',${i})">✏️ piezas</button>`:''}
         </div>
+        ${telaRowArt}
         ${otrosArtRows}
         ${resumenArt}
       </div>`;
@@ -12350,14 +12369,16 @@ function renderCosteoDetail(){
     const valorInput=tieneManual?e[c.key]:(esTaller&&autoUnit?autoUnit.toFixed(2):'');
     const totalMostrado=tieneManual?numAr2(e[c.key])*t.piezas:(esTaller?autoTotal:0);
     const unitMostrado=tieneManual?numAr2(e[c.key]):(esTaller?autoUnit:0);
+    // Con varios artículos, este número es un valor de RESPALDO (no un total real, cada
+    // artículo puede tener el suyo propio) — no tiene sentido mostrarle un total/unidad al lado.
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
-      <span style="font-size:12px">${c.label} <span style="color:var(--text3);font-size:10px">(por prenda${(esTaller&&!tieneManual&&autoTotal)?', auto de Logística':''})</span></span>
+      <span style="font-size:12px">${c.label} <span style="color:var(--text3);font-size:10px">(por prenda${(esTaller&&!tieneManual&&autoTotal&&articulos.length<=1)?', auto de Logística':''})</span></span>
       <div style="display:flex;align-items:center;gap:8px">
         ${canEdit
           ?`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px">$</span><input type="number" min="0" step="0.01" value="${valorInput}" placeholder="0" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoOtroCampo('${costeoDetailKey}','${c.key}',this.value)"><span style="font-size:10px;color:var(--text3)">/u</span></div>`
           :`<span style="font-weight:700;font-size:12px">${totalMostrado?'$'+totalMostrado.toFixed(2):'—'}</span>`}
-        ${t.piezas?`<span style="font-size:11px;color:var(--text3);min-width:80px;text-align:right">$${unitMostrado.toFixed(2)}/u</span>`:''}
+        ${(articulos.length<=1&&t.piezas)?`<span style="font-size:11px;color:var(--text3);min-width:80px;text-align:right">$${unitMostrado.toFixed(2)}/u</span>`:''}
       </div>
     </div>`;
   }).join('');
@@ -12409,6 +12430,12 @@ function renderCosteoDetail(){
       <table style="width:100%;border-collapse:collapse">${aviosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin avíos</td></tr>'}</table>
       <div style="font-size:12px;margin-top:4px">Subtotal avíos: <strong>$${t.costoAvios.toFixed(2)}</strong></div>
     </div>
+    ${articulos.length>1?`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Otros gastos — valores de respaldo</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Esto NO es el total del corte — son los valores por defecto que usa cada artículo cuando no le cargaste uno propio (ver "Kilos, piezas y otros gastos por artículo" más arriba, ahí está el total real).</div>
+      ${otrosGastosRows}
+    </div>`:`
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Otros gastos</div>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;border-bottom:1px dashed var(--border);margin-bottom:4px">
@@ -12420,7 +12447,7 @@ function renderCosteoDetail(){
       </div>
       ${otrosGastosRows}
       <div style="font-size:12px;margin-top:4px">Subtotal otros gastos: <strong>$${t.costoOtros.toFixed(2)}</strong>${t.piezas?` · <span style="color:var(--text2)">$${(t.costoOtros/t.piezas).toFixed(2)}/u</span>`:''}</div>
-    </div>
+    </div>`}
     <div style="background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:10px">
       <div style="font-size:14px;font-weight:800;color:var(--accent)">Costo total: $${t.costoTotal.toFixed(2)}</div>
       ${t.piezas?`<div style="font-size:12px;color:var(--text2);margin-top:2px">≈ $${t.costoPrenda.toFixed(2)} por prenda (${t.piezas} prendas)</div>

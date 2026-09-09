@@ -1045,6 +1045,7 @@
           <input type="text" id="curva-talles-input" placeholder="Ej: S, M, L, XL">
           <button class="btn-sm" onclick="updateCurvaTalles()">🔄 Actualizar</button>
         </div>
+        <button class="btn-sm" style="margin-top:6px" onclick="document.getElementById('curva-talles-input').value='S, M, L, XL';updateCurvaTalles()">⚡ S, M, L, XL</button>
       </div>
       <div id="curva-table-wrap"></div>
       <div class="oc-hint">Cantidad de prendas de cada talle que salen de <strong>una capa</strong> (una tela cortada). Esto se usa después para calcular la orden de corte.</div>
@@ -4748,7 +4749,11 @@ function marcarRevision(secId,itemId){
     showToast('Cargá las modificaciones antes de mandar a revisión');
     return;
   }
-  const newItem={...item, estado:'modificaciones', fecha_etapa:Date.now()};
+  // Al volver a Moldería para corregir, se resetean "Modelista entregó la muestra" y "Foto en
+  // Drive" — son del ciclo ANTERIOR (antes de cortarla y probarla). Sin esto quedaban tildados
+  // de antes, como si ya estuviera todo hecho para el corte, aunque la muestra corregida todavía
+  // no se volvió a entregar ni fotografiar.
+  const newItem={...item, estado:'modificaciones', fecha_etapa:Date.now(), entregada_modelista:false, foto_drive_ok:false};
   db.ref(`fabrica_v5/sections/${SEC_MOLD}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra a revisión',item.code);
@@ -5437,9 +5442,9 @@ function renderSections(board){
     const canAddPrep=((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')&&secId===SEC_PREP;
     const addRow=(canAdd||canAddMold)?`<div class="sec-add"><input type="text" placeholder="Código de muestra..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
     const addRowPrep=canAddPrep?`<div class="sec-add"><input type="text" placeholder="Nombre de la prenda nueva..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
-    const canAddGeneral=(currentUser==='ariel'||currentUser==='stef')&&!FIXED_SECS.includes(secId);
     const esPendienteArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
-    const canAddDesdeBase=esPendienteArmarTizada&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque');
+    const canAddGeneral=((currentUser==='ariel'||currentUser==='stef')&&!FIXED_SECS.includes(secId))||(esPendienteArmarTizada&&currentUser==='noelia');
+    const canAddDesdeBase=esPendienteArmarTizada&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='noelia');
     const btnDesdeBaseHtml=canAddDesdeBase?`<button class="btn-sm" onclick="openBaseAddModal('${secId}')">🔁 Agregar nuevo artículo desde base</button>`:'';
     const addRowGeneral=(canAddGeneral||canAddDesdeBase)?`<div class="sec-add">${canAddGeneral?`<input type="text" placeholder="Código / nombre..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button><button class="btn-sm" onclick="openRepoAddModal('${secId}')">🔁 Agregar como reposición</button>`:''}${btnDesdeBaseHtml}</div>`:'';
 
@@ -5692,11 +5697,15 @@ function buildMoveOptsForItem(secId,itemId){
 // Rerender buildItem con move correcto
 function buildItem(secId,itemId,item,sec,idx,total){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
+  const tipo=sec.tipo||'';
+  // Noelia no tiene edición general acá, pero en Revisión Final sí puede subir la foto de
+  // cómo quedó la muestra terminada — es un permiso puntual, no todo el resto (código, nombre,
+  // eliminar siguen bloqueados para ella).
+  const canEditFotoRevision=canEdit||(currentUser==='noelia'&&tipo==='revision_final');
   const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
   // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
   // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
   const canMarcarCortadaMuestra=canEdit||currentUser==='emir';
-  const tipo=sec.tipo||'';
   const moveOpts=buildMoveOptsForItem(secId,itemId);
 
   if(tipo==='muestra_pend'){
@@ -6392,7 +6401,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   if(tipo==='revision_final'){
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
+        ${buildPhotoHtml(secId,itemId,item,canEditFotoRevision)}
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
@@ -11365,8 +11374,10 @@ function logiRenderDetail(id){
   const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel');
   // El "esperado" viene de las capas/rollos que se cargaron en Orden de corte para ese ítem —
   // si hubo un error de carga (ej: quedó el total del corte entero en vez de la parte de esa
-  // estampa), Ariel/Stef lo corrigen acá directo, sin tener que tocar el ítem original en Fábrica.
+  // estampa), Ariel/Stef lo corrigen acá directo. Emir no edita directo — pide el cambio (con
+  // motivo) y Ariel/Stef lo aprueban o rechazan desde la misma fila.
   const canEditarEsperado = !cerrado && (currentUser==='ariel' || currentUser==='stef');
+  const canSolicitarEsperado = !cerrado && currentUser==='emir';
 
   let rowsHtml='';
   let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalFalladoTela=0, totalSaldo=0, totalPorControlar=0;
@@ -11391,10 +11402,26 @@ function logiRenderDetail(id){
       const inputAttr = cerrado ? 'disabled' : '';
       totalEsperado+=(f.esperado||0); totalContado+=contado; totalOk+=(f.ok||0); totalDetalle+=(f.detalle||0); totalFallado+=(f.fallado||0); totalFalladoTela+=(f.fallado_tela||0);
       totalSaldo+=(f.esperado?saldo:0); totalPorControlar+=porControlar;
+      const solicitud=f.solicitud_esperado;
+      let esperadoCell;
+      if(canEditarEsperado){
+        esperadoCell=`<input type="number" min="0" class="logi-in-esperado" value="${f.esperado||0}" onchange="logiSetEsperado('${id}','${key}',this.value)">`;
+        if(solicitud){
+          esperadoCell+=`<div style="font-size:10px;color:#b8860b;margin-top:3px;line-height:1.4">📝 Emir pidió <strong>${solicitud.valor}</strong>${solicitud.motivo?` — ${solicitud.motivo.replace(/</g,'&lt;')}`:''}<br>
+            <button class="btn-sm" onclick="logiAprobarSolicitudEsperado('${id}','${key}')">✓ Aprobar</button>
+            <button class="btn-sm" onclick="logiRechazarSolicitudEsperado('${id}','${key}')">✕ Rechazar</button></div>`;
+        }
+      } else if(canSolicitarEsperado){
+        esperadoCell=solicitud
+          ? `${f.esperado||'—'}<br><span style="font-size:10px;color:#b8860b">⏳ pediste: ${solicitud.valor}</span>`
+          : `${f.esperado||'—'} <button class="btn-sm" onclick="logiSolicitarEsperado('${id}','${key}')">📝 Pedir cambio</button>`;
+      } else {
+        esperadoCell=(f.esperado||'—');
+      }
       return `<tr class="${completo?'logi-row-complete':''}">
         <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
         <td>${(f.talle||'—').replace(/</g,'&lt;')}</td>
-        <td>${canEditarEsperado?`<input type="number" min="0" class="logi-in-esperado" value="${f.esperado||0}" onchange="logiSetEsperado('${id}','${key}',this.value)">`:(f.esperado||'—')}</td>
+        <td>${esperadoCell}</td>
         <td><input type="number" min="0" class="logi-in-contado" value="${contado}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','contado',this.value)"></td>
         <td style="font-weight:700;color:${porControlar<0?'#b0392f':porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
         <td><input type="number" min="0" class="logi-in-ok" value="${f.ok||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','ok',this.value)"></td>
@@ -11479,6 +11506,37 @@ function logiSetEsperado(itemId,rowKey,valor){
   const n=Math.max(0,parseInt(valor)||0);
   db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/esperado`).set(n);
   logActivity('Corrigió cantidad esperada',`Ítem ${itemId} — fila ${rowKey}: ${n}`);
+  logiRenderDetail(itemId);
+}
+// Emir no edita "esperado" directo — pide el cambio (con motivo) y queda visible en la misma
+// fila para que Ariel/Stef lo aprueben o rechacen, sin tener que avisarle por otro lado.
+function logiSolicitarEsperado(itemId,rowKey){
+  const it=logiItemsData[itemId];
+  const f=(it&&it.grilla&&it.grilla[rowKey])||{};
+  const valor=prompt(`¿A cuánto pedís cambiar "Esperado"? (hoy: ${f.esperado||0})`);
+  if(valor===null) return;
+  const n=parseInt(valor,10);
+  if(isNaN(n)||n<0){ showToast('Ingresá un número válido'); return; }
+  const motivo=(prompt('Motivo (opcional):','')||'').trim();
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/solicitud_esperado`).set({valor:n,motivo,por:currentUser,ts:Date.now()});
+  logActivity('Pidió cambiar cantidad esperada',`Ítem ${itemId} — fila ${rowKey}: pide ${n}${motivo?` (${motivo})`:''}`);
+  showToast('📝 Pedido enviado — falta que Ariel/Stef lo aprueben');
+  logiRenderDetail(itemId);
+}
+function logiAprobarSolicitudEsperado(itemId,rowKey){
+  const it=logiItemsData[itemId];
+  const f=(it&&it.grilla&&it.grilla[rowKey])||{};
+  const s=f.solicitud_esperado;
+  if(!s) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}`).update({esperado:s.valor, solicitud_esperado:null});
+  logActivity('Aprobó cambio de cantidad esperada',`Ítem ${itemId} — fila ${rowKey}: ${s.valor}`);
+  showToast('✓ Cambio aprobado y aplicado');
+  logiRenderDetail(itemId);
+}
+function logiRechazarSolicitudEsperado(itemId,rowKey){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/solicitud_esperado`).remove();
+  logActivity('Rechazó cambio de cantidad esperada',`Ítem ${itemId} — fila ${rowKey}`);
+  showToast('✕ Pedido rechazado');
   logiRenderDetail(itemId);
 }
 

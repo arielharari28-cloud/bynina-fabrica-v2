@@ -1783,8 +1783,11 @@ function saveItemCode(secId,itemId,el){
   {
     const extraUpdates={};
     let logiTocados=0;
+    // Igual que en resumenEntregasFabrica: se busca por N° de corte + código VIEJO (no por
+    // fabrica_item_id) porque ese id cambia cada vez que el corte pasa de etapa, así que
+    // filtrar por itemId podía no encontrar entregas viejas ya vinculadas a este corte.
     Object.entries(logiItemsData||{}).forEach(([lid,lit])=>{
-      if(lit.fabrica_item_id===itemId){
+      if(lit.numero_corte===item.numero_corte&&lit.code===codigoAnterior){
         extraUpdates[`fabrica_v5/logistica/items/${lid}/code`]=newCode;
         logiTocados++;
       }
@@ -3543,10 +3546,11 @@ function editCodigoPrompt(secId,itemId){
   if(nuevo===anterior) return;
   const updates={};
   updates[`fabrica_v5/sections/${secId}/items/${itemId}/code`]=nuevo;
-  // Logística: entregas de este mismo corte, enlazadas por fabrica_item_id.
+  // Logística: entregas de este mismo corte — se busca por N° de corte + código viejo, no por
+  // fabrica_item_id (ese id cambia cada vez que el corte pasa de etapa).
   let logiTocados=0;
   Object.entries(logiItemsData||{}).forEach(([lid,lit])=>{
-    if(lit.fabrica_item_id===itemId){
+    if(lit.numero_corte===item.numero_corte&&lit.code===anterior){
       updates[`fabrica_v5/logistica/items/${lid}/code`]=nuevo;
       logiTocados++;
     }
@@ -4204,8 +4208,12 @@ function calcularGrillaEsperada(item){
 function resumenEntregasFabrica(item,itemId){
   const filas=calcularGrillaEsperada(item);
   const totalEsperado=filas.reduce((s,f)=>s+(f.esperado||0),0);
+  // Ojo: se busca por N° de corte + código, NO por itemId — el itemId cambia cada vez que el
+  // corte pasa de etapa (ej: al tocar "Entregado"), así que filtrar por itemId hacía que las
+  // entregas ya contadas ANTES de ese cambio de etapa dejaran de sumarse (parecía "0 contadas"
+  // aunque ya se hubiera contado algo), y encima permitía abrir una entrega duplicada.
   const entregas=Object.entries(logiItemsData||{})
-    .filter(([,it])=>it.fabrica_item_id===itemId)
+    .filter(([,it])=>it.numero_corte===item.numero_corte&&it.code===item.code)
     .sort((a,b)=>(a[1].fecha_creado||0)-(b[1].fecha_creado||0));
   const totalEntregado=entregas.reduce((s,[,e])=>s+Object.values(e.grilla||{}).reduce((s2,f)=>s2+(parseInt(f.contado)||0),0),0);
   const totalFaltante=parseInt(item.faltante_total)||0;
@@ -8720,8 +8728,9 @@ function saveEditItem(){
   if(updates.code!==codigoAnterior){
     const extraUpdates={};
     let logiTocados=0;
+    // Por N° de corte + código viejo, no por fabrica_item_id (cambia con cada etapa).
     Object.entries(logiItemsData||{}).forEach(([lid,lit])=>{
-      if(lit.fabrica_item_id===itemId){
+      if(lit.numero_corte===item.numero_corte&&lit.code===codigoAnterior){
         extraUpdates[`fabrica_v5/logistica/items/${lid}/code`]=updates.code;
         logiTocados++;
       }
@@ -9874,7 +9883,11 @@ function logiAbrirNuevaEntregaCorte(){
       // ya está en curso, y volver a elegirlo generaría una segunda entrega duplicada para
       // el mismo saldo. Solo vuelve a aparecer si esa entrega se cierra y todavía queda
       // saldo real pendiente (entrega parcial).
-      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.fabrica_item_id===id&&lit.estado!=='cerrado');
+      // Ojo: comparamos por N° de corte + código, NO por el id interno del ítem — ese id
+      // cambia cada vez que el corte pasa de etapa (ej: al tocar "Entregado" y pasar de
+      // Revisión Final a Estampado), así que compararlo por id dejaba de reconocer una
+      // entrega ya abierta apenas el corte avanzaba, y permitía duplicarla por error.
+      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.numero_corte===it.numero_corte&&lit.code===it.code&&lit.estado!=='cerrado');
       if(tieneEntregaAbierta) return;
       const resumen=resumenEntregasFabrica(it,id);
       if(resumen.enTaller>0) candidatos.push({id,it,secId,resumen});
@@ -9897,9 +9910,10 @@ function logiCerrarNuevaEntregaModal(){
 function logiCrearEntregaDesdeCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const {filas}=resumenEntregasFabrica(item,itemId);
-  // Lo ya entregado por color/talle en entregas anteriores de este mismo corte, para que la
-  // grilla nueva solo pida contar lo que todavía puede faltar de cada combinación.
-  const entregasPrevias=Object.values(logiItemsData||{}).filter(it=>it.fabrica_item_id===itemId);
+  // Lo ya entregado por color/talle en entregas anteriores de este mismo corte — por N° de
+  // corte + código, no por fabrica_item_id (cambia con cada etapa), para no perder de vista
+  // entregas ya contadas antes de que el corte avanzara de sección.
+  const entregasPrevias=Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code);
   const esPrimeraEntrega=entregasPrevias.length===0; // Solo la primera entrega de un corte dispara el pase automático a Revisión.
   const entregadoPorCombo={};
   entregasPrevias.forEach(it=>{
@@ -12386,9 +12400,10 @@ function renderCosteoDetail(){
     <button class="btn-sm" onclick="closeCosteoDetail()">← Volver al tablero</button>
     <div style="font-weight:800;font-size:17px;margin-top:8px">✂️ Corte N° ${e.numero_corte||'—'}</div>
     <div style="font-size:12px;color:var(--text2);margin:2px 0 4px">${(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ')||'(sin artículos)'} · Cortado: ${e.fecha_corte||'—'}</div>
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
       <span style="font-size:12px">Piezas totales cortadas (incluye fallados):</span>
       ${canEdit?`<input type="number" min="0" step="1" value="${e.piezas_totales||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoPiezasTotales('${costeoDetailKey}',this.value)">`:`<strong style="font-size:12px">${t.piezas}</strong>`}
+      ${t.piezasDeArticulos?`<span style="font-size:11px;color:var(--text3)">(este campo ya no se usa para el costo — el total real (${t.piezas}) sale de sumar "Piezas" de cada artículo, más abajo)</span>`:''}
     </div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Tela</div>

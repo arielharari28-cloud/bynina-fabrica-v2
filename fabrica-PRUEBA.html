@@ -12206,21 +12206,27 @@ function renderCosteoDetail(){
   const aviosRows=(e.avios||[]).map(a=>`
     <tr><td style="padding:3px 6px;font-size:12px">${a.nombre||'—'}${a.proveedor?` · ${a.proveedor}`:''}</td><td style="padding:3px 6px;font-size:12px;text-align:center">${a.cantidad||'—'} × $${a.precio||'—'}</td><td style="padding:3px 6px;font-size:12px;text-align:right">$${(numAr2(a.cantidad)*numAr2(a.precio)).toFixed(2)}</td></tr>`).join('');
   const articulos=e.articulos||[];
+  const precioKgRef=numAr2(e.precio_kg);
   const kgArticulosHtml=articulos.length>1?(()=>{
     const sumKg=articulos.reduce((s,a)=>s+numAr2(a.kg),0);
     const dif=Math.abs(sumKg-t.kgTotal);
-    const filas=articulos.map((a,i)=>`
+    const filas=articulos.map((a,i)=>{
+      const kgArt=numAr2(a.kg);
+      const costoArt=precioKgRef&&kgArt?kgArt*precioKgRef:0;
+      return `
       <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
         <span style="font-size:12px">${a.code||a.name||'(artículo '+(i+1)+')'}</span>
         <div style="display:flex;align-items:center;gap:6px">
           <span style="font-size:12px">${a.kg?a.kg+' kg':'sin asignar'}</span>
+          ${costoArt?`<span style="font-size:12px;color:var(--text2)">· $${costoArt.toFixed(2)} de tela</span>`:''}
           ${canEdit?`<button class="btn-sm" onclick="editCosteoKgArticulo('${costeoDetailKey}',${i})">✏️</button>`:''}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">
       <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos por artículo (este corte tiene ${articulos.length})</div>
       ${filas}
-      ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma (${sumKg.toFixed(2)} kg) no coincide con el total cargado (${t.kgTotal.toFixed(2)} kg)</div>`:''}
+      ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma (${sumKg.toFixed(2)} kg) no coincide con el total cargado (${t.kgTotal.toFixed(2)} kg)</div>`:'<div style="font-size:11px;color:var(--text3);margin-top:2px">✓ Repartido completo — suma igual al total de tela del corte ($'+t.costoTela.toFixed(2)+')</div>'}
     </div>`;
   })():'';
   const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>{

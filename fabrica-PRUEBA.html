@@ -2989,69 +2989,6 @@ function doLogout(){
   document.getElementById('add-sec-btn-fabrica').classList.add('hidden');
 }
 
-function startListening(){
-  db.ref('fabrica_v5').once('value',snap=>{
-    if(!snap.val()) db.ref('fabrica_v5/sections').set(INITIAL_SECTIONS);
-    else{
-      // Reparar cualquier sección fija que haya quedado sin metadata (título undefined)
-      const data=snap.val();
-      if(data.sections){
-        Object.keys(INITIAL_SECTIONS).forEach(secId=>{
-          const existing=data.sections[secId];
-          if(existing && !existing.title){
-            const base=INITIAL_SECTIONS[secId];
-            db.ref(`fabrica_v5/sections/${secId}`).update({
-              title:base.title, color:base.color, order:base.order,
-              collapsed:existing.collapsed||false,
-              ...(base.tipo?{tipo:base.tipo}:{})
-            });
-          }
-        });
-        // Secciones nuevas (Moldería / Diseño) que pueden no existir en cuentas ya en uso
-        if(!data.sections[SEC_MOLD]) db.ref(`fabrica_v5/sections/${SEC_MOLD}`).set(INITIAL_SECTIONS[SEC_MOLD]);
-        // Migración única: "Cortes en talleres" (sFIN) se separa en dos vistas según si el taller
-        // ya retiró el corte o no (retirado_taller). Los que YA estaban en sFIN antes de este
-        // cambio se dan por retirados (para no vaciar de golpe la pestaña Talleres) — de acá en
-        // más, cada corte nuevo que sale a taller arranca sin retirar hasta que se confirme a mano.
-        if(data.sections.sFIN && data.sections.sFIN.items && !data.migracion_retirado_taller){
-          const upd={};
-          Object.keys(data.sections.sFIN.items).forEach(itemId=>{
-            if(data.sections.sFIN.items[itemId].retirado_taller==null){
-              upd[`fabrica_v5/sections/sFIN/items/${itemId}/retirado_taller`]=true;
-            }
-          });
-          upd['fabrica_v5/migracion_retirado_taller']=true;
-          db.ref().update(upd);
-        }
-        // Detectar por título las secciones de Revisión Final / Mejora / Productos Perfectos
-        // que Ariel ya había creado a mano, y darles su comportamiento especial (una sola vez)
-        Object.entries(data.sections).forEach(([id,s])=>{
-          if(s.tipo) return;
-          const t=s.title||'';
-          if(t.includes('Revisión Final')) db.ref(`fabrica_v5/sections/${id}/tipo`).set('revision_final');
-          else if(t.includes('Productos Perfectos')) db.ref(`fabrica_v5/sections/${id}/tipo`).set('producto_perfecto');
-          else if(t.trim()==='Mejora') db.ref(`fabrica_v5/sections/${id}/tipo`).set('mejora');
-        });
-        if(!data.sections[SEC_DISENO]) db.ref(`fabrica_v5/sections/${SEC_DISENO}`).set(INITIAL_SECTIONS[SEC_DISENO]);
-        if(!data.sections[SEC_ESTAMPADO_TALLER]) db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}`).set(INITIAL_SECTIONS[SEC_ESTAMPADO_TALLER]);
-        if(!data.sections[SEC_TALLER_TERMINACION]) db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}`).set(INITIAL_SECTIONS[SEC_TALLER_TERMINACION]);
-        if(!data.sections[SEC_CANCEL]) db.ref(`fabrica_v5/sections/${SEC_CANCEL}`).set(INITIAL_SECTIONS[SEC_CANCEL]);
-        if(!data.sections[SEC_PREP]) db.ref(`fabrica_v5/sections/${SEC_PREP}`).set(INITIAL_SECTIONS[SEC_PREP]);
-        else db.ref(`fabrica_v5/sections/${SEC_PREP}/title`).set(INITIAL_SECTIONS[SEC_PREP].title);
-        // Migración: si existían las 3 secciones viejas (idea/código/ficha separadas), fusionar sus ítems en SEC_PREP
-        ['muestra_idea','muestra_codigo','muestra_ficha'].forEach(oldSecId=>{
-          const oldSec=data.sections[oldSecId];
-          if(oldSec && oldSec.items){
-            Object.values(oldSec.items).forEach(oldItem=>{
-              const migrado={...oldItem,fecha_etapa:Date.now()};
-              db.ref(`fabrica_v5/sections/${SEC_PREP}/items`).push(migrado);
-            });
-          }
-          if(oldSec) db.ref(`fabrica_v5/sections/${oldSecId}`).remove();
-        });
-      }
-    }
-  });
   let fechasBackfillDone=false;
 function backfillFechasIngreso(){
   if(fechasBackfillDone) return;
@@ -3236,6 +3173,70 @@ function backfillFotoDriveOkPendiente(){
     logActivity('Backfill: destildó "foto en Drive" heredado en Moldería para que se confirme a mano','');
   });
 }
+
+function startListening(){
+  db.ref('fabrica_v5').once('value',snap=>{
+    if(!snap.val()) db.ref('fabrica_v5/sections').set(INITIAL_SECTIONS);
+    else{
+      // Reparar cualquier sección fija que haya quedado sin metadata (título undefined)
+      const data=snap.val();
+      if(data.sections){
+        Object.keys(INITIAL_SECTIONS).forEach(secId=>{
+          const existing=data.sections[secId];
+          if(existing && !existing.title){
+            const base=INITIAL_SECTIONS[secId];
+            db.ref(`fabrica_v5/sections/${secId}`).update({
+              title:base.title, color:base.color, order:base.order,
+              collapsed:existing.collapsed||false,
+              ...(base.tipo?{tipo:base.tipo}:{})
+            });
+          }
+        });
+        // Secciones nuevas (Moldería / Diseño) que pueden no existir en cuentas ya en uso
+        if(!data.sections[SEC_MOLD]) db.ref(`fabrica_v5/sections/${SEC_MOLD}`).set(INITIAL_SECTIONS[SEC_MOLD]);
+        // Migración única: "Cortes en talleres" (sFIN) se separa en dos vistas según si el taller
+        // ya retiró el corte o no (retirado_taller). Los que YA estaban en sFIN antes de este
+        // cambio se dan por retirados (para no vaciar de golpe la pestaña Talleres) — de acá en
+        // más, cada corte nuevo que sale a taller arranca sin retirar hasta que se confirme a mano.
+        if(data.sections.sFIN && data.sections.sFIN.items && !data.migracion_retirado_taller){
+          const upd={};
+          Object.keys(data.sections.sFIN.items).forEach(itemId=>{
+            if(data.sections.sFIN.items[itemId].retirado_taller==null){
+              upd[`fabrica_v5/sections/sFIN/items/${itemId}/retirado_taller`]=true;
+            }
+          });
+          upd['fabrica_v5/migracion_retirado_taller']=true;
+          db.ref().update(upd);
+        }
+        // Detectar por título las secciones de Revisión Final / Mejora / Productos Perfectos
+        // que Ariel ya había creado a mano, y darles su comportamiento especial (una sola vez)
+        Object.entries(data.sections).forEach(([id,s])=>{
+          if(s.tipo) return;
+          const t=s.title||'';
+          if(t.includes('Revisión Final')) db.ref(`fabrica_v5/sections/${id}/tipo`).set('revision_final');
+          else if(t.includes('Productos Perfectos')) db.ref(`fabrica_v5/sections/${id}/tipo`).set('producto_perfecto');
+          else if(t.trim()==='Mejora') db.ref(`fabrica_v5/sections/${id}/tipo`).set('mejora');
+        });
+        if(!data.sections[SEC_DISENO]) db.ref(`fabrica_v5/sections/${SEC_DISENO}`).set(INITIAL_SECTIONS[SEC_DISENO]);
+        if(!data.sections[SEC_ESTAMPADO_TALLER]) db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}`).set(INITIAL_SECTIONS[SEC_ESTAMPADO_TALLER]);
+        if(!data.sections[SEC_TALLER_TERMINACION]) db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}`).set(INITIAL_SECTIONS[SEC_TALLER_TERMINACION]);
+        if(!data.sections[SEC_CANCEL]) db.ref(`fabrica_v5/sections/${SEC_CANCEL}`).set(INITIAL_SECTIONS[SEC_CANCEL]);
+        if(!data.sections[SEC_PREP]) db.ref(`fabrica_v5/sections/${SEC_PREP}`).set(INITIAL_SECTIONS[SEC_PREP]);
+        else db.ref(`fabrica_v5/sections/${SEC_PREP}/title`).set(INITIAL_SECTIONS[SEC_PREP].title);
+        // Migración: si existían las 3 secciones viejas (idea/código/ficha separadas), fusionar sus ítems en SEC_PREP
+        ['muestra_idea','muestra_codigo','muestra_ficha'].forEach(oldSecId=>{
+          const oldSec=data.sections[oldSecId];
+          if(oldSec && oldSec.items){
+            Object.values(oldSec.items).forEach(oldItem=>{
+              const migrado={...oldItem,fecha_etapa:Date.now()};
+              db.ref(`fabrica_v5/sections/${SEC_PREP}/items`).push(migrado);
+            });
+          }
+          if(oldSec) db.ref(`fabrica_v5/sections/${oldSecId}`).remove();
+        });
+      }
+    }
+  });
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
     ensureSeccionCorte('s6'); // Sector nuevo: que siempre exista y se vea aunque esté en 0.
@@ -11452,10 +11453,11 @@ function logiCardHtml(id,it,cerrado){
       // cargadas en Costeo), usamos SU costo real en vez del promedio del corte entero — antes
       // acá siempre se mostraba el promedio parejo para todos los artículos del mismo corte,
       // aunque tuvieran costos distintos.
-      const idxArticuloLogi=costeoEntry?(costeoEntry.articulos||[]).findIndex(a=>a.code===it.code):-1;
-      const costeoPrendaReal=(idxArticuloLogi>-1&&costeoArticuloMigrado((costeoEntry.articulos||[])[idxArticuloLogi]))
-        ?costeoArticuloTotales(costeoEntry,idxArticuloLogi).costoPrenda
-        :(costeoEntry?costeoTotales(costeoEntry).costoPrenda:0);
+      // TODO: costeoArticuloMigrado()/costeoArticuloTotales() (costo real por artículo, en vez
+      // del promedio del corte) quedaron sin implementar y rompían toda la pestaña Logística
+      // (Finalizados, Resumen de pendientes y Prendas por persona) apenas se cerraba un corte.
+      // Por ahora se vuelve al promedio del corte, que es lo que ya venía funcionando.
+      const costeoPrendaReal=costeoEntry?costeoTotales(costeoEntry).costoPrenda:0;
       const preciosVentaHtml = puedeVerPlata ? (corteKeyCosteo ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoPrendaReal.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
         ${campoPrecioLogi('precio_lista_local','Lista local',costeoEntry.precio_lista_local)}

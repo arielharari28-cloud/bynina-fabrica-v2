@@ -12291,6 +12291,23 @@ function costoTallerAutomatico(entry,articuloCode){
   });
   return total;
 }
+// Cantidad contada (OK+Detalle) detrás del total de costoTallerAutomatico — el precio_taller
+// que se carga en Logística ya es por unidad, así que para volver a sacar el $/prenda hay que
+// dividir por esta misma cantidad, NO por "piezas cortadas" (que incluye fallados y puede no
+// coincidir con lo efectivamente contado/pagado al taller).
+function costoTallerAutomaticoCantidad(entry,articuloCode){
+  const key=corteKeyFrom(entry.numero_corte);
+  if(!key) return 0;
+  let cantidad=0;
+  Object.values(logiItemsData||{}).forEach(it=>{
+    if(!it||!it.precio_taller) return;
+    if(corteKeyFrom(it.numero_corte)!==key) return;
+    if(articuloCode&&it.code!==articuloCode) return;
+    const filas=Object.values(it.grilla||{});
+    cantidad+=filas.reduce((s,f)=>s+(f.ok||0)+(f.detalle||0),0);
+  });
+  return cantidad;
+}
 function costeoTotales(entry){
   // Kg cargado: suma automática de lo cargado por rollo (no se toca).
   // Kg sobrante: lo carga Ariel/Stef a mano por rollo (no siempre el cálculo por capas
@@ -12691,54 +12708,13 @@ function renderCosteoDetail(){
     const sumPiezas=articulos.reduce((s,a)=>s+(parseInt(a.piezas,10)||0),0);
     const difPiezas=Math.abs(sumPiezas-(e.piezas_totales||0));
     const filas=articulos.map((a,i)=>{
-      const kgArt=numAr2(a.kg);
-      const costoArt=precioKgRef&&kgArt?kgArt*precioKgRef:0;
       const piezasArt=parseInt(a.piezas,10)||0;
-      // Filas de "otros gastos" propias de este artículo — solo se muestran una vez que tiene
-      // piezas cargadas (si no, no hay con qué multiplicar el $/prenda todavía). De paso se
-      // acumula el subtotal para poder mostrar el costo por unidad consolidado más abajo.
-      let costoOtrosArt=0;
-      const otrosArtRows=piezasArt?COSTEO_OTROS_CAMPOS.map(c=>{
-        const esTaller=c.key==='costo_taller';
-        const tienePropio=a[c.key]!=null&&a[c.key]!=='';
-        const autoTaller=(esTaller&&!tienePropio&&!e.costo_taller)?costoTallerAutomatico(e,a.code||a.name):0;
-        const valorInput=tienePropio?a[c.key]:(esTaller&&autoTaller?(autoTaller/piezasArt).toFixed(2):(e[c.key]||''));
-        const subtotalArt=tienePropio?numAr2(a[c.key])*piezasArt:(esTaller?autoTaller:numAr2(e[c.key])*piezasArt);
-        costoOtrosArt+=subtotalArt;
-        return `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:1px 0 1px 14px">
-          <span style="font-size:11px;color:var(--text2)">${c.label}</span>
-          <div style="display:flex;align-items:center;gap:6px">
-            ${canEdit?`<div style="display:flex;align-items:center;gap:3px"><span style="font-size:11px">$</span><input type="number" min="0" step="0.01" value="${valorInput}" placeholder="${e[c.key]||'0'}" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:11px" onchange="setCosteoArticuloOtroGasto('${costeoDetailKey}',${i},'${c.key}',this.value)"><span style="font-size:10px;color:var(--text3)">/u</span></div>`:''}
-            <span style="font-size:11px;color:var(--text3);min-width:70px;text-align:right">$${subtotalArt.toFixed(2)}</span>
-          </div>
-        </div>`;
-      }).join(''):`<div style="padding-left:14px;font-size:11px;color:var(--text3);font-style:italic">Cargá piezas de este artículo para poder asignarle taller/estampado/etc.</div>`;
-      // Fila de Tela, en el mismo formato $/u que las demás — antes solo se veía como texto
-      // arriba ("$X de tela"), separado del resto; ahora queda listada junto con taller/etc.
-      const telaRowArt=piezasArt?`
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:1px 0 1px 14px">
-          <span style="font-size:11px;color:var(--text2)">Tela</span>
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:11px;color:var(--text3);min-width:70px;text-align:right">$${(costoArt/piezasArt).toFixed(2)}/u</span>
-            <span style="font-size:11px;color:var(--text3);min-width:70px;text-align:right">$${costoArt.toFixed(2)}</span>
-          </div>
-        </div>`:'';
-      // Consolidado del artículo: tela + todos los otros gastos, total y por unidad — esto es
-      // lo que sirve para fijar precio de venta de este artículo puntual.
-      const costoTotalArt=costoArt+costoOtrosArt;
-      const resumenArt=piezasArt?`
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;padding-top:3px;border-top:1px dashed var(--border)">
-          <span style="font-size:11px;font-weight:700">Costo total ${a.code||a.name||''}</span>
-          <span style="font-size:12px;font-weight:800;color:var(--accent)">$${costoTotalArt.toFixed(2)} · $${(costoTotalArt/piezasArt).toFixed(2)}/u</span>
-        </div>`:'';
       return `
       <div style="padding:4px 0;${i>0?'border-top:1px dashed var(--border);margin-top:4px':''}">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <span style="font-size:12px;font-weight:600">${a.code||a.name||'(artículo '+(i+1)+')'}</span>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:12px">${a.kg?a.kg+' kg':'sin asignar'}</span>
-            ${costoArt?`<span style="font-size:12px;color:var(--text2)">· $${costoArt.toFixed(2)} de tela</span>`:''}
             ${canEdit?`<button class="btn-sm" onclick="editCosteoKgArticulo('${costeoDetailKey}',${i})">✏️ kg</button>`:''}
           </div>
         </div>
@@ -12746,22 +12722,61 @@ function renderCosteoDetail(){
           <span style="font-size:11px;color:var(--text2)">Piezas: <strong>${piezasArt||'sin asignar'}</strong></span>
           ${canEdit?`<button class="btn-sm" onclick="editCosteoPiezasArticulo('${costeoDetailKey}',${i})">✏️ piezas</button>`:''}
         </div>
-        ${telaRowArt}
-        ${otrosArtRows}
-        ${resumenArt}
       </div>`;
     }).join('');
     return `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">
-      <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos, piezas y otros gastos por artículo (este corte tiene ${articulos.length})</div>
+      <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos y piezas por artículo (este corte tiene ${articulos.length})</div>
       ${filas}
       ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ La suma de kg (${sumKg.toFixed(2)}) no coincide con el total de tela del corte (${t.kgTotal.toFixed(2)} kg)</div>`:'<div style="font-size:11px;color:var(--text3);margin-top:4px">✓ Kilos repartidos completos — suma igual al total de tela ($'+t.costoTela.toFixed(2)+')</div>'}
       ${(e.piezas_totales&&sumPiezas>0&&difPiezas>0)?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma de piezas por artículo (${sumPiezas}) no coincide con las piezas totales del corte (${e.piezas_totales})</div>`:''}
     </div>`;
   })():'';
+  // Un bloque "💵 Costeo" completo (Tela + Gastos de Fábrica + Costo de Taller + ...), propio y
+  // editable, por cada artículo del corte — reemplaza al viejo resumen único "valores de
+  // respaldo" que promediaba todo el corte por igual.
+  const costeoPorArticuloHtml=articulos.length>1?articulos.map((a,i)=>{
+    const kgArt=numAr2(a.kg);
+    const costoArt=precioKgRef&&kgArt?kgArt*precioKgRef:0;
+    const piezasArt=parseInt(a.piezas,10)||0;
+    let costoOtrosArt=0;
+    const filasArt=piezasArt?COSTEO_OTROS_CAMPOS.map(c=>{
+      const esTaller=c.key==='costo_taller';
+      const tienePropio=a[c.key]!=null&&a[c.key]!=='';
+      const autoTaller=(esTaller&&!tienePropio&&!e.costo_taller)?costoTallerAutomatico(e,a.code||a.name):0;
+      const autoTallerCant=esTaller&&autoTaller?costoTallerAutomaticoCantidad(e,a.code||a.name):0;
+      const valorInput=tienePropio?a[c.key]:(esTaller&&autoTaller?(autoTaller/(autoTallerCant||1)).toFixed(2):'');
+      const subtotalArt=tienePropio?numAr2(a[c.key])*piezasArt:(esTaller?autoTaller:0);
+      const unitArt=piezasArt?subtotalArt/piezasArt:0;
+      costoOtrosArt+=subtotalArt;
+      return `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+        <span style="font-size:12px">${c.label} <span style="color:var(--text3);font-size:10px">(por prenda${(esTaller&&!tienePropio&&autoTaller)?', auto de Logística':''})</span></span>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${canEdit?`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px">$</span><input type="number" min="0" step="0.01" value="${valorInput}" placeholder="0" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoArticuloOtroGasto('${costeoDetailKey}',${i},'${c.key}',this.value)"><span style="font-size:10px;color:var(--text3)">/u</span></div>`:`<span style="font-weight:700;font-size:12px">${subtotalArt?'$'+subtotalArt.toFixed(2):'—'}</span>`}
+          <span style="font-size:11px;color:var(--text3);min-width:80px;text-align:right">$${unitArt.toFixed(2)}/u</span>
+        </div>
+      </div>`;
+    }).join(''):`<div style="font-size:11px;color:var(--text3);font-style:italic">Cargá los kg y piezas de este artículo (arriba, en 📦 Tela) para poder cargarle sus gastos.</div>`;
+    const costoTotalArt=costoArt+costoOtrosArt;
+    return `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Costeo — ${a.code||a.name||'artículo '+(i+1)}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;border-bottom:1px dashed var(--border);margin-bottom:4px">
+        <span style="font-size:12px">Tela</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;font-size:12px">$${costoArt.toFixed(2)}</span>
+          ${piezasArt?`<span style="font-size:11px;color:var(--text3);min-width:80px;text-align:right">$${(costoArt/piezasArt).toFixed(2)}/u</span>`:''}
+        </div>
+      </div>
+      ${filasArt}
+      ${piezasArt?`<div style="font-size:12px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border)"><strong>Costo total: $${costoTotalArt.toFixed(2)}</strong> · $${(costoTotalArt/piezasArt).toFixed(2)}/u</div>`:''}
+    </div>`;
+  }).join(''):'';
   const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>{
     const esTaller=c.key==='costo_taller';
     const autoTotal=esTaller?costoTallerAutomatico(e):0;
-    const autoUnit=(esTaller&&t.piezas)?autoTotal/t.piezas:0;
+    const autoTotalCant=esTaller?costoTallerAutomaticoCantidad(e):0;
+    const autoUnit=(esTaller&&autoTotalCant)?autoTotal/autoTotalCant:0;
     const tieneManual=e[c.key]!=null&&e[c.key]!=='';
     // Todos los campos se anotan y se muestran POR PRENDA — "Costo de Taller" es el único con
     // un valor automático (de Logística) cuando no se cargó nada a mano acá.
@@ -12830,14 +12845,9 @@ function renderCosteoDetail(){
       <table style="width:100%;border-collapse:collapse">${aviosRows||'<tr><td style="padding:3px 6px;font-size:12px;color:var(--text3)">Sin avíos</td></tr>'}</table>
       <div style="font-size:12px;margin-top:4px">Subtotal avíos: <strong>$${t.costoAvios.toFixed(2)}</strong></div>
     </div>
-    ${articulos.length>1?`
+    ${articulos.length>1?costeoPorArticuloHtml:`
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
-      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Otros gastos — valores de respaldo</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Esto NO es el total del corte — son los valores por defecto que usa cada artículo cuando no le cargaste uno propio (ver "Kilos, piezas y otros gastos por artículo" más arriba, ahí está el total real).</div>
-      ${otrosGastosRows}
-    </div>`:`
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
-      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Otros gastos</div>
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Costeo</div>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;border-bottom:1px dashed var(--border);margin-bottom:4px">
         <span style="font-size:12px">Tela (ver arriba)</span>
         <div style="display:flex;align-items:center;gap:8px">
@@ -12848,24 +12858,6 @@ function renderCosteoDetail(){
       ${otrosGastosRows}
       <div style="font-size:12px;margin-top:4px">Subtotal otros gastos: <strong>$${t.costoOtros.toFixed(2)}</strong>${t.piezas?` · <span style="color:var(--text2)">$${(t.costoOtros/t.piezas).toFixed(2)}/u</span>`:''}</div>
     </div>`}
-    <div style="background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:10px">
-      <div style="font-size:14px;font-weight:800;color:var(--accent)">Costo total: $${t.costoTotal.toFixed(2)}</div>
-      ${t.piezas?`<div style="font-size:12px;color:var(--text2);margin-top:2px">≈ $${t.costoPrenda.toFixed(2)} por prenda (${t.piezas} prendas)</div>
-      <div style="font-size:12px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:2px">
-        <div style="font-weight:700;color:var(--text2);text-transform:uppercase;font-size:10px;letter-spacing:.5px;margin-bottom:2px">Costo por prenda — para fijar precio de venta</div>
-        <div>Tela (por prenda): <strong>$${(t.costoTela/t.piezas).toFixed(2)}</strong> <span style="color:var(--text3);font-size:11px">(de $${t.costoTela.toFixed(2)} total)</span></div>
-        <div>Avíos (por prenda): <strong>$${(t.costoAvios/t.piezas).toFixed(2)}</strong> <span style="color:var(--text3);font-size:11px">(de $${t.costoAvios.toFixed(2)} total)</span></div>
-        <div>Otros gastos (por prenda): <strong>$${(t.costoOtros/t.piezas).toFixed(2)}</strong> <span style="color:var(--text3);font-size:11px">(de $${t.costoOtros.toFixed(2)} total)</span></div>
-        <div style="margin-top:2px;padding-top:4px;border-top:1px dashed var(--border);font-size:13px">Total por prenda: <strong style="color:var(--accent)">$${t.costoPrenda.toFixed(2)}</strong></div>
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:12px">
-          ${canEdit?`
-          <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px">Lista local: $</span><input type="number" min="0" step="0.01" value="${e.precio_lista_local||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoPrecioVenta('${costeoDetailKey}','precio_lista_local',this.value)"></div>
-          <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px">TN minorista: $</span><input type="number" min="0" step="0.01" value="${e.precio_tn_minorista||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoPrecioVenta('${costeoDetailKey}','precio_tn_minorista',this.value)"></div>
-          <div style="display:flex;align-items:center;gap:4px"><span style="font-size:11px">TN mayorista: $</span><input type="number" min="0" step="0.01" value="${e.precio_tn_mayorista||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoPrecioVenta('${costeoDetailKey}','precio_tn_mayorista',this.value)"></div>
-          `:''}
-        </div>
-      </div>`:''}
-    </div>
     <div style="margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📝 Notas</div>
       <div style="font-size:12px;color:${e.notas?'var(--text)':'var(--text3)'};font-style:${e.notas?'normal':'italic'}">${e.notas||'Sin notas'}</div>

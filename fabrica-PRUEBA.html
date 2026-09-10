@@ -10605,13 +10605,28 @@ function renderCortesTab(){
       if(item.estampado_dtf && !item.estampado_taller_entregado && secId!==SEC_ESTAMPADO_TALLER){
         pendientes.push('🎨 Falta pasar por Estampado');
       }
-      Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code).forEach(e=>{
+      const entregasCorte=Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code);
+      entregasCorte.forEach(e=>{
         const col=logiEstadoColumna(e);
         if(col==='conteo') pendientes.push('📦 Logística: pendiente conteo');
         else if(col==='control') pendientes.push('📦 Logística: pendiente control');
         else if(col==='dividir') pendientes.push('📦 Logística: pendiente dividir');
       });
-      filas.push({numero:item.numero_corte,code:item.code||'',name:item.name||'',secTitle:sec.title||'',foto:item.foto||'',pendientes,secId,itemId,fechaCorte:item.fecha_corte||'',fechaTs:fechaCorteTs(item)});
+      // Checklist adicional: stock de tela, costo cargado, precio en Ninox, entrega a
+      // Avellaneda/Depósito. Los primeros dos viven en el propio corte y en Costeo; los
+      // últimos dos son de la(s) entrega(s) de Logística de este mismo corte+código.
+      const corteKey=corteKeyFrom(item.numero_corte);
+      const stockOk=!!item.stock_bajado_tela;
+      const costoOk=!!(corteKey&&costeosData[corteKey]&&costeosData[corteKey].precio_kg);
+      const ninoxOk=entregasCorte.length>0&&entregasCorte.every(e=>e.cargado_ninox);
+      const avellanedaDepositoOk=entregasCorte.length>0&&entregasCorte.every(e=>
+        (e.division_avellaneda==null||e.recibido_avellaneda)&&(e.division_deposito==null||e.recibido_deposito)
+      );
+      if(!stockOk) pendientes.push('📦 Falta bajar stock de tela');
+      if(!costoOk) pendientes.push('💰 Falta cargar costo');
+      if(entregasCorte.length&&!ninoxOk) pendientes.push('🏷️ Falta cargar precio en Ninox');
+      if(entregasCorte.length&&!avellanedaDepositoOk) pendientes.push('🏬 Falta entregar a Avellaneda/Depósito');
+      filas.push({numero:item.numero_corte,code:item.code||'',name:item.name||'',secTitle:sec.title||'',foto:item.foto||'',pendientes,secId,itemId,fechaCorte:item.fecha_corte||'',fechaTs:fechaCorteTs(item),stockOk,costoOk,ninoxOk,avellanedaDepositoOk,tieneEntregas:entregasCorte.length>0});
     });
   });
   if(cortesTabOrden==='fecha'){
@@ -10631,16 +10646,28 @@ function renderCortesTab(){
   if(!filas.length){ cont.innerHTML='<div class="loading">No hay cortes cargados</div>'; return; }
   cont.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="text-align:left;border-bottom:2px solid var(--border)">
-      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Código / Nombre</th><th style="padding:6px 8px">Fecha de corte</th><th style="padding:6px 8px">Estado (sección)</th><th style="padding:6px 8px">Pendientes</th>
+      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Código / Nombre</th><th style="padding:6px 8px">Fecha de corte</th><th style="padding:6px 8px">Estado (sección)</th>
+      <th style="padding:6px 8px;text-align:center" title="Bajado de stock tela">📦 Tela</th>
+      <th style="padding:6px 8px;text-align:center" title="Cargado costo">💰 Costo</th>
+      <th style="padding:6px 8px;text-align:center" title="Cargado precio venta a Ninox">🏷️ Ninox</th>
+      <th style="padding:6px 8px;text-align:center" title="Entregado a Avellaneda y depósito">🏬 Entrega</th>
+      <th style="padding:6px 8px">Pendientes</th>
     </tr></thead>
     <tbody>
-      ${filas.map(f=>`<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="irAItem('${f.secId}','${f.itemId}')">
+      ${filas.map(f=>{
+        const chip=(ok,aplica=true)=>aplica?(ok?'<span style="color:#177a3e;font-weight:700">✅</span>':'<span style="color:var(--warn-text);font-weight:700">⏳</span>'):'<span style="color:var(--text3)">—</span>';
+        return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="irAItem('${f.secId}','${f.itemId}')">
         <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${f.numero}</td>
         <td style="padding:6px 8px">${f.code}${f.name?` — ${f.name}`:''}</td>
         <td style="padding:6px 8px">${f.fechaCorte||'—'}</td>
         <td style="padding:6px 8px">${f.secTitle}</td>
+        <td style="padding:6px 8px;text-align:center">${chip(f.stockOk)}</td>
+        <td style="padding:6px 8px;text-align:center">${chip(f.costoOk)}</td>
+        <td style="padding:6px 8px;text-align:center">${chip(f.ninoxOk,f.tieneEntregas)}</td>
+        <td style="padding:6px 8px;text-align:center">${chip(f.avellanedaDepositoOk,f.tieneEntregas)}</td>
         <td style="padding:6px 8px;color:${f.pendientes.length?'var(--warn-text)':'#177a3e'}">${f.pendientes.length?f.pendientes.join('<br>'):'✅ Sin pendientes'}</td>
-      </tr>`).join('')}
+      </tr>`;
+      }).join('')}
     </tbody>
   </table></div>`;
 }

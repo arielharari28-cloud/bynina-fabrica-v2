@@ -561,7 +561,7 @@
       <button class="notif-btn" id="global-search-btn" title="Buscar en toda la app">🔎</button>
       <button class="notif-btn" id="tab-order-btn" title="Ordenar pestañas a tu gusto">↕️</button>
       <button class="notif-btn hidden" id="accesos-btn" title="Ver qué pestañas ve cada usuario">👥</button>
-      <button class="notif-btn hidden" id="undo-btn" onclick="deshacerUltimaAccion()" title="Deshacer la última acción (de cualquier usuario)">↩️</button>
+      <button class="notif-btn hidden" id="undo-btn" onclick="toggleUndoPanel()" title="Ver historial y deshacer cualquier acción reciente (de cualquier usuario)">↩️</button>
       <button class="notif-btn hidden" id="notif-btn">🔔<span class="notif-badge hidden" id="notif-badge">0</span></button>
       <button class="notif-btn hidden" id="mis-pendientes-btn" title="Mis pendientes">🔔<span class="notif-badge hidden" id="mis-pendientes-badge">0</span></button>
       <div class="user-chip" id="user-chip">— <span style="opacity:.4">salir</span></div>
@@ -605,6 +605,10 @@
   <div class="notif-panel hidden" id="mis-pendientes-panel">
     <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Mis pendientes</span></div>
     <div class="notif-list" id="mis-pendientes-list"></div>
+  </div>
+  <div class="notif-panel hidden" id="undo-panel">
+    <div class="notif-panel-header"><span style="font-size:13px;font-weight:700">Historial para deshacer</span></div>
+    <div class="notif-list" id="undo-list"></div>
   </div>
   <div class="main">
     <div class="tabs">
@@ -3370,6 +3374,74 @@ function deleteItemUndoable(secId,itemId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   pushUndo({tipo:'delete',secId,itemId,snapshot});
 }
+// --- DESHACER: cualquier acción reciente, no solo la última ---
+// Cada acción relevante (mover ítem, eliminar, o cambiar un campo puntual como los
+// movimientos extra) deja una entrada en fabrica_v5/undo_stack con lo necesario para
+// revertirla. El panel (botón ↩️ del header) lista las últimas 15 y cada una tiene su
+// propio botón — no hace falta deshacer en orden, aunque revertir una acción vieja sobre
+// un ítem que después se volvió a tocar puede pisar cambios posteriores, así que conviene
+// mirar la fecha antes de tocar una que no sea la más reciente sobre ese ítem.
+function undoEntryLabel(entry){
+  const who=entry.by||'Alguien';
+  const when=entry.ts?new Date(entry.ts).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+  let desc='Acción';
+  if(entry.tipo==='move') desc=`Movió ${entry.snapshot?.code||entry.snapshot?.name||'un ítem'}`;
+  else if(entry.tipo==='delete') desc=`Eliminó ${entry.snapshot?.code||entry.snapshot?.name||'un ítem'}`;
+  else if(entry.tipo==='field') desc=entry.snapshot?.code||'Cambió un campo';
+  return {who,when,desc};
+}
+function revertirEntradaUndo(entry){
+  if(entry.tipo==='move'){
+    db.ref(`fabrica_v5/sections/${entry.toSecId}/items/${entry.toItemId}`).remove();
+    db.ref(`fabrica_v5/sections/${entry.fromSecId}/items/${entry.fromItemId}`).set(entry.snapshot);
+  } else if(entry.tipo==='delete'){
+    db.ref(`fabrica_v5/sections/${entry.secId}/items/${entry.itemId}`).set(entry.snapshot);
+  } else if(entry.tipo==='field'){
+    db.ref(entry.path).set(entry.prevValue===undefined?null:entry.prevValue);
+  }
+}
+function pushUndoField(path,prevValue,desc){
+  pushUndo({tipo:'field',path,prevValue,snapshot:{code:desc}});
+}
+function toggleUndoPanel(){
+  document.getElementById('undo-panel').classList.toggle('hidden');
+  if(!document.getElementById('undo-panel').classList.contains('hidden')) renderUndoPanel();
+}
+function renderUndoPanel(){
+  const cont=document.getElementById('undo-list');
+  cont.innerHTML='<div class="notif-item" style="color:var(--text2)">Cargando...</div>';
+  db.ref('fabrica_v5/undo_stack').once('value').then(snap=>{
+    const val=snap.val()||{};
+    const keys=Object.keys(val).sort().reverse(); // más reciente primero
+    if(!keys.length){ cont.innerHTML='<div class="notif-item" style="color:var(--text2)">No hay acciones recientes para deshacer</div>'; return; }
+    cont.innerHTML=keys.map(k=>{
+      const entry=val[k];
+      const {who,when,desc}=undoEntryLabel(entry);
+      return `<div class="notif-item" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div>
+          <div style="font-size:12px;font-weight:700">${desc}</div>
+          <div style="font-size:10px;color:var(--text3)">${who} · ${when}</div>
+        </div>
+        <button class="btn-sm" onclick="deshacerEntradaUndo('${k}')">↩ Deshacer</button>
+      </div>`;
+    }).join('');
+  });
+}
+function deshacerEntradaUndo(key){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede deshacer'); return; }
+  db.ref(`fabrica_v5/undo_stack/${key}`).once('value').then(snap=>{
+    const entry=snap.val();
+    if(!entry){ showToast('Esa acción ya no está disponible'); renderUndoPanel(); return; }
+    const {who,desc}=undoEntryLabel(entry);
+    if(!confirm(`¿Deshacer (${who}): "${desc}"?\n\nSi después de esa acción volviste a tocar lo mismo, revisá que no se pise con algo más reciente.`)) return;
+    revertirEntradaUndo(entry);
+    db.ref(`fabrica_v5/undo_stack/${key}`).remove();
+    logActivity('Deshizo una acción',desc);
+    showToast('↩ Acción deshecha');
+    renderUndoPanel();
+  });
+}
+// Se mantiene por compatibilidad (por si algo viejo la llama): deshace directamente la más reciente.
 function deshacerUltimaAccion(){
   if(currentUser!=='ariel'){ showToast('Solo Ariel puede deshacer'); return; }
   db.ref('fabrica_v5/undo_stack').once('value').then(snap=>{
@@ -3377,18 +3449,7 @@ function deshacerUltimaAccion(){
     if(!val){ showToast('No hay nada para deshacer'); return; }
     const keys=Object.keys(val).sort();
     const lastKey=keys[keys.length-1];
-    const entry=val[lastKey];
-    const desc=entry.snapshot?.code||entry.snapshot?.name||'ítem';
-    if(!confirm(`¿Deshacer la última acción (${entry.by||'alguien'}): "${desc}"?`)) return;
-    if(entry.tipo==='move'){
-      db.ref(`fabrica_v5/sections/${entry.toSecId}/items/${entry.toItemId}`).remove();
-      db.ref(`fabrica_v5/sections/${entry.fromSecId}/items/${entry.fromItemId}`).set(entry.snapshot);
-    } else if(entry.tipo==='delete'){
-      db.ref(`fabrica_v5/sections/${entry.secId}/items/${entry.itemId}`).set(entry.snapshot);
-    }
-    db.ref(`fabrica_v5/undo_stack/${lastKey}`).remove();
-    logActivity('Deshizo una acción',desc);
-    showToast('↩ Acción deshecha');
+    deshacerEntradaUndo(lastKey);
   });
 }
 
@@ -3929,6 +3990,17 @@ function puedeContarMovExtra(){
 function tieneMovimientosAbiertos(item){
   return Object.values(item.movimientos_extra||{}).some(m=>m.estado!=='cerrado');
 }
+// Para entrar a Revisión Final no hace falta el control de calidad del movimiento extra —
+// Revisión Final ES el control. Solo bloquea si todavía no volvió del taller (nadie lo contó).
+function tieneMovimientosSinContar(item){
+  return Object.values(item.movimientos_extra||{}).some(m=>m.estado==='en_taller');
+}
+function nombresMovimientosSinContar(item){
+  return Object.values(item.movimientos_extra||{})
+    .filter(m=>m.estado==='en_taller')
+    .map(m=>`${(MOV_EXTRA_TIPOS[m.tipo]||{}).label||m.tipo}${m.taller?` (${m.taller})`:''}`)
+    .join(', ');
+}
 function nombresMovimientosAbiertos(item){
   return Object.values(item.movimientos_extra||{})
     .filter(m=>m.estado!=='cerrado')
@@ -3950,7 +4022,9 @@ function abrirSalidaMovExtra(secId,itemId){
   if(!cantidad||cantidad<=0){ alert('Cantidad inválida'); return; }
   const id='mov'+Date.now();
   const mov={tipo,taller:(taller||'').trim(),cantidad_salida:cantidad,fecha_salida:Date.now(),salida_por:currentUser,estado:'en_taller'};
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/movimientos_extra/${id}`).set(mov);
+  const path=`fabrica_v5/sections/${secId}/items/${itemId}/movimientos_extra/${id}`;
+  db.ref(path).set(mov);
+  pushUndoField(path,null,`${item.code} — salida a ${MOV_EXTRA_TIPOS[tipo].label}`);
   logActivity(`Salida a ${MOV_EXTRA_TIPOS[tipo].label}`,`${item.code} — ${cantidad}u a ${taller.trim()||'(sin especificar)'}`);
   showToast(`📤 Salida a ${MOV_EXTRA_TIPOS[tipo].label} registrada — bloquea el avance hasta que vuelva y se cuente y controle`);
 }
@@ -3963,7 +4037,9 @@ function movExtraRegistrarConteo(secId,itemId,movId){
   if(cantStr===null) return;
   const cantidad=Math.max(0,parseInt(cantStr)||0);
   const faltante=Math.max(0,mov.cantidad_salida-cantidad);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/movimientos_extra/${movId}`).update({
+  const path=`fabrica_v5/sections/${secId}/items/${itemId}/movimientos_extra/${movId}`;
+  pushUndoField(path,{...mov},`${item.code} — conteo ${MOV_EXTRA_TIPOS[mov.tipo].label}`);
+  db.ref(path).update({
     cantidad_contada:cantidad,contado_por:currentUser,fecha_conteo:Date.now(),faltante,estado:'pendiente_control'
   });
   logActivity('Registró entrada (conteo)',`${item.code} — ${MOV_EXTRA_TIPOS[mov.tipo].label}: ${cantidad}/${mov.cantidad_salida}`);
@@ -3976,7 +4052,9 @@ function movExtraControlar(secId,itemId,movId){
   const mov=item.movimientos_extra[movId];
   const okConfirm=confirm(`¿Confirmás el control de ${MOV_EXTRA_TIPOS[mov.tipo].label}? Contadas: ${mov.cantidad_contada} de ${mov.cantidad_salida}${mov.faltante?` (faltan ${mov.faltante})`:''}`);
   if(!okConfirm) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/movimientos_extra/${movId}`).update({estado:'cerrado',controlado_por:currentUser,fecha_control:Date.now()});
+  const path=`fabrica_v5/sections/${secId}/items/${itemId}/movimientos_extra/${movId}`;
+  pushUndoField(path,{...mov},`${item.code} — control ${MOV_EXTRA_TIPOS[mov.tipo].label}`);
+  db.ref(path).update({estado:'cerrado',controlado_por:currentUser,fecha_control:Date.now()});
   logActivity('Controló y cerró movimiento',`${item.code} — ${MOV_EXTRA_TIPOS[mov.tipo].label}`);
   showToast('✅ Movimiento cerrado');
 }
@@ -4372,20 +4450,19 @@ function editFaltanteCorte(secId,itemId){
 // --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
   const hoy=new Date();
   const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   // Si tiene pasos extra sin terminar (plancha, ojal, broche...), va primero al taller de
   // terminación en vez de a Estampado/Revisión — recién cuando estén todos tildados sigue.
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
   if(pasosPendientes.length){
+    if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
     const nombres=pasosPendientes.map(p=>p.nombre+(p.taller?` (${p.taller})`:'')).join(', ');
     const fecha=prompt(`¿Qué fecha salió del taller? (pasa a terminación: ${nombres})`,fechaDefault);
     if(fecha===null) return;
     const fechaFinal=fecha.trim()||fechaDefault;
     const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_armado:Date.now(),fecha_etapa:Date.now()};
-    db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}/items`).push(newItem);
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    moveItemUndoable(secId,itemId,SEC_TALLER_TERMINACION,newItem);
     logActivity('Entregado — pasa a taller de terminación',`${item.code}: ${fechaFinal} (${nombres})`);
     showToast(`🧵 ${item.code} pasó a taller de terminación (${nombres})`);
     return;
@@ -4400,20 +4477,19 @@ function marcarEntregadoCorte(secId,itemId){
 // o si no, directo a Revisión Final, creando ahí el registro espejo en Logística para conteo. ---
 function continuarDespuesDeTaller(secId,itemId,fechaFinal){
   const item=sectionsData[secId].items[itemId];
-  if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
   if(item.estampado_dtf && !item.estampado_taller_entregado){
+    if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
     const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_costura:Date.now(),fecha_etapa:Date.now()};
-    db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}/items`).push(newItem);
-    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+    moveItemUndoable(secId,itemId,SEC_ESTAMPADO_TALLER,newItem);
     logActivity('Entregado — pasa a taller de estampado',`${item.code}: ${fechaFinal}`);
     showToast(`🎨 ${item.code} pasó a taller de estampado (Plancha Nina)`);
     return;
   }
+  if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
   const revSecId=getSectionIdByTipo('revision_final');
   if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
   const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
-  db.ref(`fabrica_v5/sections/${revSecId}/items`).push(newItem);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  moveItemUndoable(secId,itemId,revSecId,newItem);
   logActivity('Entregado a revisión',`${item.code}: ${fechaFinal}`);
   showToast(`✅ ${item.code} pasó a Revisión Final`);
 
@@ -4439,7 +4515,6 @@ function continuarDespuesDeTaller(secId,itemId,fechaFinal){
 // todos los pasos tildados; recién ahí sigue a Estampado o Revisión Final. ---
 function marcarEntregadoTerminacion(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
   if(pasosPendientes.length){
     showToast(`⏳ Faltan pasos: ${pasosPendientes.map(p=>p.nombre).join(', ')}`);
@@ -4456,12 +4531,11 @@ function marcarEntregadoTerminacion(secId,itemId){
 // --- TALLER DE ESTAMPADO (Plancha Nina) → recién ahí sigue a Revisión Final ---
 function marcarEntregadoEstampadoTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
+  if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
   const revSecId=getSectionIdByTipo('revision_final');
   if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
   const newItem={...item,estampado_taller_entregado:true,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
-  db.ref(`fabrica_v5/sections/${revSecId}/items`).push(newItem);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  moveItemUndoable(secId,itemId,revSecId,newItem);
   logActivity('Estampado entregado por Plancha Nina — pasa a Revisión Final',item.code);
   showToast(`✅ ${item.code} pasó a Revisión Final`);
 
@@ -6496,7 +6570,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${buildPasosExtraHtml(secId,itemId,item,canEdit)}
           ${buildMovimientosExtraHtml(secId,itemId,item)}
           <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoTerminacion('${secId}','${itemId}')" ${(pasosPendientes.length||tieneMovimientosAbiertos(item))?'title="Faltan pasos o movimientos por cerrar"':''}>✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
+            ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoTerminacion('${secId}','${itemId}')" ${(pasosPendientes.length||((item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item)))?'title="Faltan pasos o movimientos por cerrar"':''}>✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
             ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar (avíos y más)</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
@@ -6949,7 +7023,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
-          ${canEntregarRevision?`<button class="btn-advance" ${tieneMovimientosAbiertos(item)?'title="Faltan movimientos a talleres extra por cerrar"':''} onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
+          ${canEntregarRevision?`<button class="btn-advance" ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||(item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item))?'title="Faltan movimientos a talleres extra por cerrar"':''} onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
@@ -10084,11 +10158,10 @@ function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId){
     showToast('📦 Entrega abierta en Logística — falta que la cuenten');
     return;
   }
-  if(tieneMovimientosAbiertos(item)){ showToast(`📦 Entrega abierta en Logística. Además falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
   const hoy=new Date();
   const fechaFinal=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
-  let targetSec,fechaField,msg,logMsg;
+  let targetSec,fechaField,msg,logMsg,esDestinoFinal=false;
   if(pasosPendientes.length){
     targetSec=SEC_TALLER_TERMINACION; fechaField='fecha_entregado_taller_armado';
     msg=`🧵 ${item.code} pasó a taller de terminación (entrega abierta en Logística)`;
@@ -10098,14 +10171,19 @@ function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId){
     msg=`🎨 ${item.code} pasó a taller de estampado (entrega abierta en Logística)`;
     logMsg='Entrega abierta en Logística — pasa a taller de estampado';
   } else {
+    esDestinoFinal=true;
     targetSec=getSectionIdByTipo('revision_final'); fechaField='fecha_entregado_revision';
     msg=`✅ ${item.code} pasó a Revisión Final (entrega abierta en Logística)`;
     logMsg='Entrega abierta en Logística — pasa a Revisión Final';
   }
   if(!targetSec){ showToast('📦 Entrega abierta en Logística — falta que la cuenten'); return; }
+  if(esDestinoFinal){
+    if(tieneMovimientosSinContar(item)){ showToast(`📦 Entrega abierta en Logística. Además todavía no volvió: ${nombresMovimientosSinContar(item)}`); return; }
+  } else {
+    if(tieneMovimientosAbiertos(item)){ showToast(`📦 Entrega abierta en Logística. Además falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
+  }
   const newItem={...item,fecha_entregado:fechaFinal,[fechaField]:Date.now(),fecha_etapa:Date.now()};
-  db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  moveItemUndoable(secId,itemId,targetSec,newItem);
   logActivity(logMsg,`${item.code}: ${fechaFinal}`);
   showToast(msg);
 }

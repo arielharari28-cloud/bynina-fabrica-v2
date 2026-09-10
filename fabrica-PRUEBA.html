@@ -623,6 +623,7 @@
       <button class="tab hidden" id="tab-btn-web">🌐 Web</button>
       <button class="tab hidden" id="tab-btn-costeo">💰 Costeo</button>
       <button class="tab hidden" id="tab-btn-rendimiento">📊 Rendimiento</button>
+      <button class="tab hidden" id="tab-btn-cortes">📋 Cortes</button>
       <button class="tab hidden" id="tab-btn-facturacion">🧾 Facturación</button>
     </div>
     <div id="tab-diseno">
@@ -760,6 +761,13 @@
         <button class="btn-sm" data-modo="semana" onclick="rendSetModo('semana')">🗓️ Por semana</button>
       </div>
       <div id="rendimiento-board"><div class="loading">Cargando...</div></div>
+    </div>
+    <div id="tab-cortes" class="hidden">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--text2)">Todos los cortes, ordenados por N°, con su estado y pendientes.</span>
+        <input type="text" id="cortes-search" placeholder="Buscar N° corte o código..." style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;margin-left:auto" oninput="cortesTabSearch=this.value;renderCortesTab()">
+      </div>
+      <div id="cortes-board"><div class="loading">Cargando...</div></div>
     </div>
     <div id="tab-facturacion" class="hidden">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:14px">
@@ -3239,6 +3247,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     backfillFotoDriveOkPendiente();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
+    if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
     publishPendientesResumen();
     renderMisPendientesBadge();
@@ -9154,15 +9163,15 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion'],
-  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion'],
-  peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-actividad'],
-  emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  peque:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-actividad','tab-btn-cortes'],
+  emir:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo','tab-btn-cortes'],
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
   noemi:['tab-btn-logistica'],
@@ -9170,7 +9179,7 @@ const TAB_VISIBILITY={
   // Noelia ve todas las pestañas (pediste "que vea todo") — la restricción real de que solo
   // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
   // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
-  noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento'],
+  noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
   // Meli (administración): solo la pestaña de Facturación, nada más — ni siquiera ve el resto
   // de Logística, para no exponerle datos operativos que no necesita.
   meli:['tab-btn-facturacion'],
@@ -10198,6 +10207,7 @@ let logiNotaPendiente = null;
 db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
+  if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
   if(logiInitDone){
     logiRenderBoard();
     if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
@@ -10548,6 +10558,62 @@ function rendSetModo(m){
   rendModo=m;
   document.querySelectorAll('#rend-modo-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo===m));
   renderRendimientoTab();
+}
+
+// --- PESTAÑA "📋 Cortes": todos los cortes (de cualquier sección/etapa), ordenados por N° de
+// corte, con su estado (sección actual) y una columna de pendientes que junta: pasos extra sin
+// tildar, movimientos extra (Plancha/Estampado/Bordado) sin cerrar, entregas de Logística sin
+// terminar de contar/controlar, y el estampado DTF viejo si todavía no pasó por ahí. ---
+let cortesTabSearch='';
+function renderCortesTab(){
+  const cont=document.getElementById('cortes-board');
+  if(!cont) return;
+  const q=(cortesTabSearch||'').trim().toLowerCase();
+  const filas=[];
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item.numero_corte) return;
+      if(q && !`${item.numero_corte} ${item.code||''} ${item.name||''}`.toLowerCase().includes(q)) return;
+      const pendientes=[];
+      Object.values(item.pasos_extra||{}).filter(p=>!p.hecho).forEach(p=>{
+        pendientes.push(`⏳ ${p.nombre}${p.taller?` (${p.taller})`:''}`);
+      });
+      Object.values(item.movimientos_extra||{}).forEach(m=>{
+        const info=MOV_EXTRA_TIPOS[m.tipo]||{label:m.tipo,emoji:'📦'};
+        if(m.estado==='en_taller') pendientes.push(`${info.emoji} ${info.label}: en taller`);
+        else if(m.estado==='pendiente_control') pendientes.push(`${info.emoji} ${info.label}: pendiente control`);
+      });
+      if(item.estampado_dtf && !item.estampado_taller_entregado && secId!==SEC_ESTAMPADO_TALLER){
+        pendientes.push('🎨 Falta pasar por Estampado');
+      }
+      Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code).forEach(e=>{
+        const col=logiEstadoColumna(e);
+        if(col==='conteo') pendientes.push('📦 Logística: pendiente conteo');
+        else if(col==='control') pendientes.push('📦 Logística: pendiente control');
+        else if(col==='dividir') pendientes.push('📦 Logística: pendiente dividir');
+      });
+      filas.push({numero:item.numero_corte,code:item.code||'',name:item.name||'',secTitle:sec.title||'',foto:item.foto||'',pendientes,secId,itemId});
+    });
+  });
+  filas.sort((a,b)=>{
+    const na=parseInt(a.numero),nb=parseInt(b.numero);
+    if(!isNaN(na)&&!isNaN(nb)&&na!==nb) return na-nb;
+    return String(a.numero).localeCompare(String(b.numero));
+  });
+  if(!filas.length){ cont.innerHTML='<div class="loading">No hay cortes cargados</div>'; return; }
+  cont.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="text-align:left;border-bottom:2px solid var(--border)">
+      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Código / Nombre</th><th style="padding:6px 8px">Estado (sección)</th><th style="padding:6px 8px">Pendientes</th>
+    </tr></thead>
+    <tbody>
+      ${filas.map(f=>`<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="irAItem('${f.secId}','${f.itemId}')">
+        <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${f.numero}</td>
+        <td style="padding:6px 8px">${f.code}${f.name?` — ${f.name}`:''}</td>
+        <td style="padding:6px 8px">${f.secTitle}</td>
+        <td style="padding:6px 8px;color:${f.pendientes.length?'var(--warn-text)':'#177a3e'}">${f.pendientes.length?f.pendientes.join('<br>'):'✅ Sin pendientes'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
 }
 
 function renderRendimientoTab(){
@@ -12857,7 +12923,7 @@ function deleteCosteo(key){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -12915,6 +12981,11 @@ document.getElementById('tab-btn-rendimiento').onclick=function(){
   ocultarTabsMenosActiva('tab-rendimiento');
   this.classList.add('active');
   renderRendimientoTab();
+};
+document.getElementById('tab-btn-cortes').onclick=function(){
+  ocultarTabsMenosActiva('tab-cortes');
+  this.classList.add('active');
+  renderCortesTab();
 };
 document.getElementById('tab-btn-facturacion').onclick=function(){
   ocultarTabsMenosActiva('tab-facturacion');

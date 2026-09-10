@@ -12646,7 +12646,21 @@ function renderCosteoDetail(){
   if(!e){ cont.innerHTML=`<button class="btn-sm" onclick="closeCosteoDetail()">← Volver</button><div class="empty-state">Este corte ya no está en Costeo</div>`; return; }
   const t=costeoTotales(e);
   const canEdit=(currentUser==='ariel'||currentUser==='stef');
-  const largoNum=numAr2(e.largo_capa), pesoMNum=numAr2(e.peso_metro);
+  // Tela/Proveedor/Largo capa/Peso x m: se traen en vivo del corte en Fábrica (si el corte ya
+  // salió del todo de Fábrica, no hay de dónde traerlos y quedan en blanco). Lo cargado a mano
+  // acá en Costeo (e.tela, e.largo_capa, etc.) siempre tiene prioridad sobre el valor del corte;
+  // si se borra el campo a mano, vuelve a traer el del corte en el próximo render.
+  const corteVinculado=e.numero_corte?estadoCorteVinculado(e.numero_corte):null;
+  const itemVinculado=corteVinculado&&corteVinculado.item;
+  const liveTela=itemVinculado?(itemVinculado.tela||itemVinculado.tela_nombre||''):'';
+  const liveProveedor=itemVinculado?(itemVinculado.proveedor||itemVinculado.tela_proveedor||''):'';
+  const liveLargoCapa=itemVinculado?(getLargoCapaEfectivo(itemVinculado)||''):'';
+  const livePesoMetro=itemVinculado?(getPesoMetroEfectivo(itemVinculado)||''):'';
+  const telaMostrada=e.tela||liveTela||'';
+  const proveedorMostrado=e.proveedor||liveProveedor||'';
+  const largoCapaMostrado=(e.largo_capa!==undefined&&e.largo_capa!==null&&e.largo_capa!=='')?e.largo_capa:liveLargoCapa;
+  const pesoMetroMostrado=(e.peso_metro!==undefined&&e.peso_metro!==null&&e.peso_metro!=='')?e.peso_metro:livePesoMetro;
+  const largoNum=numAr2(largoCapaMostrado), pesoMNum=numAr2(pesoMetroMostrado);
   const rollosRows=Object.entries(e.rollos||{}).filter(([,r])=>r&&(r.color||r.kgmts)).map(([rk,r])=>{
     const kgmts=numAr2(r.kgmts), sobrante=numAr2(r.sobrante), capas=numAr2(r.capas);
     const usado=Math.max(0,kgmts-sobrante);
@@ -12780,11 +12794,11 @@ function renderCosteoDetail(){
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Tela</div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
         <span style="font-size:12px">Tela:</span>
-        ${canEdit?`<input type="text" value="${(e.tela||'').replace(/"/g,'&quot;')}" placeholder="Sin especificar" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoTela('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700;font-size:12px">${e.tela||'Sin especificar'}</span>`}
+        ${canEdit?`<input type="text" value="${telaMostrada.replace(/"/g,'&quot;')}" placeholder="Sin especificar" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoTela('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700;font-size:12px">${telaMostrada||'Sin especificar'}</span>`}
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
         <span style="font-size:12px">Proveedor:</span>
-        ${canEdit?`<input type="text" value="${(e.proveedor||'').replace(/"/g,'&quot;')}" placeholder="Sin especificar" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoProveedor('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700;font-size:12px">${e.proveedor||'Sin especificar'}</span>`}
+        ${canEdit?`<input type="text" value="${proveedorMostrado.replace(/"/g,'&quot;')}" placeholder="Sin especificar" style="flex:1;min-width:120px;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoProveedor('${costeoDetailKey}',this.value)">`:`<span style="font-weight:700;font-size:12px">${proveedorMostrado||'Sin especificar'}</span>`}
       </div>
       <table style="width:100%;border-collapse:collapse">
         <tr style="color:var(--text3);font-size:10px"><td style="padding:0 6px">Color</td><td style="padding:0 6px;text-align:center">Cargado</td><td style="padding:0 6px;text-align:center">Capas</td><td style="padding:0 6px">Observación</td><td style="padding:0 6px;text-align:center">Calculado</td><td style="padding:0 6px;text-align:center">Sobrante</td><td style="padding:0 6px;text-align:center">A distribuir</td></tr>
@@ -12799,9 +12813,9 @@ function renderCosteoDetail(){
       </div>
       <div style="font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
         <span>Largo capa:</span>
-        ${canEdit?`<input type="number" min="0" step="0.01" value="${e.largo_capa||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoLargoCapa('${costeoDetailKey}',this.value)">`:`<strong>${e.largo_capa||'—'}</strong>`}
+        ${canEdit?`<input type="number" min="0" step="0.01" value="${largoCapaMostrado||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoLargoCapa('${costeoDetailKey}',this.value)">`:`<strong>${largoCapaMostrado||'—'}</strong>`}
         <span>· Peso x m:</span>
-        ${canEdit?`<input type="number" min="0" step="0.01" value="${e.peso_metro||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoPesoMetro('${costeoDetailKey}',this.value)">`:`<strong>${e.peso_metro||'—'}</strong>`}
+        ${canEdit?`<input type="number" min="0" step="0.01" value="${pesoMetroMostrado||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoPesoMetro('${costeoDetailKey}',this.value)">`:`<strong>${pesoMetroMostrado||'—'}</strong>`}
       </div>
       ${t.piezas?`<div style="font-size:12px;margin-top:2px">Total consumo por prenda: <strong>${(t.kgTotal/t.piezas).toFixed(3)} kg</strong></div>`:''}
       <div style="display:flex;align-items:center;gap:8px;margin-top:6px">

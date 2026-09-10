@@ -764,7 +764,9 @@
     </div>
     <div id="tab-cortes" class="hidden">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text2)">Todos los cortes, ordenados por N°, con su estado y pendientes.</span>
+        <span style="font-size:12px;color:var(--text2)">Todos los cortes, con su estado y pendientes.</span>
+        <button class="btn-sm active" id="cortes-orden-numero" onclick="cortesTabOrden='numero';renderCortesTab()">🔢 Por N° de corte</button>
+        <button class="btn-sm" id="cortes-orden-fecha" onclick="cortesTabOrden='fecha';renderCortesTab()">📅 Por fecha de corte</button>
         <input type="text" id="cortes-search" placeholder="Buscar N° corte o código..." style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;margin-left:auto" oninput="cortesTabSearch=this.value;renderCortesTab()">
       </div>
       <div id="cortes-board"><div class="loading">Cargando...</div></div>
@@ -10565,9 +10567,26 @@ function rendSetModo(m){
 // tildar, movimientos extra (Plancha/Estampado/Bordado) sin cerrar, entregas de Logística sin
 // terminar de contar/controlar, y el estampado DTF viejo si todavía no pasó por ahí. ---
 let cortesTabSearch='';
+let cortesTabOrden='numero'; // 'numero' | 'fecha'
+// item.fecha_corte es texto libre dd/mm/aaaa (a veces sin cargar); item.fecha_corte_ts es el
+// timestamp real que se guarda solo desde que existe esta función — por eso, si falta el ts,
+// se intenta parsear el texto como respaldo antes de mandarlo al final.
+function fechaCorteTs(item){
+  if(item.fecha_corte_ts) return item.fecha_corte_ts;
+  const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(item.fecha_corte||'');
+  if(!m) return null;
+  const [,d,mo,y]=m;
+  const anio=y.length===2?2000+parseInt(y):parseInt(y);
+  const ts=new Date(anio,parseInt(mo)-1,parseInt(d)).getTime();
+  return isNaN(ts)?null:ts;
+}
 function renderCortesTab(){
   const cont=document.getElementById('cortes-board');
   if(!cont) return;
+  const btnNum=document.getElementById('cortes-orden-numero');
+  const btnFecha=document.getElementById('cortes-orden-fecha');
+  if(btnNum) btnNum.classList.toggle('active',cortesTabOrden==='numero');
+  if(btnFecha) btnFecha.classList.toggle('active',cortesTabOrden==='fecha');
   const q=(cortesTabSearch||'').trim().toLowerCase();
   const filas=[];
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
@@ -10592,23 +10611,33 @@ function renderCortesTab(){
         else if(col==='control') pendientes.push('📦 Logística: pendiente control');
         else if(col==='dividir') pendientes.push('📦 Logística: pendiente dividir');
       });
-      filas.push({numero:item.numero_corte,code:item.code||'',name:item.name||'',secTitle:sec.title||'',foto:item.foto||'',pendientes,secId,itemId});
+      filas.push({numero:item.numero_corte,code:item.code||'',name:item.name||'',secTitle:sec.title||'',foto:item.foto||'',pendientes,secId,itemId,fechaCorte:item.fecha_corte||'',fechaTs:fechaCorteTs(item)});
     });
   });
-  filas.sort((a,b)=>{
-    const na=parseInt(a.numero),nb=parseInt(b.numero);
-    if(!isNaN(na)&&!isNaN(nb)&&na!==nb) return na-nb;
-    return String(a.numero).localeCompare(String(b.numero));
-  });
+  if(cortesTabOrden==='fecha'){
+    filas.sort((a,b)=>{
+      if(a.fechaTs===null&&b.fechaTs===null) return 0;
+      if(a.fechaTs===null) return 1; // sin fecha, al final
+      if(b.fechaTs===null) return -1;
+      return b.fechaTs-a.fechaTs; // más reciente primero
+    });
+  } else {
+    filas.sort((a,b)=>{
+      const na=parseInt(a.numero),nb=parseInt(b.numero);
+      if(!isNaN(na)&&!isNaN(nb)&&na!==nb) return na-nb;
+      return String(a.numero).localeCompare(String(b.numero));
+    });
+  }
   if(!filas.length){ cont.innerHTML='<div class="loading">No hay cortes cargados</div>'; return; }
   cont.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="text-align:left;border-bottom:2px solid var(--border)">
-      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Código / Nombre</th><th style="padding:6px 8px">Estado (sección)</th><th style="padding:6px 8px">Pendientes</th>
+      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Código / Nombre</th><th style="padding:6px 8px">Fecha de corte</th><th style="padding:6px 8px">Estado (sección)</th><th style="padding:6px 8px">Pendientes</th>
     </tr></thead>
     <tbody>
       ${filas.map(f=>`<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="irAItem('${f.secId}','${f.itemId}')">
         <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${f.numero}</td>
         <td style="padding:6px 8px">${f.code}${f.name?` — ${f.name}`:''}</td>
+        <td style="padding:6px 8px">${f.fechaCorte||'—'}</td>
         <td style="padding:6px 8px">${f.secTitle}</td>
         <td style="padding:6px 8px;color:${f.pendientes.length?'var(--warn-text)':'#177a3e'}">${f.pendientes.length?f.pendientes.join('<br>'):'✅ Sin pendientes'}</td>
       </tr>`).join('')}

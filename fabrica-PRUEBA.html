@@ -11457,7 +11457,9 @@ function logiCardHtml(id,it,cerrado){
       // del promedio del corte) quedaron sin implementar y rompían toda la pestaña Logística
       // (Finalizados, Resumen de pendientes y Prendas por persona) apenas se cerraba un corte.
       // Por ahora se vuelve al promedio del corte, que es lo que ya venía funcionando.
-      const costeoPrendaReal=costeoEntry?costeoTotales(costeoEntry).costoPrenda:0;
+      const articulosCosteo=(costeoEntry&&costeoEntry.articulos)||[];
+      const costeoArticuloCalc=articulosCosteo.length>1?costeoArticuloTotales(costeoEntry,it.code):null;
+      const costeoPrendaReal=costeoArticuloCalc?costeoArticuloCalc.costoPrenda:(costeoEntry?costeoTotales(costeoEntry).costoPrenda:0);
       const preciosVentaHtml = puedeVerPlata ? (corteKeyCosteo ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoPrendaReal.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
         ${campoPrecioLogi('precio_lista_local','Lista local',costeoEntry.precio_lista_local)}
@@ -12362,6 +12364,35 @@ function costeoTotales(entry){
   const costoTotal=costoTela+costoAvios+costoOtros;
   const costoPrenda=piezas?costoTotal/piezas:0;
   return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
+}
+// Costo real de UN artículo puntual dentro de un corte con varios artículos (no el promedio de
+// todo el corte) — mismo cálculo que usa el bloque "💵 Costeo — {código}", pero reutilizable acá
+// para que Logística muestre el costo de cada prenda según su propio artículo, no mezclado con
+// el de los demás artículos del mismo corte. Devuelve null si el artículo no existe o todavía no
+// tiene piezas propias asignadas (ahí no hay con qué calcular su costo por separado).
+function costeoArticuloTotales(entry,articuloCode){
+  const articulos=entry.articulos||[];
+  const idx=articulos.findIndex(a=>(a.code||a.name)===articuloCode);
+  if(idx<0) return null;
+  const a=articulos[idx];
+  const piezasArt=parseInt(a.piezas,10)||0;
+  if(!piezasArt) return null;
+  const precioKg=numAr2(entry.precio_kg);
+  const kgArt=numAr2(a.kg);
+  const costoArt=precioKg&&kgArt?kgArt*precioKg:0;
+  let costoOtrosArt=0;
+  COSTEO_OTROS_CAMPOS.forEach(c=>{
+    const propio=a[c.key];
+    const tienePropio=propio!=null&&propio!=='';
+    if(c.key==='costo_taller'&&!tienePropio&&!entry.costo_taller){
+      costoOtrosArt+=costoTallerAutomatico(entry,a.code||a.name);
+      return;
+    }
+    const valor=tienePropio?propio:entry[c.key];
+    costoOtrosArt+=numAr2(valor)*piezasArt;
+  });
+  const costoTotalArt=costoArt+costoOtrosArt;
+  return{costoArt,costoOtrosArt,piezasArt,costoTotalArt,costoPrenda:costoTotalArt/piezasArt};
 }
 function parseFechaCorteToYM(fechaStr){
   // Espera "DD/MM/AAAA" (como lo tipean en el prompt de Marcar cortado). Si no matchea, se ignora.

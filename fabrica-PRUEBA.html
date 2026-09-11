@@ -644,6 +644,7 @@
     </div>
     <div id="tab-talleres" class="hidden">
       <input type="text" class="search-input" id="search-input-talleres" placeholder="Buscador por código, nombre o N° de corte" oninput="onSearchInput('talleres',this.value)">
+      <div id="resumen-pipeline-talleres"></div>
       <div id="sections-container-talleres"><div class="loading">Conectando...</div></div>
     </div>
     <div id="tab-pendientes" class="hidden">
@@ -2911,7 +2912,9 @@ function toggleCorteItemCollapse(key){
 // "Ver detalle del corte" — colapsa Ficha/Curva/Capas/Rollos una vez que el corte ya salió a
 // taller (sFIN en adelante), porque esos datos ya cumplieron su función al armar el corte.
 // Colapsado por defecto en esas etapas; el usuario puede desplegarlo si lo necesita.
-const DETAIL_COLLAPSE_SECS = ['sFIN', SEC_ESTAMPADO_TALLER, SEC_TALLER_TERMINACION];
+// sLT ("Cortes listo para taller") se sumó a la lista: es la última revisión antes de sacarlo,
+// así que tampoco hace falta ver todo el detalle de fábrica ahí — con el resumen alcanza.
+const DETAIL_COLLAPSE_SECS = ['sLT', 'sFIN', SEC_ESTAMPADO_TALLER, SEC_TALLER_TERMINACION];
 let corteDetalleExpanded = {};
 try{ corteDetalleExpanded = JSON.parse(localStorage.getItem('fabrica_corte_detalle_expanded_v1')||'{}'); }catch(e){ corteDetalleExpanded = {}; }
 function isDetalleCorteExpanded(key){ return !!corteDetalleExpanded[key]; }
@@ -5200,6 +5203,85 @@ function confirmarRetiroTaller(secId,itemId){
   showToast(`✅ ${item.code} — retirado, pasa a Talleres`);
 }
 
+// ===== Resumen general de la pestaña Talleres: TODOS los cortes en el circuito de taller que
+// todavía no fueron entregados, sin importar en qué sección estén (desde "avío no pedido" hasta
+// "en terminación") — para no tener que ir sección por sección a buscar un corte o un taller.
+// Se arma con los mismos datos de sectionsData, no duplica nada en Firebase.
+const PIPELINE_TALLERES_SECS = ['s4','s5','sLT','s6','sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION];
+let resumenPipelineOrden='corte'; // 'corte' | 'taller'
+function setResumenPipelineOrden(v){ resumenPipelineOrden=v; renderResumenPipelineTalleres(); }
+function estadoPipelineItem(secId,item){
+  if(secId==='sFIN') return item.retirado_taller ? 'En taller (confección/plancha/estampado)' : 'Pendiente retiro de taller';
+  return (sectionsData[secId]&&sectionsData[secId].title)||secId;
+}
+function renderResumenPipelineTalleres(){
+  const cont=document.getElementById('resumen-pipeline-talleres');
+  if(!cont) return;
+  let filas=[];
+  PIPELINE_TALLERES_SECS.forEach(secId=>{
+    const sec=sectionsData[secId];
+    if(!sec) return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      const {totalEsperado}=resumenEntregasFabrica(item,itemId);
+      filas.push({secId,itemId,item,estado:estadoPipelineItem(secId,item),cantidad:totalEsperado});
+    });
+  });
+  if(searchQuery){
+    const q=searchQuery.trim().toLowerCase();
+    filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q));
+  }
+  if(!filas.length){
+    cont.innerHTML='';
+    return;
+  }
+  filas.sort((a,b)=>{
+    if(resumenPipelineOrden==='taller'){
+      const ta=(a.item.taller_corte||'zzz sin taller'), tb=(b.item.taller_corte||'zzz sin taller');
+      const cmp=ta.localeCompare(tb);
+      return cmp!==0?cmp:extractCorteNumber(a.item)-extractCorteNumber(b.item);
+    }
+    return extractCorteNumber(a.item)-extractCorteNumber(b.item);
+  });
+  const ESTADO_COLOR={
+    'Corte pendiente avío no pedido para sacar a taller':'#991b1b',
+    'Cortes pendiente avío para sacar a taller':'#92400e',
+    'Cortes listo para taller':'#166534',
+    'Pendiente retiro de taller':'#5b21b6',
+    'En taller (confección/plancha/estampado)':'#5b21b6',
+    'Pendiente recibir avío — corte en taller':'#991b1b',
+  };
+  const filasHtml=filas.map(({secId,itemId,item,estado,cantidad})=>{
+    const color=ESTADO_COLOR[estado]||COLORS[(sectionsData[secId]||{}).color]?.secBg||'#374151';
+    return `<div class="rt-row" style="cursor:pointer" onclick="scrollToPipelineItem('${secId}','${itemId}')">
+      <div class="rt-row-top">
+        <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
+        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
+        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
+      </div>
+      <div class="rt-row-bottom">
+        <span class="rt-stats">${cantidad?`<b>${cantidad}</b> u.`:'—'}</span>
+        <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:#fff;background:${color};border-radius:6px;padding:2px 8px">${estado}</span>
+      </div>
+    </div>`;
+  }).join('');
+  cont.innerHTML=`<div class="rt-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <div class="rt-title" style="margin-bottom:0">📋 Resumen general — cortes sin entregar (${filas.length})</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm ${resumenPipelineOrden==='corte'?'active':''}" onclick="setResumenPipelineOrden('corte')">🔢 Por N° de corte</button>
+        <button class="btn-sm ${resumenPipelineOrden==='taller'?'active':''}" onclick="setResumenPipelineOrden('taller')">🧵 Por taller</button>
+      </div>
+    </div>
+    ${filasHtml}
+  </div>`;
+}
+// Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte (en su
+// sección) para poder editarlo — el resumen es de solo lectura, no duplica acciones.
+function scrollToPipelineItem(secId,itemId){
+  const el=document.getElementById(`item-${secId}-${itemId}`);
+  if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.style.outline='2px solid var(--accent)'; setTimeout(()=>{el.style.outline='';},1500); }
+}
+
 function buildResumenTalleresHtml(secId,items){
   if(!items.length) return `<div class="rt-box"><div class="rt-title">🧵 Cortes en talleres</div><div class="rt-empty">Ningún corte coincide con el filtro.</div></div>`;
   const hoy=new Date(); hoy.setHours(0,0,0,0);
@@ -5571,6 +5653,7 @@ function renderSections(board){
   const c=document.getElementById(containerId);c.innerHTML='';
   if(board==='diseno') renderObjetivoDisenoPanel();
   if(board==='fabrica') renderObjetivoCortePanel();
+  if(board==='talleres') renderResumenPipelineTalleres();
   // Noelia: acceso de edición completo en Diseño, solo lectura en el resto. En vez de tocar
   // cada uno de los ~25 chequeos de permiso dispersos por las tarjetas, se la trata como Stef
   // SOLO mientras se renderiza el tablero de Diseño — afuera de esa ventana sigue siendo
@@ -7016,13 +7099,13 @@ function buildItem(secId,itemId,item,sec,idx,total){
           if(!list.length) return '';
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
         })()}
-        ${(secId==='sLT'||secId==='sFIN'||secId==='s4'||secId==='s5'||secId==='s6')?buildTallerCorteHtml(secId,itemId,item):''}
         ${numeroCorteHtml}
         ${estampadoBadgeHtml(item,secId,itemId)}
         ${sinConfirmarHtml}
         ${capasHtml}
         ${rollosHtml}
         </div>
+        ${(secId==='sLT'||secId==='sFIN'||secId==='s4'||secId==='s5'||secId==='s6')?buildTallerCorteHtml(secId,itemId,item):''}
         ${realesHtml}
         ${flujoCorteHtml}
         ${fechaCorteHtml}

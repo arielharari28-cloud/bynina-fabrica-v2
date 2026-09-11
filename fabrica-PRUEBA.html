@@ -5266,6 +5266,13 @@ function renderResumenPipelineTalleres(){
   });
   const filasHtml=filasFiltradas.map(({secId,itemId,item,estado,cantidad})=>{
     const color=ESTADO_PIPELINE_COLOR[estado]||COLORS[(sectionsData[secId]||{}).color]?.secBg||'#374151';
+    const diasTotal=diasEntre(item.fecha_creado||item.fecha_ingreso);
+    const diasEtapa=diasEntre(item.fecha_etapa);
+    const etapaUrgente=diasEtapa!=null&&diasEtapa>=7;
+    const diasHtml=(diasTotal!=null||diasEtapa!=null)?`<span class="rt-stats">
+      ${diasTotal!=null?`Total: <b>${diasTotal}d</b>`:''}
+      ${diasEtapa!=null?`&nbsp;·&nbsp;En esta etapa: <b class="${etapaUrgente?'urgente':''}">${diasEtapa}d</b>`:''}
+    </span>`:'';
     return `<div class="rt-row" style="cursor:pointer" onclick="scrollToPipelineItem('${secId}','${itemId}')">
       <div class="rt-row-top">
         <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
@@ -5274,6 +5281,7 @@ function renderResumenPipelineTalleres(){
       </div>
       <div class="rt-row-bottom">
         <span class="rt-stats">Prendas: ${cantidad?`<b>${cantidad}</b>`:'—'}</span>
+        ${diasHtml}
         <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:#fff;background:${color};border-radius:6px;padding:2px 8px">${estado}</span>
       </div>
     </div>`;

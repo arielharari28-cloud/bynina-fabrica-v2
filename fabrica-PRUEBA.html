@@ -1915,21 +1915,27 @@ function buildRollosHtml(item,secId,itemId,canEditRollos){
   }).join('');
   const totalUsado=rows.reduce((s,r)=>s+calc(r).usado,0);
   const totalSobrante=rows.reduce((s,r)=>s+(r.kgmts?calc(r).sobrante:0),0);
-  return `<div style="margin-top:4px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);padding:6px 8px;overflow-x:auto">
-    <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Rollos utilizados</div>
-    <table style="border-collapse:collapse;width:100%">
-      <thead><tr>
-        <th style="text-align:left;padding:2px 6px;font-size:10px;color:var(--text2)">Color</th>
-        <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Kg/Mts</th>
-        <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Capas</th>
-        <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Usado</th>
-        <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Sobrante</th>
-        <th style="padding:2px 6px;font-size:10px;color:var(--text2);text-align:left">Nota</th>
-      </tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>
-    <div style="font-size:10px;color:var(--text2);margin-top:2px">Total usado: <strong>${totalUsado.toFixed(2)}</strong> · Total sobrante: <strong>${totalSobrante.toFixed(2)}</strong></div>
-    ${canEditRollos?`<button class="btn-sm" style="margin-top:6px" onclick="openRollosModal('${secId}','${itemId}')">✏️ Editar rollos</button>`:''}
+  const panelId=`rollos-panel-${secId}-${itemId}`;
+  return `<div style="margin-top:4px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 8px;cursor:pointer" onclick="const p=document.getElementById('${panelId}');p.classList.toggle('hidden');this.querySelector('.rollos-caret').textContent=p.classList.contains('hidden')?'▶':'▼'">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">📦 Rollos utilizados <span style="font-weight:600;text-transform:none;color:var(--accent);font-size:11px">— usado ${totalUsado.toFixed(2)} · sobrante ${totalSobrante.toFixed(2)}</span></div>
+      <span class="rollos-caret" style="font-size:11px;color:var(--text3)">▶</span>
+    </div>
+    <div id="${panelId}" class="hidden" style="padding:0 8px 8px;overflow-x:auto">
+      <table style="border-collapse:collapse;width:100%">
+        <thead><tr>
+          <th style="text-align:left;padding:2px 6px;font-size:10px;color:var(--text2)">Color</th>
+          <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Kg/Mts</th>
+          <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Capas</th>
+          <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Usado</th>
+          <th style="padding:2px 6px;font-size:10px;color:var(--text2)">Sobrante</th>
+          <th style="padding:2px 6px;font-size:10px;color:var(--text2);text-align:left">Nota</th>
+        </tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+      <div style="font-size:10px;color:var(--text2);margin-top:2px">Total usado: <strong>${totalUsado.toFixed(2)}</strong> · Total sobrante: <strong>${totalSobrante.toFixed(2)}</strong></div>
+      ${canEditRollos?`<button class="btn-sm" style="margin-top:6px" onclick="openRollosModal('${secId}','${itemId}')">✏️ Editar rollos</button>`:''}
+    </div>
   </div>`;
 }
 

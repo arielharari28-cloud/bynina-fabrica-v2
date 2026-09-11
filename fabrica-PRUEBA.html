@@ -5209,11 +5209,21 @@ function confirmarRetiroTaller(secId,itemId){
 // Se arma con los mismos datos de sectionsData, no duplica nada en Firebase.
 const PIPELINE_TALLERES_SECS = ['s4','s5','sLT','s6','sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION];
 let resumenPipelineOrden='corte'; // 'corte' | 'taller'
+let resumenPipelineFiltroEstado=''; // '' = todos los estados
 function setResumenPipelineOrden(v){ resumenPipelineOrden=v; renderResumenPipelineTalleres(); }
+function setResumenPipelineFiltroEstado(v){ resumenPipelineFiltroEstado=v; renderResumenPipelineTalleres(); }
 function estadoPipelineItem(secId,item){
   if(secId==='sFIN') return item.retirado_taller ? 'En taller (confección/plancha/estampado)' : 'Pendiente retiro de taller';
   return (sectionsData[secId]&&sectionsData[secId].title)||secId;
 }
+const ESTADO_PIPELINE_COLOR={
+  'Corte pendiente avío no pedido para sacar a taller':'#991b1b',
+  'Cortes pendiente avío para sacar a taller':'#92400e',
+  'Cortes listo para taller':'#166534',
+  'Pendiente retiro de taller':'#5b21b6',
+  'En taller (confección/plancha/estampado)':'#5b21b6',
+  'Pendiente recibir avío — corte en taller':'#991b1b',
+};
 function renderResumenPipelineTalleres(){
   const cont=document.getElementById('resumen-pipeline-talleres');
   if(!cont) return;
@@ -5234,7 +5244,19 @@ function renderResumenPipelineTalleres(){
     cont.innerHTML='';
     return;
   }
-  filas.sort((a,b)=>{
+  // Totales por etapa y general — se calculan sobre TODO lo que hay (antes de aplicar el filtro
+  // de estado), así el panorama completo siempre se ve entero aunque estés filtrando por uno solo.
+  const totalesPorEstado={};
+  let totalPrendasGeneral=0;
+  filas.forEach(f=>{
+    totalesPorEstado[f.estado]=totalesPorEstado[f.estado]||{cortes:0,prendas:0};
+    totalesPorEstado[f.estado].cortes+=1;
+    totalesPorEstado[f.estado].prendas+=(f.cantidad||0);
+    totalPrendasGeneral+=(f.cantidad||0);
+  });
+  const totalCortesGeneral=filas.length;
+  let filasFiltradas = resumenPipelineFiltroEstado ? filas.filter(f=>f.estado===resumenPipelineFiltroEstado) : filas;
+  filasFiltradas=filasFiltradas.slice().sort((a,b)=>{
     if(resumenPipelineOrden==='taller'){
       const ta=(a.item.taller_corte||'zzz sin taller'), tb=(b.item.taller_corte||'zzz sin taller');
       const cmp=ta.localeCompare(tb);
@@ -5242,44 +5264,61 @@ function renderResumenPipelineTalleres(){
     }
     return extractCorteNumber(a.item)-extractCorteNumber(b.item);
   });
-  const ESTADO_COLOR={
-    'Corte pendiente avío no pedido para sacar a taller':'#991b1b',
-    'Cortes pendiente avío para sacar a taller':'#92400e',
-    'Cortes listo para taller':'#166534',
-    'Pendiente retiro de taller':'#5b21b6',
-    'En taller (confección/plancha/estampado)':'#5b21b6',
-    'Pendiente recibir avío — corte en taller':'#991b1b',
-  };
-  const filasHtml=filas.map(({secId,itemId,item,estado,cantidad})=>{
-    const color=ESTADO_COLOR[estado]||COLORS[(sectionsData[secId]||{}).color]?.secBg||'#374151';
+  const filasHtml=filasFiltradas.map(({secId,itemId,item,estado,cantidad})=>{
+    const color=ESTADO_PIPELINE_COLOR[estado]||COLORS[(sectionsData[secId]||{}).color]?.secBg||'#374151';
     return `<div class="rt-row" style="cursor:pointer" onclick="scrollToPipelineItem('${secId}','${itemId}')">
       <div class="rt-row-top">
         <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
         <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
-        <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
+        <span style="font-size:14px;font-weight:700;color:var(--text);flex-shrink:0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
       </div>
       <div class="rt-row-bottom">
-        <span class="rt-stats">${cantidad?`<b>${cantidad}</b> u.`:'—'}</span>
+        <span class="rt-stats">Prendas: ${cantidad?`<b>${cantidad}</b>`:'—'}</span>
         <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:#fff;background:${color};border-radius:6px;padding:2px 8px">${estado}</span>
       </div>
     </div>`;
   }).join('');
+  const totalesHtml=Object.keys(totalesPorEstado).map(estado=>{
+    const t=totalesPorEstado[estado];
+    const color=ESTADO_PIPELINE_COLOR[estado]||'#374151';
+    const activo=resumenPipelineFiltroEstado===estado;
+    return `<button onclick="setResumenPipelineFiltroEstado('${activo?'':estado.replace(/'/g,"\\'")}')" style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1.5px solid ${color};background:${activo?color:'transparent'};color:${activo?'#fff':color};border-radius:8px;padding:5px 9px;cursor:pointer;font-family:inherit;text-align:left">
+      <span style="font-size:10px;font-weight:700;white-space:nowrap">${estado}</span>
+      <span style="font-size:11px">${t.cortes} corte${t.cortes!==1?'s':''} · ${t.prendas} prenda${t.prendas!==1?'s':''}</span>
+    </button>`;
+  }).join('');
   cont.innerHTML=`<div class="rt-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px">
-      <div class="rt-title" style="margin-bottom:0">📋 Resumen general — cortes sin entregar (${filas.length})</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+      <div class="rt-title" style="margin-bottom:0">📋 Resumen general — ${totalCortesGeneral} cortes sin entregar · ${totalPrendasGeneral} prendas en total</div>
       <div style="display:flex;gap:6px">
         <button class="btn-sm ${resumenPipelineOrden==='corte'?'active':''}" onclick="setResumenPipelineOrden('corte')">🔢 Por N° de corte</button>
         <button class="btn-sm ${resumenPipelineOrden==='taller'?'active':''}" onclick="setResumenPipelineOrden('taller')">🧵 Por taller</button>
       </div>
     </div>
-    ${filasHtml}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${totalesHtml}</div>
+    ${resumenPipelineFiltroEstado?`<div style="margin-bottom:8px"><button class="btn-sm" onclick="setResumenPipelineFiltroEstado('')">✕ Ver todos los estados (${totalCortesGeneral})</button></div>`:''}
+    ${filasFiltradas.length?filasHtml:'<div class="rt-empty">Ningún corte en este estado.</div>'}
   </div>`;
 }
-// Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte (en su
-// sección) para poder editarlo — el resumen es de solo lectura, no duplica acciones.
+// Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte. Como las
+// distintas etapas viven en pestañas distintas (Fábrica o Talleres), primero cambia a la pestaña
+// correcta y despliega la sección si estaba colapsada, y recién ahí hace scroll — antes el click
+// no hacía nada visible si la tarjeta estaba en la otra pestaña (oculta) o la sección plegada.
 function scrollToPipelineItem(secId,itemId){
-  const el=document.getElementById(`item-${secId}-${itemId}`);
-  if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.style.outline='2px solid var(--accent)'; setTimeout(()=>{el.style.outline='';},1500); }
+  const item=(sectionsData[secId]||{}).items?.[itemId];
+  if(!item){ showToast('Ese corte ya cambió de etapa — se va a actualizar el resumen'); return; }
+  const enTalleres = secId==='sFIN' ? !!item.retirado_taller : TALLERES_TAB_SECS.includes(secId);
+  const targetBoard = enTalleres?'talleres':'fabrica';
+  ocultarTabsMenosActiva(enTalleres?'tab-talleres':'tab-fabrica');
+  const btn=document.getElementById(`tab-btn-${targetBoard}`);
+  if(btn) btn.classList.add('active');
+  localCollapsed[secId]=false;
+  saveLocalCollapsed();
+  renderSections('fabrica');
+  setTimeout(()=>{
+    const el=document.getElementById(`item-${secId}-${itemId}`);
+    if(el){ el.scrollIntoView({behavior:'smooth',block:'center'}); el.style.outline='2px solid var(--accent)'; setTimeout(()=>{el.style.outline='';},1500); }
+  },150);
 }
 
 function buildResumenTalleresHtml(secId,items){

@@ -4528,6 +4528,7 @@ function continuarDespuesDeTaller(secId,itemId,fechaFinal){
     fecha_entregado:fechaFinal,
     fecha_creado:Date.now(),
     estado:'pendiente_conteo',
+    categoria:item.categoria||'',
     grilla:grillaObj
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
@@ -4574,6 +4575,7 @@ function marcarEntregadoEstampadoTaller(secId,itemId){
     fecha_entregado:item.fecha_entregado||'',
     fecha_creado:Date.now(),
     estado:'pendiente_conteo',
+    categoria:item.categoria||'',
     grilla:grillaObj
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
@@ -4695,6 +4697,7 @@ function forzarApareceEnConteo(secId,itemId){
     fecha_entregado:item.fecha_entregado||'',
     fecha_creado:Date.now(),
     estado:'pendiente_conteo',
+    categoria:item.categoria||'',
     grilla:grillaObj
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
@@ -6027,10 +6030,10 @@ function buildMoveOptsForItem(secId,itemId){
 function buildItem(secId,itemId,item,sec,idx,total){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
   const tipo=sec.tipo||'';
-  // Noelia no tiene edición general acá, pero en Revisión Final sí puede subir la foto de
-  // cómo quedó la muestra terminada — es un permiso puntual, no todo el resto (código, nombre,
-  // eliminar siguen bloqueados para ella).
-  const canEditFotoRevision=canEdit||(currentUser==='noelia'&&tipo==='revision_final');
+  // Noelia no tiene edición general acá, pero en Revisión Final y en Productos Perfectos sí
+  // puede subir la foto (de cómo quedó la muestra terminada / la foto final del producto) — es
+  // un permiso puntual, no todo el resto (código, nombre, eliminar siguen bloqueados para ella).
+  const canEditFotoRevision=canEdit||(currentUser==='noelia'&&(tipo==='revision_final'||tipo==='producto_perfecto'));
   const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
   // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
   // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
@@ -6821,7 +6824,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   if(tipo==='producto_perfecto'){
     return `<div class="item">
       <div class="item-with-photo">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
+        ${buildPhotoHtml(secId,itemId,item,canEditFotoRevision)}
         <div class="item-body">
           ${buildCodeHtml(secId,itemId,item,canEdit)}
           ${buildNameHtml(secId,itemId,item,canEdit)}
@@ -10277,6 +10280,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
     fecha_creado:Date.now(), estado:'pendiente_conteo',
     fabrica_sec_id:secId, fabrica_item_id:itemId,
     entrega_parcial:true, abierta_por:currentUser,
+    categoria:item.categoria||'',
     grilla:grillaObj
   };
   if(item.precio_taller) logisticaItem.precio_taller=item.precio_taller; // ya lo cargó Emir en Fábrica — no llega en blanco
@@ -11728,12 +11732,34 @@ function compareTalles(a,b){
 // Se cargan una sola vez por artículo (no por color) — Noemí/Nahuel/Emir las cargan apenas el
 // corte queda Finalizado en Logística, y Noelia las ve/completa también desde la pestaña Web.
 // Mientras falte algún talle, Noelia no puede tildar ningún color como "Subido".
+// Pantalón/pollera/short usan otro set de medidas (Cintura/Cadera/Tiro/Largo) en vez de
+// Largo/Ancho/Manga, porque esas prendas no tienen mangas ni se miden por "ancho de busto".
+function esCategoriaTipoPantalon(categoria){
+  const c=String(categoria||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  return c.includes('pantalon')||c.includes('pollera')||c.includes('short');
+}
+// tipo_medida: forzado manual ('estandar'|'pantalon') que pisa la detección automática por
+// categoría — para los casos donde la categoría no alcanza o está mal puesta.
+function esMedidaTipoPantalon(it){
+  if(it.tipo_medida==='pantalon') return true;
+  if(it.tipo_medida==='estandar') return false;
+  return esCategoriaTipoPantalon(it.categoria);
+}
+function logiSetTipoMedida(itemId,val){
+  db.ref(`fabrica_v5/logistica/items/${itemId}/tipo_medida`).set(val);
+}
 function medidasTalles(it){
   return [...new Set(Object.values(it.grilla||{}).map(f=>f.talle).filter(Boolean))].sort(compareTalles);
 }
 function medidasCompletas(it){
   const talles=medidasTalles(it);
   if(!talles.length) return false;
+  if(esMedidaTipoPantalon(it)){
+    return talles.every(t=>{
+      const m=(it.medidas||{})[t];
+      return m && String(m.cintura||'').trim() && String(m.cadera||'').trim() && String(m.tiro||'').trim() && String(m.largo||'').trim();
+    });
+  }
   const sinManga=!!it.medidas_sin_manga;
   return talles.every(t=>{
     const m=(it.medidas||{})[t];
@@ -11752,6 +11778,10 @@ function logiCopiarMedidas(itemId){
   const origen=Object.values(logiItemsData||{}).find(o=>o.code&&o.code.trim().toLowerCase()===code.toLowerCase()&&o!==it);
   if(!origen){ showToast(`No encontré ningún artículo con código ${code}`); return; }
   if(!origen.medidas||!Object.keys(origen.medidas).length){ showToast(`${code} todavía no tiene medidas cargadas`); return; }
+  if(esMedidaTipoPantalon(origen)!==esMedidaTipoPantalon(it)){
+    showToast(`${code} usa otro tipo de medidas (una es pantalón/pollera/short y la otra no) — no se puede copiar`);
+    return;
+  }
   if(!confirm(`¿Copiar las medidas de ${code} a ${it.code||'este artículo'}? Se van a pisar las medidas que ya tenga cargadas.`)) return;
   db.ref(`fabrica_v5/logistica/items/${itemId}`).update({medidas:origen.medidas,medidas_sin_manga:!!origen.medidas_sin_manga});
   logActivity('Copió medidas de otro artículo',`${it.code||''} ← ${code}`);
@@ -11769,34 +11799,52 @@ function buildMedidasHtml(id,it,canEdit,mostrarSubidaWeb){
   const talles=medidasTalles(it);
   if(!talles.length) return '';
   const completas=medidasCompletas(it);
+  const esPantalon=esMedidaTipoPantalon(it);
   const sinManga=!!it.medidas_sin_manga;
+  const camposDef = esPantalon
+    ? [['cintura','Cintura'],['cadera','Cadera'],['tiro','Tiro'],['largo','Largo']]
+    : [['largo','Largo'],['ancho','Ancho'],['manga','Manga']];
   const filas=talles.map(t=>{
     const m=(it.medidas||{})[t]||{};
     const campo=(nombre,label)=>canEdit
       ? `<input type="text" value="${(m[nombre]||'').toString().replace(/"/g,'&quot;')}" placeholder="${label}" style="width:52px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:11.5px" onclick="event.stopPropagation()" onchange="event.stopPropagation();logiSetMedida('${id}','${t}','${nombre}',this.value)">`
       : `<span style="font-size:11.5px">${m[nombre]||'—'}</span>`;
+    const celdas = esPantalon
+      ? camposDef.map(([nombre,label])=>campo(nombre,label)).join('')
+      : `${campo('largo','Largo')}${campo('ancho','Ancho')}${sinManga?'<span style="width:52px;font-size:11px;color:var(--text3);font-style:italic">No lleva</span>':campo('manga','Manga')}`;
     return `<div style="display:flex;align-items:center;gap:6px">
       <span style="font-size:11px;font-weight:700;min-width:28px">${t}</span>
-      ${campo('largo','Largo')}${campo('ancho','Ancho')}${sinManga?'<span style="width:52px;font-size:11px;color:var(--text3);font-style:italic">No lleva</span>':campo('manga','Manga')}
+      ${celdas}
     </div>`;
   }).join('');
+  const headerHtml = camposDef.map(([,label])=>`<span style="width:52px">${label}</span>`).join('');
   const subidaWeb=!!it.medidas_subidas_web;
   const subidaWebHtml = mostrarSubidaWeb ? `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;margin-top:4px;border-top:1px solid var(--border);cursor:pointer" onclick="event.stopPropagation()">
       <input type="checkbox" ${subidaWeb?'checked':''} ${completas?'':'disabled'} onchange="event.stopPropagation();logiToggleMedidasSubidasWeb('${id}',this.checked)">
       <span style="font-size:12px">📤 Medidas subidas a la web</span>
       <span style="margin-left:auto;font-size:11px;color:${subidaWeb?'#15803d':'#b91c1c'}">${subidaWeb?'✓ Subidas':(completas?'Pendiente':'Cargá las medidas primero')}</span>
     </label>` : '';
+  // Selector manual: por defecto sigue la categoría del artículo, pero se puede forzar el otro
+  // tipo de medida cuando la categoría no está cargada o no corresponde para ese caso puntual.
+  const tipoSelectHtml = canEdit ? `<select onclick="event.stopPropagation()" onchange="event.stopPropagation();logiSetTipoMedida('${id}',this.value)" style="font-size:10px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;background:var(--surface);color:var(--text)">
+      <option value="" ${!it.tipo_medida?'selected':''}>Auto (${esCategoriaTipoPantalon(it.categoria)?'pantalón/pollera/short':'estándar'})</option>
+      <option value="estandar" ${it.tipo_medida==='estandar'?'selected':''}>Forzar: Largo/Ancho/Manga</option>
+      <option value="pantalon" ${it.tipo_medida==='pantalon'?'selected':''}>Forzar: Cintura/Cadera/Tiro/Largo</option>
+    </select>` : '';
   return `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:6px;background:var(--surface2);border-radius:8px;padding:8px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <span style="font-weight:700">📏 Medidas (cm)</span>
-      <span style="font-size:11px;color:${completas?'#15803d':'#b91c1c'}">${completas?'✓ Cargadas':'Faltan cargar'}</span>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+      <span style="font-weight:700">📏 Medidas (cm)${esPantalon?' · pantalón/pollera/short':''}</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${tipoSelectHtml}
+        <span style="font-size:11px;color:${completas?'#15803d':'#b91c1c'}">${completas?'✓ Cargadas':'Faltan cargar'}</span>
+      </div>
     </div>
-    <div style="display:flex;gap:6px;font-size:10px;color:var(--text3);padding-left:34px;margin-bottom:2px"><span style="width:52px">Largo</span><span style="width:52px">Ancho</span><span style="width:52px">Manga</span></div>
+    <div style="display:flex;gap:6px;font-size:10px;color:var(--text3);padding-left:34px;margin-bottom:2px">${headerHtml}</div>
     <div style="display:flex;flex-direction:column;gap:4px">${filas}</div>
     ${canEdit?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px">
-      <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px" onclick="event.stopPropagation()">
+      ${esPantalon?'':`<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px" onclick="event.stopPropagation()">
         <input type="checkbox" ${sinManga?'checked':''} onchange="event.stopPropagation();logiSetSinManga('${id}',this.checked)"> No lleva mangas
-      </label>
+      </label>`}
       <button class="btn-sm" onclick="event.stopPropagation();logiCopiarMedidas('${id}')">📋 Copiar medidas de...</button>
     </div>`:''}
     ${subidaWebHtml}

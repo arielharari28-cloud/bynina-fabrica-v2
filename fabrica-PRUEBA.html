@@ -11067,7 +11067,10 @@ function facturacionRenderCuentaCorriente(destino){
   const movs=[];
   Object.entries(logiItemsData||{}).forEach(([itemId,it])=>{
     if(it.estado==='cerrado'&&it.facturado_cta_cte&&facturacionDestino(it)===destino){
-      movs.push({ts:it.facturacion_fecha_registro||0,fecha:it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,cantidad:facturacionCantidad(it),precio:it.precio_taller||0,debe:it.facturacion_monto||0,haber:0});
+      // Se ordena y muestra por fecha de ENTREGA del taller (no por cuándo se facturó) —
+      // si el corte no tiene fecha de entrega cargada, cae a la fecha de facturación.
+      const tsEntrega=logiParseFechaEntregado(it.fecha_entregado);
+      movs.push({ts:tsEntrega||it.facturacion_fecha_registro||0,fecha:it.fecha_entregado||it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,cantidad:facturacionCantidad(it),precio:it.precio_taller||0,debe:it.facturacion_monto||0,haber:0});
     }
   });
   Object.entries(fabricaPagosTallerData||{}).forEach(([pagoId,p])=>{
@@ -11156,7 +11159,8 @@ function facturacionExportarCuentaCorriente(destino){
   const movs=[];
   Object.entries(logiItemsData||{}).forEach(([itemId,it])=>{
     if(it.estado==='cerrado'&&it.facturado_cta_cte&&facturacionDestino(it)===destino){
-      movs.push({ts:it.facturacion_fecha_registro||0,fecha:it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,cantidad:facturacionCantidad(it),precio:it.precio_taller||0,debe:it.facturacion_monto||0,haber:0});
+      const tsEntrega=logiParseFechaEntregado(it.fecha_entregado);
+      movs.push({ts:tsEntrega||it.facturacion_fecha_registro||0,fecha:it.fecha_entregado||it.facturacion_fecha||'—',detalle:`Corte ${it.code||it.numero_corte||itemId}`,cantidad:facturacionCantidad(it),precio:it.precio_taller||0,debe:it.facturacion_monto||0,haber:0});
     }
   });
   Object.entries(fabricaPagosTallerData||{}).forEach(([,p])=>{

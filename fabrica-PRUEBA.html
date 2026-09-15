@@ -4586,7 +4586,9 @@ function marcarProductoPerfecto(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const perfSecId=getSectionIdByTipo('producto_perfecto');
   if(!perfSecId){ showToast('No encontré la sección de Productos Perfectos'); return; }
-  const newItem={...item,fecha_perfecto:Date.now(),fecha_etapa:Date.now()};
+  const notificarNoelia=currentUser==='noelia';
+  const newItem={...item,fecha_perfecto:Date.now(),fecha_etapa:Date.now(),
+    ...(notificarNoelia?{revision_noelia:{resultado:'perfecto',ts:Date.now(),revisado:false}}:{})};
   db.ref(`fabrica_v5/sections/${perfSecId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Producto perfecto',item.code);
@@ -4599,7 +4601,9 @@ function marcarNecesitaMejora(secId,itemId){
   if(nota===null||!nota.trim()){ showToast('Cargá una nota para continuar'); return; }
   const mejoraSecId=getSectionIdByTipo('mejora');
   if(!mejoraSecId){ showToast('No encontré la sección de Mejora'); return; }
-  const newItem={...item,mejora_nota:nota.trim(),mejora_resuelta:false,fecha_mejora:Date.now(),fecha_etapa:Date.now()};
+  const notificarNoelia=currentUser==='noelia';
+  const newItem={...item,mejora_nota:nota.trim(),mejora_resuelta:false,fecha_mejora:Date.now(),fecha_etapa:Date.now(),
+    ...(notificarNoelia?{revision_noelia:{resultado:'mejora',nota:nota.trim(),ts:Date.now(),revisado:false}}:{})};
   db.ref(`fabrica_v5/sections/${mejoraSecId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Necesita mejora',`${item.code}: ${nota.trim()}`);
@@ -6034,6 +6038,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // puede subir la foto (de cómo quedó la muestra terminada / la foto final del producto) — es
   // un permiso puntual, no todo el resto (código, nombre, eliminar siguen bloqueados para ella).
   const canEditFotoRevision=canEdit||(currentUser==='noelia'&&(tipo==='revision_final'||tipo==='producto_perfecto'));
+  // Noelia puede marcar el resultado de la revisión final (Producto Perfecto / Necesita mejora)
+  // — permiso puntual, igual que la foto; el resto de los botones de esa tarjeta (cancelar,
+  // eliminar, mover) siguen bloqueados para ella.
+  const canRevisarFinal=canEdit||(currentUser==='noelia'&&tipo==='revision_final');
   const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
   // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
   // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
@@ -6752,8 +6760,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Compará contra la muestra aprobada.</div>
           ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Entregado: <strong>${item.fecha_entregado}</strong></div>`:''}
           <div class="item-actions">
-            ${canEdit?`<button class="btn-approve" onclick="marcarProductoPerfecto('${secId}','${itemId}')">✅ Producto Perfecto</button>`:''}
-            ${canEdit?`<button class="btn-revision" onclick="marcarNecesitaMejora('${secId}','${itemId}')">🔧 Necesita mejora</button>`:''}
+            ${canRevisarFinal?`<button class="btn-approve" onclick="marcarProductoPerfecto('${secId}','${itemId}')">✅ Producto Perfecto</button>`:''}
+            ${canRevisarFinal?`<button class="btn-revision" onclick="marcarNecesitaMejora('${secId}','${itemId}')">🔧 Necesita mejora</button>`:''}
             ${moveOpts}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
             ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
@@ -9595,6 +9603,12 @@ function getMisPendientesArielStef(){
     const r=avio.pedido_fecha_retro;
     if(r&&!r.revisado) list.push({secId,itemId,item,avioId,texto:`Fecha de pedido retroactiva sin revisar: ${avio.nombre} — cargada ${r.fecha_cargada} (por ${r.cargado_por})`,ts:r.ts||0,esFechaRetro:true});
   });
+  Object.entries(sectionsData).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      const rn=item.revision_noelia;
+      if(rn&&!rn.revisado) list.push({secId,itemId,item,texto:rn.resultado==='perfecto'?'Noelia marcó Producto Perfecto en revisión final':`Noelia marcó Necesita mejora: ${rn.nota||''}`,ts:rn.ts||0,esRevisionNoelia:true});
+    });
+  });
   return list;
 }
 
@@ -9652,6 +9666,7 @@ function renderMisPendientesPanel(){
       <div style="font-size:12px;color:var(--warn-text)">${x.texto}</div>
     </div>
     ${x.esFechaRetro?`<button class="notif-read-btn" onclick="event.stopPropagation();marcarFechaPedidoRetroRevisada('${x.secId}','${x.itemId}','${x.avioId}')">✓ Revisado</button>`:''}
+    ${x.esRevisionNoelia?`<button class="notif-read-btn" onclick="event.stopPropagation();marcarRevisionNoeliaVista('${x.secId}','${x.itemId}')">✓ Visto</button>`:''}
   </div>`;
   const nuevos=list.filter(x=>x.ts>misPendientesLastSeen);
   const generales=list.filter(x=>x.ts<=misPendientesLastSeen);
@@ -9665,6 +9680,12 @@ function renderMisPendientesPanel(){
 function marcarFechaPedidoRetroRevisada(secId,itemId,avioId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/pedido_fecha_retro/revisado`).set(true);
   showToast('✓ Marcado como revisado');
+}
+// Ariel/Stef marcan como vista la revisión final que hizo Noelia (Producto Perfecto / Necesita
+// mejora) — saca el aviso de "Mis pendientes" sin deshacer nada de lo que ella ya marcó.
+function marcarRevisionNoeliaVista(secId,itemId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/revision_noelia/revisado`).set(true);
+  showToast('✓ Marcado como visto');
 }
 function cerrarMisPendientesYIr(secId,itemId,esGrupo){
   document.getElementById('mis-pendientes-panel').classList.add('hidden');

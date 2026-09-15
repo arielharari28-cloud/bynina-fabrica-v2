@@ -6371,12 +6371,16 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     const canStef=(currentUser==='ariel'||currentUser==='stef');
     const canPeque=(currentUser==='ariel'||currentUser==='peque');
+    // El nombre del producto lo pone Peque (es su tarea asignarlo), así que además de
+    // Ariel/Stef también puede editarlo acá — el resto de los campos de esta tarjeta (tipo de
+    // desarrollo, tela, etc.) siguen limitados a canStef como antes.
+    const canNombre=canStef||currentUser==='peque';
     return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
       <div class="item-with-photo" style="flex:3;min-width:320px">
         ${buildPhotoHtml(secId,itemId,item,canStef,true)}
         <div class="item-body">
           ${item.origen_mejora?`<div style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔧 <strong>Viene de una mejora:</strong> ${item.origen_mejora}</div>`:''}
-          ${buildNameHtml(secId,itemId,item,canStef,true)}
+          ${buildNameHtml(secId,itemId,item,canNombre,true)}
           ${buildTipoDesarrolloHtml(secId,itemId,item,canStef)}
           ${item.base_aprobada?buildBaseTizadaHtml(secId,itemId,item,canPeque):''}
           ${procesoInfoHtml(item,secId,itemId)}

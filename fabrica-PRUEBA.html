@@ -8146,9 +8146,16 @@ function marcarCorteRealizado(secId,itemId){
     Object.values(mItem.avios||{}).forEach(a=>{
       if(a) costeoAvios.push({nombre:a.nombre||'',proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||''});
     });
+    // El pedido/recibido de avío que hubiera quedado cargado de la etapa de muestra (cantidad
+    // chica, para probar) no sirve para la cantidad real de producción — se resetea acá igual
+    // que en las demás transiciones muestra→producción, así Peque vuelve a pedirlo y Emir vuelve
+    // a confirmarlo con la cantidad del corte real. Antes "Marcar cortado" no lo reseteaba y el
+    // corte arrancaba mostrando "Pedido" con la fecha vieja de la muestra sin que nadie lo pidiera.
+    const aviosCorte=resetAviosParaCorte(mItem.avios);
     const newItem={...mItem,
       fecha_corte:fechaFinal, fecha_corte_ts:Date.now(), cortado_por:currentUser, done:true,
       capas:capasCongeladas,
+      avios:aviosCorte,
       rollos:grupo.rollos||mItem.rollos||{},
       largo_capa:(grupo.largo_capa!==undefined&&grupo.largo_capa!==null&&grupo.largo_capa!=='')?grupo.largo_capa:mItem.largo_capa,
       peso_metro:(grupo.peso_metro!==undefined&&grupo.peso_metro!==null&&grupo.peso_metro!=='')?grupo.peso_metro:mItem.peso_metro,
@@ -8160,12 +8167,12 @@ function marcarCorteRealizado(secId,itemId){
       fecha_paso_orden:grupo.fecha_paso_orden||mItem.fecha_paso_orden||Date.now(),
       fecha_paso_encimado:grupo.fecha_paso_encimado||mItem.fecha_paso_encimado||Date.now()
     };
-    // Ruteo automático según estado de avíos: sin avíos o avíos ya recibidos → listo para taller.
-    // Avíos pendientes de pedir → bloqueado sin pedir. Avíos pedidos pero no recibidos → esperando entrega.
-    const avList=Object.values(mItem.avios||{});
+    // Ruteo automático según estado de avíos (ya reseteados): sin avíos → listo para taller.
+    // Con avíos → arranca en "avío no pedido", porque recién se resetearon y todavía nadie
+    // pidió nada para esta cantidad de producción.
+    const avList=Object.values(aviosCorte);
     let targetSec;
-    if(avList.length===0 || avList.every(a=>a.recibido)) targetSec='sLT';
-    else if(avList.some(a=>a.fecha_pedido)) targetSec='s5';
+    if(avList.length===0) targetSec='sLT';
     else targetSec='s4';
     ensureSeccionCorte(targetSec);
     db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);

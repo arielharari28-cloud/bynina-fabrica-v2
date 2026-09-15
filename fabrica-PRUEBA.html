@@ -9102,13 +9102,24 @@ function saveEditItem(){
   }
   Object.keys(item.avios||{}).forEach(avioId=>{
     const n=document.getElementById(`an-${avioId}`);
-    if(n) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}`).update({
+    if(!n) return;
+    const avioOriginal=item.avios[avioId]||{};
+    const nuevaFechaPedido=(document.getElementById(`af-${avioId}`)?.value||'').trim();
+    const avioUpdate={
       nombre:n.value.trim(),
       proveedor:(document.getElementById(`ap-${avioId}`)?.value||'').trim(),
       cantidad:(document.getElementById(`aq-${avioId}`)?.value||'').trim(),
       precio:(document.getElementById(`apr-${avioId}`)?.value||'').trim(),
-      fecha_pedido:(document.getElementById(`af-${avioId}`)?.value||'').trim(),
-    });
+      fecha_pedido:nuevaFechaPedido,
+    };
+    // Si cargan una fecha de pedido anterior a hoy (ej: Peque anota que lo pidió hace unos días
+    // y recién ahora lo carga), se guarda igual — pero le queda un aviso a Ariel/Stef en "Mis
+    // pendientes" para que lo revisen después, en vez de bloquear la carga en el momento.
+    if(nuevaFechaPedido&&nuevaFechaPedido!==avioOriginal.fecha_pedido&&esFechaPedidoRetroactiva(nuevaFechaPedido)){
+      avioUpdate.pedido_fecha_retro={fecha_cargada:nuevaFechaPedido,cargado_por:currentUser,ts:Date.now(),revisado:false};
+      logActivity('Cargó fecha de pedido de avío retroactiva',`${avioUpdate.nombre} — ${item.code} (${nuevaFechaPedido})`);
+    }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}`).update(avioUpdate);
   });
   const nuevosAviosGuardados={};
   for(let i=1;i<=newAvioCount;i++){
@@ -9580,6 +9591,10 @@ function getMisPendientesArielStef(){
       list.push({secId:'s3',itemId:corteKey,item:{code:grupo.numero_corte||corteKey,name:'Corte '+(grupo.numero_corte||corteKey)},texto:'Pidieron marcar encimado con capas incompletas',ts:grupo.pedido_capas_incompletas.fecha||0,esGrupo:true});
     }
   });
+  forEachAvio((secId,itemId,item,avioId,avio)=>{
+    const r=avio.pedido_fecha_retro;
+    if(r&&!r.revisado) list.push({secId,itemId,item,avioId,texto:`Fecha de pedido retroactiva sin revisar: ${avio.nombre} — cargada ${r.fecha_cargada} (por ${r.cargado_por})`,ts:r.ts||0,esFechaRetro:true});
+  });
   return list;
 }
 
@@ -9631,11 +9646,12 @@ function renderMisPendientesPanel(){
   const cont=document.getElementById('mis-pendientes-list');
   const list=getMisPendientes().sort((a,b)=>b.ts-a.ts);
   if(!list.length){ cont.innerHTML='<div class="empty-state">Sin pendientes 🎉</div>'; return; }
-  const card=x=>`<div class="notif-item" style="cursor:pointer;background:var(--warn-bg);border-radius:8px;margin-bottom:6px" onclick="cerrarMisPendientesYIr('${x.secId}','${x.itemId}',${!!x.esGrupo})">
-    <div style="flex:1">
+  const card=x=>`<div class="notif-item" style="cursor:pointer;background:var(--warn-bg);border-radius:8px;margin-bottom:6px">
+    <div style="flex:1;cursor:pointer" onclick="cerrarMisPendientesYIr('${x.secId}','${x.itemId}',${!!x.esGrupo})">
       <div style="font-weight:700;font-size:13px;color:var(--warn-text)">${x.item.code?x.item.code+' · ':''}${x.item.name||'(sin nombre)'}</div>
       <div style="font-size:12px;color:var(--warn-text)">${x.texto}</div>
     </div>
+    ${x.esFechaRetro?`<button class="notif-read-btn" onclick="event.stopPropagation();marcarFechaPedidoRetroRevisada('${x.secId}','${x.itemId}','${x.avioId}')">✓ Revisado</button>`:''}
   </div>`;
   const nuevos=list.filter(x=>x.ts>misPendientesLastSeen);
   const generales=list.filter(x=>x.ts<=misPendientesLastSeen);
@@ -9643,6 +9659,12 @@ function renderMisPendientesPanel(){
   if(nuevos.length) html+=`<div style="font-size:11px;color:var(--text2);margin:6px 0 4px;text-transform:uppercase;font-weight:700">Nuevo</div>`+nuevos.map(card).join('');
   if(generales.length) html+=`<div style="font-size:11px;color:var(--text2);margin:10px 0 4px;text-transform:uppercase;font-weight:700">General</div>`+generales.map(card).join('');
   cont.innerHTML=html;
+}
+// Ariel/Stef marcan como revisada una fecha de pedido retroactiva que Peque cargó — saca el
+// aviso de "Mis pendientes" sin tocar la fecha de pedido en sí (eso queda como estaba).
+function marcarFechaPedidoRetroRevisada(secId,itemId,avioId){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/pedido_fecha_retro/revisado`).set(true);
+  showToast('✓ Marcado como revisado');
 }
 function cerrarMisPendientesYIr(secId,itemId,esGrupo){
   document.getElementById('mis-pendientes-panel').classList.add('hidden');
@@ -12638,6 +12660,16 @@ function costeoArticuloTotales(entry,articuloCode){
   });
   const costoTotalArt=costoArt+costoOtrosArt;
   return{costoArt,costoOtrosArt,piezasArt,costoTotalArt,costoPrenda:costoTotalArt/piezasArt};
+}
+// Devuelve true si fechaStr (formato DD/MM/AAAA) es una fecha anterior al día de hoy. Si no
+// matchea el formato, se considera que no es una fecha retroactiva (no bloqueamos ni avisamos
+// por datos raros/mal tipeados, eso ya se ve a simple vista en la tarjeta).
+function esFechaPedidoRetroactiva(fechaStr){
+  const m=String(fechaStr||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return false;
+  const fecha=new Date(parseInt(m[3],10),parseInt(m[2],10)-1,parseInt(m[1],10));
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  return fecha.getTime()<hoy.getTime();
 }
 function parseFechaCorteToYM(fechaStr){
   // Espera "DD/MM/AAAA" (como lo tipean en el prompt de Marcar cortado). Si no matchea, se ignora.

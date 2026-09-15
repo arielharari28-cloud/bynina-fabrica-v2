@@ -804,6 +804,8 @@
   <div class="logi-modal">
     <div style="font-weight:700;font-size:14px;margin-bottom:4px">Agregar prenda de proveedor</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Para mercadería que no sale de un corte propio (compra a un proveedor externo). Después cargás los talles/colores esperados como con cualquier otro ítem.</div>
+    <label style="font-size:11px;color:var(--text2);font-weight:600">Foto</label>
+    <div id="logi-prov-foto-preview" onclick="logiProvTriggerFoto()" style="width:100%;height:110px;border:1px dashed var(--border);border-radius:8px;margin:2px 0 10px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:12px;overflow:hidden;background:var(--surface2)">📷 Agregar foto</div>
     <label style="font-size:11px;color:var(--text2);font-weight:600">Código</label>
     <input type="text" id="logi-prov-code" placeholder="Ej: PROV-001" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
     <label style="font-size:11px;color:var(--text2);font-weight:600">Nombre de la prenda</label>
@@ -4497,41 +4499,38 @@ function marcarEntregadoCorte(secId,itemId){
 
 // --- Después de armado (y, si tenía, terminación): sigue a Estampado si tiene DTF pendiente,
 // o si no, directo a Revisión Final, creando ahí el registro espejo en Logística para conteo. ---
+// Entrega desde un taller (confección o estampado) que ahora queda BLOQUEADA hasta que
+// Nahuel/Noemí la cuenten y Ariel/Stef cierren el control en Logística ("🔀 Cerrar control").
+// El ítem sale de Fábrica por completo apenas se marca "Entregado" — no queda ni con cartel de
+// "esperando", solo vive en Logística mientras tanto — y recién cuando se cierra el control
+// (logiCerrarConteo) reaparece solo, automáticamente, en la sección de destino de Fábrica.
+function crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,destinoTipo,camposFecha,destinoLabel){
+  const filas=calcularGrillaEsperada(item);
+  const grillaObj={};
+  filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
+  const itemSnapshot={...item,...camposFecha,fecha_entregado:fechaFinal,fecha_etapa:Date.now()};
+  const logisticaItem={
+    code:item.code||'', name:item.name||'', foto:item.foto||'',
+    numero_corte:item.numero_corte||'', taller:item.taller_corte||'',
+    fecha_entregado:fechaFinal, fecha_creado:Date.now(),
+    estado:'pendiente_conteo', categoria:item.categoria||'',
+    grilla:grillaObj,
+    avance_pendiente:{destino_tipo:destinoTipo,destino_label:destinoLabel,item_snapshot:itemSnapshot}
+  };
+  db.ref('fabrica_v5/logistica/items').push(logisticaItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Entregado — queda en Logística pendiente de contar y controlar',`${item.code} → ${destinoLabel}`);
+  showToast(`📦 ${item.code} pasó a Logística — falta contar y controlar antes de seguir a ${destinoLabel}`);
+}
 function continuarDespuesDeTaller(secId,itemId,fechaFinal){
   const item=sectionsData[secId].items[itemId];
   if(item.estampado_dtf && !item.estampado_taller_entregado){
     if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
-    const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_costura:Date.now(),fecha_etapa:Date.now()};
-    moveItemUndoable(secId,itemId,SEC_ESTAMPADO_TALLER,newItem);
-    logActivity('Entregado — pasa a taller de estampado',`${item.code}: ${fechaFinal}`);
-    showToast(`🎨 ${item.code} pasó a taller de estampado (Plancha Nina)`);
+    crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'en_estampado_taller',{fecha_entregado_taller_costura:Date.now()},'taller de estampado');
     return;
   }
   if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
-  const revSecId=getSectionIdByTipo('revision_final');
-  if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
-  const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
-  moveItemUndoable(secId,itemId,revSecId,newItem);
-  logActivity('Entregado a revisión',`${item.code}: ${fechaFinal}`);
-  showToast(`✅ ${item.code} pasó a Revisión Final`);
-
-  // --- Registro espejo en Logística (pendiente de conteo) ---
-  const filas=calcularGrillaEsperada(item);
-  const grillaObj={};
-  filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
-  const logisticaItem={
-    code:item.code||'',
-    name:item.name||'',
-    foto:item.foto||'',
-    numero_corte:item.numero_corte||'',
-    taller:item.taller_corte||'',
-    fecha_entregado:fechaFinal,
-    fecha_creado:Date.now(),
-    estado:'pendiente_conteo',
-    categoria:item.categoria||'',
-    grilla:grillaObj
-  };
-  db.ref('fabrica_v5/logistica/items').push(logisticaItem);
+  crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'revision_final',{fecha_entregado_revision:Date.now()},'Revisión Final');
 }
 
 // --- TALLER DE TERMINACIÓN (pasos extra: plancha, ojal, broche...) — bloquea hasta que estén
@@ -4555,30 +4554,7 @@ function marcarEntregadoTerminacion(secId,itemId){
 function marcarEntregadoEstampadoTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
-  const revSecId=getSectionIdByTipo('revision_final');
-  if(!revSecId){ showToast('No encontré la sección de Revisión Final'); return; }
-  const newItem={...item,estampado_taller_entregado:true,fecha_entregado_revision:Date.now(),fecha_etapa:Date.now()};
-  moveItemUndoable(secId,itemId,revSecId,newItem);
-  logActivity('Estampado entregado por Plancha Nina — pasa a Revisión Final',item.code);
-  showToast(`✅ ${item.code} pasó a Revisión Final`);
-
-  // --- Registro espejo en Logística (pendiente de conteo) ---
-  const filas=calcularGrillaEsperada(item);
-  const grillaObj={};
-  filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
-  const logisticaItem={
-    code:item.code||'',
-    name:item.name||'',
-    foto:item.foto||'',
-    numero_corte:item.numero_corte||'',
-    taller:item.taller_corte||'',
-    fecha_entregado:item.fecha_entregado||'',
-    fecha_creado:Date.now(),
-    estado:'pendiente_conteo',
-    categoria:item.categoria||'',
-    grilla:grillaObj
-  };
-  db.ref('fabrica_v5/logistica/items').push(logisticaItem);
+  crearEntregaLogisticaConAvance(secId,itemId,item,item.fecha_entregado||'','revision_final',{estampado_taller_entregado:true,fecha_entregado_revision:Date.now()},'Revisión Final');
 }
 
 // --- REVISIÓN FINAL (llegó el corte del taller) ---
@@ -11580,19 +11556,49 @@ function logiOpenProveedorModal(){
   document.getElementById('logi-prov-proveedor').value='';
   const hoy=new Date();
   document.getElementById('logi-prov-fecha').value=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  window._logiProvFotoFile=null;
+  document.getElementById('logi-prov-foto-preview').innerHTML='📷 Agregar foto';
   document.getElementById('logi-proveedor-modal').classList.add('logi-show');
 }
 function logiCerrarProveedorModal(){
   document.getElementById('logi-proveedor-modal').classList.remove('logi-show');
 }
-function logiConfirmarProveedor(){
+// Foto opcional al cargar una prenda de proveedor: se elige acá y recién se sube a Cloudinary
+// al confirmar el alta (si cancela el modal, no queda una foto huérfana subida sin usar).
+function logiProvTriggerFoto(){
+  const input=document.createElement('input');
+  input.type='file';input.accept='image/*';
+  input.onchange=(e)=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    window._logiProvFotoFile=file;
+    const reader=new FileReader();
+    reader.onload=ev=>{ document.getElementById('logi-prov-foto-preview').innerHTML=`<img src="${ev.target.result}" style="width:100%;height:100%;object-fit:cover">`; };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+async function logiConfirmarProveedor(){
   const code=document.getElementById('logi-prov-code').value.trim();
   const name=document.getElementById('logi-prov-name').value.trim();
   const proveedor=document.getElementById('logi-prov-proveedor').value.trim();
   const fecha=document.getElementById('logi-prov-fecha').value.trim();
   if(!name){ showToast('Cargá al menos el nombre de la prenda'); return; }
+  let foto='';
+  if(window._logiProvFotoFile){
+    showToast('📤 Subiendo foto...');
+    try{
+      const formData=new FormData();
+      formData.append('file',window._logiProvFotoFile);
+      formData.append('upload_preset',CLOUDINARY_PRESET);
+      const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+      const data=await res.json();
+      if(data.secure_url) foto=data.secure_url;
+      else showToast('✗ No se pudo subir la foto — se guarda sin foto');
+    }catch(e){ showToast('✗ No se pudo subir la foto — se guarda sin foto'); }
+  }
   const item={
-    code, name, foto:'',
+    code, name, foto,
     numero_corte:'', taller:'',
     proveedor,
     origen:'proveedor',
@@ -12196,10 +12202,27 @@ function logiConfirmarNota(){
 
 function logiCerrarConteo(itemId){
   if(!confirm('¿Cerrar el control de este corte? Pasa a "Pendiente dividir" — Ariel tiene que marcarlo dividido para que quede Finalizado.')) return;
+  const it=logiItemsData[itemId];
   db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('pendiente_dividir');
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_control_cerrado`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/control_cerrado_por`).set(currentUser);
   showToast('🔀 Control cerrado — pasa a Pendiente dividir');
+  // Si esta entrega venía de un taller (confección→estampado, o estampado→revisión) y estaba
+  // bloqueada esperando que se cuente y controle, cerrar el control es lo que la destraba: el
+  // corte reaparece solo en Fábrica, en la sección de destino — sin que nadie tenga que tocar
+  // nada más en Fábrica.
+  const avance=it&&it.avance_pendiente;
+  if(avance&&avance.item_snapshot){
+    const destSecId=getSectionIdByTipo(avance.destino_tipo);
+    if(destSecId){
+      db.ref(`fabrica_v5/sections/${destSecId}/items`).push(avance.item_snapshot);
+      db.ref(`fabrica_v5/logistica/items/${itemId}/avance_pendiente/avanzado`).set(true);
+      logActivity('Control cerrado en Logística — vuelve solo a Fábrica',`${it.code||''} → ${avance.destino_label||avance.destino_tipo}`);
+      showToast(`✅ ${it.code||''} pasó a ${avance.destino_label||'Fábrica'}`);
+    } else {
+      showToast(`⚠️ No encontré la sección "${avance.destino_label||avance.destino_tipo}" — avisale a Ariel`);
+    }
+  }
 }
 
 // --- Pendiente dividir → Finalizado: solo Ariel puede confirmar que ya se dividió la

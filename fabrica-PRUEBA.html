@@ -12150,9 +12150,9 @@ function logiEliminarItem(id){
 function logiRenderDetail(id){
   const it = logiItemsData[id];
   if(!it){ logiCloseDetail(); return; }
+  const puedeEditarNombreCodigo = currentUser==='ariel';
   const fotoEditableAttrs = puedeEditarNombreCodigo ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
   document.getElementById('logi-detail-photo').outerHTML = `<div id="logi-detail-photo"${fotoEditableAttrs}>${it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`}</div>`;
-  const puedeEditarNombreCodigo = currentUser==='ariel';
   document.getElementById('logi-detail-code').innerHTML = `${it.code||'(sin código)'}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditCodigo('${id}')" style="cursor:pointer;font-size:13px;color:var(--accent)" title="Editar código">✏️</span>`:''}`;
   document.getElementById('logi-detail-name').innerHTML = `${it.name||''}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditNombre('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar nombre">✏️</span>`:''}`;
   const corteTallerParts=[];

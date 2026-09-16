@@ -753,8 +753,18 @@
     </div>
     <div id="tab-comerc" class="hidden">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text2)">Productos ya divididos, ordenados del más viejo al más nuevo — así se van resolviendo primero los que llevan más tiempo esperando.</span>
-        <input type="text" id="comerc-search" placeholder="Buscar N° corte o código..." style="margin-left:auto;max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" oninput="comercSearch=this.value;renderComercializarTab()">
+        <span style="font-size:12px;color:var(--text2)">Productos ya divididos, del más recién finalizado al más viejo.</span>
+        <select id="comerc-filtro" style="margin-left:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="comercFiltro=this.value;renderComercializarTab()">
+          <option value="todos">Todos</option>
+          <option value="costo">Falta: Costo</option>
+          <option value="precio">Falta: Precio de venta</option>
+          <option value="avellaneda">Falta: Avellaneda</option>
+          <option value="deposito">Falta: Depósito</option>
+          <option value="web">Falta: Web</option>
+          <option value="medidas">Falta: Medidas</option>
+          <option value="completos">✓ Completos</option>
+        </select>
+        <input type="text" id="comerc-search" placeholder="Buscar N° corte o código..." style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" oninput="comercSearch=this.value;renderComercializarTab()">
       </div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:12px" id="comerc-resumen"></div>
       <div id="comerc-board"><div class="loading">Cargando...</div></div>
@@ -11526,14 +11536,32 @@ function logiToggleWebColor(itemId,slug,checked){
 // la web y medidas cargadas. No agrega datos nuevos: cruza los mismos campos que ya se cargan
 // en Logística/Costeo/Web, solo los junta acá ordenados por fecha de cierre.
 let comercSearch='';
+let comercFiltro='todos';
+function comercTodoOk(e){
+  return e.costoHecho&&e.preciosCount===3&&e.recAvellaneda!==false&&e.recDeposito!==false&&e.webOk!==false&&e.medidasOk;
+}
 function comercItemsFiltrados(){
   let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado');
-  // De más viejo a más nuevo (fecha en que se cerró/dividió el corte) — prioriza lo que hace
-  // más tiempo que está esperando algún trámite.
-  items.sort((a,b)=>(a[1].fecha_cerrado||a[1].fecha_creado||0)-(b[1].fecha_cerrado||b[1].fecha_creado||0));
+  // De más recién finalizado a más viejo (fecha en que se cerró/dividió el corte).
+  items.sort((a,b)=>(b[1].fecha_cerrado||b[1].fecha_creado||0)-(a[1].fecha_cerrado||a[1].fecha_creado||0));
   if(comercSearch.trim()){
     const q=comercSearch.trim().toLowerCase();
     items=items.filter(([id,it])=>String(it.numero_corte||'').toLowerCase().includes(q)||String(it.code||'').toLowerCase().includes(q));
+  }
+  if(comercFiltro&&comercFiltro!=='todos'){
+    items=items.filter(([id,it])=>{
+      const e=comercEstadoItem(it);
+      switch(comercFiltro){
+        case 'costo': return !e.costoHecho;
+        case 'precio': return e.preciosCount<3;
+        case 'avellaneda': return e.recAvellaneda===false;
+        case 'deposito': return e.recDeposito===false;
+        case 'web': return e.webOk===false;
+        case 'medidas': return !e.medidasOk;
+        case 'completos': return comercTodoOk(e);
+        default: return true;
+      }
+    });
   }
   return items;
 }
@@ -11574,8 +11602,7 @@ function renderComercializarTab(){
   let listos=0;
   cont.innerHTML=items.map(([id,it])=>{
     const e=comercEstadoItem(it);
-    const todoOk=e.costoHecho&&e.preciosCount===3&&e.recAvellaneda!==false&&e.recDeposito!==false&&e.webOk!==false&&e.medidasOk;
-    if(todoOk) listos++;
+    if(comercTodoOk(e)) listos++;
     const fecha=fmtFecha(it.fecha_cerrado||it.fecha_creado);
     return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px;cursor:pointer" onclick="comercAbrirDetalle('${id}')">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">

@@ -758,6 +758,7 @@
             <div style="margin-top:6px" id="logi-detail-eliminar"></div>
           </div>
         </div>
+        <div id="logi-detail-extra"></div>
         <div id="logi-rows-container"></div>
         <div id="logi-final-summary"></div>
       </div>
@@ -11622,10 +11623,16 @@ function comercChipHtml(ok,label,extra){
   return `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:20px;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#b91c1c'}">${ok?'✓':'✗'} ${label}${extra?` (${extra})`:''}</span>`;
 }
 function comercAbrirDetalle(id){
-  // El detalle vive en la pantalla de Logística — cambiamos de pestaña y lo abrimos ahí,
-  // así se puede tocar cualquier check directo desde el resultado de la búsqueda.
+  // El detalle vive en la pantalla de Logística — cambiamos de pestaña y lo abrimos ahí. Ahora
+  // el detalle ya incluye el mismo bloque de costo/precios/recepción/web/medidas que antes solo
+  // se veía en la card del tablero, así que cualquier chip de acá te deja parado justo donde se
+  // carga lo que falta, sin tener que volver al tablero a buscarlo.
   document.getElementById('tab-btn-logistica').click();
   logiOpenDetail(id);
+  setTimeout(()=>{
+    const el=document.getElementById('logi-detail-extra');
+    if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+  },80);
 }
 function renderComercializarTab(){
   const cont=document.getElementById('comerc-board');
@@ -11647,12 +11654,12 @@ function renderComercializarTab(){
         <div style="font-size:11px;color:var(--text3)">${fecha?'Finalizado: '+fecha:''}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        ${comercChipHtml(e.costoHecho,'Costo')}
-        ${comercChipHtml(e.preciosCount===3,'Precio venta',e.preciosCount<3?`${e.preciosCount}/3`:'')}
-        ${comercChipHtml(e.recAvellaneda,'Avellaneda')}
-        ${comercChipHtml(e.recDeposito,'Depósito')}
-        ${comercChipHtml(e.webOk,'Web',(e.coloresTotal&&!e.webOk)?`${e.coloresSubidos}/${e.coloresTotal}`:'')}
-        ${comercChipHtml(e.medidasOk,'Medidas')}
+        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.costoHecho,'Costo')}</span>
+        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.preciosCount===3,'Precio venta',e.preciosCount<3?`${e.preciosCount}/3`:'')}</span>
+        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.recAvellaneda,'Avellaneda')}</span>
+        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.recDeposito,'Depósito')}</span>
+        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.webOk,'Web',(e.coloresTotal&&!e.webOk)?`${e.coloresSubidos}/${e.coloresTotal}`:'')}</span>
+        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.medidasOk,'Medidas')}</span>
       </div>
     </div>`;
   }).join('');
@@ -11766,57 +11773,11 @@ function logiProgresoTexto(it){
   return esperadoTotal ? `${contadoTotal} / ${esperadoTotal} contadas` : `${contadoTotal} contadas`;
 }
 
-function logiCardHtml(id,it,cerrado){
-  const foto = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
-  const proveedorHtml = it.origen==='proveedor' ? `<div><span class="logi-proveedor-chip">🏷️ Proveedor${it.proveedor?': '+it.proveedor:''}</span></div>` : '';
-  // Franja destacada: N° de corte, Proveedor/Taller, cantidad supuesta y hace cuántos días está
-  // en la etapa actual — para verlo de un vistazo sin tener que abrir el detalle.
-  const filasCant=Object.values(it.grilla||{});
-  const cantidadSupuesta=filasCant.reduce((s,f)=>s+(f.esperado||0),0);
-  let diasEtapa=null;
-  if(cerrado){ diasEtapa=diasEntre(it.fecha_cerrado); }
-  else {
-    const colEt=logiEstadoColumna(it);
-    if(colEt==='dividir') diasEtapa=diasEntre(it.fecha_control_cerrado);
-    else if(colEt==='control') diasEtapa=diasEntre(it.fecha_marcado_pendiente_controlar);
-    else diasEtapa=diasEntre(it.fecha_creado);
-  }
-  const proveedorTallerLabel = it.origen==='proveedor' ? it.proveedor : it.taller;
-  const highlightHtml = `<div class="logi-highlight">
-    ${it.numero_corte?`<span class="logi-hl-item"><span class="logi-hl-label">N° corte</span><span class="logi-hl-value">${it.numero_corte}</span></span>`:''}
-    ${proveedorTallerLabel?`<span class="logi-hl-item"><span class="logi-hl-label">${it.origen==='proveedor'?'Proveedor':'Taller'}</span><span class="logi-hl-value">${proveedorTallerLabel}</span></span>`:''}
-    <span class="logi-hl-item"><span class="logi-hl-label">Cantidad</span><span class="logi-hl-value">${cantidadSupuesta||0}</span></span>
-    ${diasEtapa!==null?`<span class="logi-hl-item"><span class="logi-hl-label">Hace</span><span class="logi-hl-value ${diasEtapa>=7?'logi-hl-warn':''}">${diasEtapa} día${diasEtapa!==1?'s':''}</span></span>`:''}
-  </div>`;
-  const canPrioridadCard=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
-  const prioHtml = canPrioridadCard
-    ? `<select class="logi-prio-select" onclick="event.stopPropagation()" onchange="event.stopPropagation();logiSetPrioridad('${id}',this.value)">
-         <option value="" ${!it.prioridad?'selected':''}>Sin prioridad</option>
-         <option value="media" ${it.prioridad==='media'?'selected':''}>🟡 Media</option>
-         <option value="alta" ${it.prioridad==='alta'?'selected':''}>🔴 Alta</option>
-       </select>`
-    : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
-  let badgeHtml;
-  if(cerrado){
-    badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
-  } else if(logiEstadoColumna(it)==='dividir'){
-    badgeHtml = '<span class="logi-badge" style="background:#ede9fe;color:#5b21b6">🔀 Pendiente dividir</span>';
-  } else if(it.marcado_pendiente_controlar || logiEstadoColumna(it)==='control'){
-    // Si quedó marcado "pendiente controlar" sin llegar a lo esperado, no es que falte
-    // contar o controlar acá — es que el taller todavía no entregó el resto. Se aclara así
-    // en vez de decir "Pendiente controlar", que sugiere una acción pendiente en Logística.
-    const filasB=Object.values(it.grilla||{});
-    const espB=filasB.reduce((s,f)=>s+(f.esperado||0),0);
-    const contB=filasB.reduce((s,f)=>s+(f.contado||0),0);
-    const faltanB=Math.max(0,espB-contB);
-    badgeHtml = faltanB>0
-      ? `<span class="logi-badge" style="background:#fef3c7;color:#92400e">🚚 Faltan ${faltanB} por entregar del taller</span>`
-      : '<span class="logi-badge logi-controlar">🟡 Pendiente controlar</span>';
-  } else {
-    badgeHtml = '<span class="logi-badge logi-pend">Pendiente</span>';
-  }
-  const quienes=logiQuienes(it);
-  const quienesHtml=(quienes.contadoPor.length||quienes.controladoPor.length)?`<div class="logi-fecha">${quienes.contadoPor.length?`🧍 Contó: ${quienes.contadoPor.join(', ')}`:''}${quienes.contadoPor.length&&quienes.controladoPor.length?' · ':''}${quienes.controladoPor.length?`🔍 Controló: ${quienes.controladoPor.join(', ')}`:''}</div>`:'';
+// Bloque de datos post-cierre (costo, precios de venta, recepción por destino, sacar
+// costo/Ninox) y de "pendiente dividir" (reparto Avellaneda/Depósito) — factorizado para
+// poder mostrarlo tanto en la card del tablero como en la pantalla de detalle, así se edita
+// todo desde cualquiera de los dos lugares sin duplicar la lógica.
+function logiExtraCerradoHtml(id,it,cerrado){
   let extraCerradoHtml='';
   const enDividir = !cerrado && logiEstadoColumna(it)==='dividir';
   if(cerrado||enDividir){
@@ -11901,7 +11862,20 @@ function logiCardHtml(id,it,cerrado){
           <span style="${it.cargado_ninox?'color:#15803d':''}">${it.cargado_ninox?`✓ Cargado a Ninox${it.cargado_ninox_por?' — '+USER_DISPLAY[it.cargado_ninox_por]:''}`:'📋 Cargar a Ninox'}</span>
         </label>
       </div>`;
-      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${preciosVentaHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}`;
+      // Colores subidos a la web — mismo checklist que en la solapa Web, para poder tildarlos
+      // directo desde acá sin tener que cambiar de pestaña.
+      const webColoresHtml = colores.length ? `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:4px">
+        <div style="font-weight:600;margin-bottom:2px">🌐 Colores subidos a la web:</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">${colores.map(color=>{
+          const slug=webColorSlug(color);
+          const subido=!!(it.web_colores&&it.web_colores[slug]);
+          return `<label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+            <input type="checkbox" ${subido?'checked':''} onchange="logiToggleWebColor('${id}','${slug}',this.checked)">
+            <span style="font-size:11px;${subido?'color:#15803d':'color:var(--danger)'}">${(color||'').replace(/</g,'&lt;')}</span>
+          </label>`;
+        }).join('')}</div>
+      </div>` : '';
+      extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${preciosVentaHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}${webColoresHtml}`;
     } else {
       const pool = totalOk + totalDetalle;
       const avell = it.division_avellaneda;
@@ -11918,6 +11892,61 @@ function logiCardHtml(id,it,cerrado){
       extraCerradoHtml = `${plataHtml}${divisionHtml}${dividirBtn}`;
     }
   }
+  return extraCerradoHtml;
+}
+
+function logiCardHtml(id,it,cerrado){
+  const foto = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
+  const proveedorHtml = it.origen==='proveedor' ? `<div><span class="logi-proveedor-chip">🏷️ Proveedor${it.proveedor?': '+it.proveedor:''}</span></div>` : '';
+  // Franja destacada: N° de corte, Proveedor/Taller, cantidad supuesta y hace cuántos días está
+  // en la etapa actual — para verlo de un vistazo sin tener que abrir el detalle.
+  const filasCant=Object.values(it.grilla||{});
+  const cantidadSupuesta=filasCant.reduce((s,f)=>s+(f.esperado||0),0);
+  let diasEtapa=null;
+  if(cerrado){ diasEtapa=diasEntre(it.fecha_cerrado); }
+  else {
+    const colEt=logiEstadoColumna(it);
+    if(colEt==='dividir') diasEtapa=diasEntre(it.fecha_control_cerrado);
+    else if(colEt==='control') diasEtapa=diasEntre(it.fecha_marcado_pendiente_controlar);
+    else diasEtapa=diasEntre(it.fecha_creado);
+  }
+  const proveedorTallerLabel = it.origen==='proveedor' ? it.proveedor : it.taller;
+  const highlightHtml = `<div class="logi-highlight">
+    ${it.numero_corte?`<span class="logi-hl-item"><span class="logi-hl-label">N° corte</span><span class="logi-hl-value">${it.numero_corte}</span></span>`:''}
+    ${proveedorTallerLabel?`<span class="logi-hl-item"><span class="logi-hl-label">${it.origen==='proveedor'?'Proveedor':'Taller'}</span><span class="logi-hl-value">${proveedorTallerLabel}</span></span>`:''}
+    <span class="logi-hl-item"><span class="logi-hl-label">Cantidad</span><span class="logi-hl-value">${cantidadSupuesta||0}</span></span>
+    ${diasEtapa!==null?`<span class="logi-hl-item"><span class="logi-hl-label">Hace</span><span class="logi-hl-value ${diasEtapa>=7?'logi-hl-warn':''}">${diasEtapa} día${diasEtapa!==1?'s':''}</span></span>`:''}
+  </div>`;
+  const canPrioridadCard=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
+  const prioHtml = canPrioridadCard
+    ? `<select class="logi-prio-select" onclick="event.stopPropagation()" onchange="event.stopPropagation();logiSetPrioridad('${id}',this.value)">
+         <option value="" ${!it.prioridad?'selected':''}>Sin prioridad</option>
+         <option value="media" ${it.prioridad==='media'?'selected':''}>🟡 Media</option>
+         <option value="alta" ${it.prioridad==='alta'?'selected':''}>🔴 Alta</option>
+       </select>`
+    : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
+  let badgeHtml;
+  if(cerrado){
+    badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
+  } else if(logiEstadoColumna(it)==='dividir'){
+    badgeHtml = '<span class="logi-badge" style="background:#ede9fe;color:#5b21b6">🔀 Pendiente dividir</span>';
+  } else if(it.marcado_pendiente_controlar || logiEstadoColumna(it)==='control'){
+    // Si quedó marcado "pendiente controlar" sin llegar a lo esperado, no es que falte
+    // contar o controlar acá — es que el taller todavía no entregó el resto. Se aclara así
+    // en vez de decir "Pendiente controlar", que sugiere una acción pendiente en Logística.
+    const filasB=Object.values(it.grilla||{});
+    const espB=filasB.reduce((s,f)=>s+(f.esperado||0),0);
+    const contB=filasB.reduce((s,f)=>s+(f.contado||0),0);
+    const faltanB=Math.max(0,espB-contB);
+    badgeHtml = faltanB>0
+      ? `<span class="logi-badge" style="background:#fef3c7;color:#92400e">🚚 Faltan ${faltanB} por entregar del taller</span>`
+      : '<span class="logi-badge logi-controlar">🟡 Pendiente controlar</span>';
+  } else {
+    badgeHtml = '<span class="logi-badge logi-pend">Pendiente</span>';
+  }
+  const quienes=logiQuienes(it);
+  const quienesHtml=(quienes.contadoPor.length||quienes.controladoPor.length)?`<div class="logi-fecha">${quienes.contadoPor.length?`🧍 Contó: ${quienes.contadoPor.join(', ')}`:''}${quienes.contadoPor.length&&quienes.controladoPor.length?' · ':''}${quienes.controladoPor.length?`🔍 Controló: ${quienes.controladoPor.join(', ')}`:''}</div>`:'';
+  let extraCerradoHtml = logiExtraCerradoHtml(id,it,cerrado);
   // Medidas: se puede cargar apenas hay talles (grilla cargada), sin esperar a que el corte
   // esté Cerrado/dividido — así Noemí/Nahuel/Emir pueden ir completándolas antes, y no queda
   // trabado esperando que Ariel marque "dividido" para recién ahí poder subir a la web.
@@ -12190,6 +12219,11 @@ function logiRenderDetail(id){
     </select>` : '';
   document.getElementById('logi-detail-eliminar').innerHTML = (currentUser==='ariel'||currentUser==='stef') ? `
     <button class="btn-sm" style="border-color:var(--danger);color:var(--danger)" onclick="logiEliminarItem('${id}')">🗑 Eliminar este movimiento (era una prueba, etc.)</button>` : '';
+
+  // Mismo bloque de costo/precios de venta/recepción por destino/Ninox/colores web que se ve
+  // en la card del tablero — así entrar al detalle desde Comercializar (o desde cualquier lado)
+  // te deja parado directo donde se carga lo que falte, sin tener que volver al tablero a buscarlo.
+  document.getElementById('logi-detail-extra').innerHTML = logiExtraCerradoHtml(id,it,it.estado==='cerrado') + buildMedidasHtml(id,it,true);
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';

@@ -6046,6 +6046,14 @@ function buildMoveOptsForItem(secId,itemId){
 }
 
 // Rerender buildItem con move correcto
+// Marca Minisur: para estos ítems Peque tiene los mismos permisos de edición que Ariel/Stef
+// en el circuito de Fábrica (campos, marca, categoría, tiza), porque ella maneja esa marca de
+// punta a punta. Lo que sigue siendo control exclusivo de Ariel/Stef (confirmar ficha corregida,
+// autorizar envíos sin avío, confirmar el corte para cortar, orden de corte) NO se toca acá —
+// es justo el freno para que no se salteen pasos.
+function esMinisurPeque(item){
+  return currentUser==='peque' && (item.marca||'').trim().toLowerCase()==='minisur';
+}
 function buildItem(secId,itemId,item,sec,idx,total){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
   const tipo=sec.tipo||'';
@@ -6384,7 +6392,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
       ? baseAprobadaCompleta
       : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.color_muestra&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
-    const canStef=(currentUser==='ariel'||currentUser==='stef');
+    const canStef=(currentUser==='ariel'||currentUser==='stef')||esMinisurPeque(item);
     const canPeque=(currentUser==='ariel'||currentUser==='peque');
     // El nombre del producto lo pone Peque (es su tarea asignarlo), así que además de
     // Ariel/Stef también puede editarlo acá — el resto de los campos de esta tarjeta (tipo de
@@ -6517,7 +6525,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   }
 
   if(tipo==='muestra_molderia'){
-    const canCorregirOrigen=(currentUser==='ariel'||currentUser==='stef');
+    const canCorregirOrigen=(currentUser==='ariel'||currentUser==='stef')||esMinisurPeque(item);
     const enRevision=item.estado==='modificaciones';
     const refBox=enRevision?`<div class="mod-ref-box">
       <div class="mod-ref-title">🔁 Modificaciones pedidas:</div>
@@ -7298,7 +7306,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   // Una vez cargada la orden de corte, Emir tiene que imprimir la tiza (el molde/marker en papel)
   // antes de que se pueda arrancar el encimado — sin la tiza impresa, no hay sobre qué encimar la tela.
   const tizaImpresa=!!grupo.tiza_impresa;
-  const canMarcarTiza=currentUser==='emir'||currentUser==='ariel'||currentUser==='stef';
+  const canMarcarTiza=currentUser==='emir'||currentUser==='ariel'||currentUser==='stef'||esMinisurPeque(item);
   const tizaRow = !tizaImpresa
     ? `<div class="cortada-row" style="background:var(--warn-bg)">
         <span class="c-label" style="font-weight:600;color:var(--warn-text)">🖨️ Pendiente imprimir tiza <span style="font-weight:400;font-size:10px">(Emir)</span></span>

@@ -10420,6 +10420,8 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
   if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
+  if(!document.getElementById('tab-comerc').classList.contains('hidden')) renderComercializarTab();
+  if(!document.getElementById('tab-web').classList.contains('hidden')) renderWebTab();
   if(logiInitDone){
     logiRenderBoard();
     if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
@@ -12077,6 +12079,31 @@ function buildMedidasHtml(id,it,canEdit,mostrarSubidaWeb){
 
 // Corrección de nombre/código en Logística — solo Ariel, para arreglar errores de carga
 // (ej. descripción mal puesta) sin importar en qué etapa esté el movimiento.
+// Cambiar la foto de un movimiento ya cargado en Logística — solo Ariel, mismo criterio que
+// la edición de nombre/código: para corregir sin depender de en qué etapa esté.
+function logiEditFoto(id){
+  if(currentUser!=='ariel') return;
+  const input=document.createElement('input');
+  input.type='file';input.accept='image/*';
+  input.onchange=async(e)=>{
+    const file=e.target.files[0];
+    if(!file) return;
+    showToast('📤 Subiendo foto...');
+    try{
+      const formData=new FormData();
+      formData.append('file',file);
+      formData.append('upload_preset',CLOUDINARY_PRESET);
+      const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+      const data=await res.json();
+      if(data.secure_url){
+        db.ref(`fabrica_v5/logistica/items/${id}/foto`).set(data.secure_url);
+        logActivity('Cambió la foto en Logística', logiItemsData[id]?.code||'');
+        showToast('✓ Foto actualizada');
+      } else showToast('✗ No se pudo subir la foto');
+    }catch(err){ showToast('✗ No se pudo subir la foto'); }
+  };
+  input.click();
+}
 function logiEditCodigo(id){
   if(currentUser!=='ariel') return;
   const it=logiItemsData[id];
@@ -12123,7 +12150,8 @@ function logiEliminarItem(id){
 function logiRenderDetail(id){
   const it = logiItemsData[id];
   if(!it){ logiCloseDetail(); return; }
-  document.getElementById('logi-detail-photo').innerHTML = it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`;
+  const fotoEditableAttrs = puedeEditarNombreCodigo ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
+  document.getElementById('logi-detail-photo').outerHTML = `<div id="logi-detail-photo"${fotoEditableAttrs}>${it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`}</div>`;
   const puedeEditarNombreCodigo = currentUser==='ariel';
   document.getElementById('logi-detail-code').innerHTML = `${it.code||'(sin código)'}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditCodigo('${id}')" style="cursor:pointer;font-size:13px;color:var(--accent)" title="Editar código">✏️</span>`:''}`;
   document.getElementById('logi-detail-name').innerHTML = `${it.name||''}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditNombre('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar nombre">✏️</span>`:''}`;

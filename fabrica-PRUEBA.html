@@ -2634,6 +2634,7 @@ function getResponsable(sec,item,secId){
   if(tipo==='muestra_diseno'){
     if(item.ficha_control_pendiente) return 'Ariel y Stef';
     if(item.ficha_ajuste_pendiente) return 'Peque';
+    if(item.molde_aprobado&&necesitaProgresiones(item)) return 'Peque'; // progresiones Minisur
     if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 'Peque'; // Guada no tiene usuario propio; lo gestiona Peque
     return 'Ariel y Stef';
   }
@@ -2735,6 +2736,7 @@ function getProximaAccion(sec,item,secId){
   if(tipo==='muestra_diseno'){
     if(item.ficha_control_pendiente) return '📋 Falta que Ariel/Stef controlen la ficha corregida';
     if(item.ficha_ajuste_pendiente) return '📋 Falta que Peque ajuste la ficha técnica pedida';
+    if(item.molde_aprobado&&necesitaProgresiones(item)) return '📏 Falta hacer las progresiones (Minisur)';
     if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return '🖨️ Falta digitalizar el molde (Guada)';
     const fotos=Object.keys(item.fotos_prueba||{});
     if(!fotos.length) return 'Falta cargar foto de cómo queda puesta';
@@ -4355,8 +4357,24 @@ function toggleAviosEntregadosAdela(secId,itemId){
 // marcarAprobada / marcarCorregirSinMuestra) — no es un paso aparte. Lo único que falta trackear
 // acá es la digitalización: mientras no esté, el ítem se queda en Diseño sin pasar a producción.
 // Como Guada no tiene usuario propio, Peque/Ariel/Stef tildan esto por ella.
+// Minisur + Adela: después de aprobar la muestra, faltan las progresiones del molde.
+// Recién con esto tildado pasa a "Molde - Pendiente Digitalizar".
+function confirmarProgresionesYAvanzar(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  if(!confirm(`¿Confirmás que ${item.code} ya tiene las progresiones hechas y puede pasar a Pendiente Digitalizar?`)) return;
+  const destId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
+  if(!destId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
+  const newItem={...item, progresiones_ok:true, fecha_progresiones:Date.now(), progresiones_por:currentUser, fecha_etapa:Date.now()};
+  delete newItem.estado;
+  db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
+  logActivity('Progresiones hechas — a Pendiente Digitalizar',item.code);
+  showToast(`📏 ${item.code} progresiones OK → Pendiente Digitalizar`);
+}
+
 function confirmarDigitalizacionYAvanzar(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(necesitaProgresiones(item)){ showToast('Es Minisur: faltan las progresiones antes de digitalizar'); return; }
   if(!item.molde_aprobado){ showToast('Todavía no se aprobó el molde'); return; }
   if(!confirm(`¿Confirmás que ${item.code} está digitalizado y puede pasar a Pendiente armar tizada?`)) return;
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
@@ -4926,7 +4944,7 @@ function marcarAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const fotos=Object.keys(item.fotos_prueba||{});
   if(!fotos.length){ showToast('Cargá al menos una foto de cómo queda puesta antes de aprobar'); return; }
-  const destinoTxt=(item.modelista==='Adela'&&!item.molde_digitalizado)?'Molde - Pendiente Digitalizar':'Pendiente armar tizada';
+  const destinoTxt=(item.modelista==='Adela'&&!item.molde_digitalizado)?destinoMoldeAdela(item):'Pendiente armar tizada';
   if(!confirm(`¿Aprobar ${item.code} y pasarla a ${destinoTxt}?`)) return;
   // El estado de la ficha (OK / falta ajustar / falta controlar) ya se decide en la propia card
   // de Diseño — probar muestra, con el toggle "Ficha OK" / "Necesita modificación". Acá no se
@@ -4945,15 +4963,16 @@ function marcarAprobada(secId,itemId){
     // Se aprueba la prenda → el molde queda aprobado, pero no avanza a Pendiente armar tizada
     // hasta que Guada lo digitalice. Va a la sección "Molde - Pendiente Digitalizar" para que
     // se vea en el tablero (no se queda escondido en Diseño).
-    const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
-    if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
+    const digDestTitle=destinoMoldeAdela(item);
+    const digDestId=getSectionIdByTitleExact(digDestTitle);
+    if(!digDestId){ showToast(`No encontré la sección "${digDestTitle}" en Fábrica — revisá que exista con ese nombre`); return; }
     const newItemDig={...item, molde_aprobado:true, fecha_aprobada:Date.now(), aprobado_por:currentUser, fecha_etapa:Date.now(), notas_log:notasLog, ...fichaUpdates};
     delete newItemDig.estado;
     delete newItemDig.modificaciones;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-    logActivity('Prenda aprobada — molde aprobado, a Pendiente Digitalizar (Guada)',item.code);
-    showToast(`📐 ${item.code} aprobada → Pendiente Digitalizar (Guada)`);
+    logActivity(`Prenda aprobada — molde aprobado, a ${digDestTitle}`,item.code);
+    showToast(`📐 ${item.code} aprobada → ${digDestTitle}`);
     return;
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
@@ -4996,14 +5015,15 @@ function marcarCorregirSinMuestra(secId,itemId){
   // El estado de la ficha (OK / falta ajustar / falta controlar) ya se decide en la propia card
   // de Diseño con el toggle "Ficha OK" / "Necesita modificación" — acá no se vuelve a preguntar,
   // solo viaja tal cual con el ítem (item.ficha_ajuste_pendiente ya viene seteado o no).
-  if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a ${(item.modelista==='Adela'&&!item.molde_digitalizado)?'Molde - Pendiente Digitalizar':'Pendiente armar tizada'}?`)) return;
+  if(!confirm(`¿Confirmás que ${item.code} NO necesita una muestra nueva y puede pasar a ${(item.modelista==='Adela'&&!item.molde_digitalizado)?destinoMoldeAdela(item):'Pendiente armar tizada'}?`)) return;
   const notaCorreccion=`🔧 Corrección sin nueva muestra${item.ficha_ajuste_pendiente?' (incluye ficha técnica)':' (solo molde)'}: ${item.modificaciones.trim()}`;
   const notasLog={...(item.notas_log||{})};
   const notaKey=db.ref().push().key;
   notasLog[notaKey]={texto:notaCorreccion,autor:currentUser,fecha:Date.now()};
   if(item.modelista==='Adela'&&!item.molde_digitalizado){
-    const digDestId=getSectionIdByTitleExact('Molde - Pendiente Digitalizar');
-    if(!digDestId){ showToast('No encontré la sección "Molde - Pendiente Digitalizar" en Fábrica — revisá que exista con ese nombre'); return; }
+    const digDestTitle=destinoMoldeAdela(item);
+    const digDestId=getSectionIdByTitleExact(digDestTitle);
+    if(!digDestId){ showToast(`No encontré la sección "${digDestTitle}" en Fábrica — revisá que exista con ese nombre`); return; }
     const newItemDig={...item,
       molde_aprobado:true,
       fecha_aprobada:Date.now(),
@@ -5015,8 +5035,8 @@ function marcarCorregirSinMuestra(secId,itemId){
     delete newItemDig.modificaciones;
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-    logActivity('Corregido sin nueva muestra — molde aprobado, a Pendiente Digitalizar (Guada)',item.code);
-    showToast(`📐 ${item.code} corregido → Pendiente Digitalizar (Guada)`);
+    logActivity(`Corregido sin nueva muestra — molde aprobado, a ${digDestTitle}`,item.code);
+    showToast(`📐 ${item.code} corregido → ${digDestTitle}`);
     return;
   }
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
@@ -6051,8 +6071,18 @@ function buildMoveOptsForItem(secId,itemId){
 // punta a punta. Lo que sigue siendo control exclusivo de Ariel/Stef (confirmar ficha corregida,
 // autorizar envíos sin avío, confirmar el corte para cortar, orden de corte) NO se toca acá —
 // es justo el freno para que no se salteen pasos.
+function esMinisur(item){
+  return (item.marca||'').replace(/\s+/g,'').toLowerCase()==='minisur'; // "Mini Sur" o "Minisur"
+}
 function esMinisurPeque(item){
-  return currentUser==='peque' && (item.marca||'').trim().toLowerCase()==='minisur';
+  return currentUser==='peque' && esMinisur(item);
+}
+// Minisur + Adela: al aprobar la muestra, antes de digitalizar faltan las progresiones.
+function necesitaProgresiones(item){
+  return item.modelista==='Adela' && esMinisur(item) && !item.progresiones_ok;
+}
+function destinoMoldeAdela(item){
+  return necesitaProgresiones(item)?'Molde - Pendiente Progresiones':'Molde - Pendiente Digitalizar';
 }
 function buildItem(secId,itemId,item,sec,idx,total){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
@@ -6920,6 +6950,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // real) — eso es lo que la mandaba mal a "Muestras — canceladas". El único paso válido acá es
   // que Guada/Peque confirmen la digitalización, y eso siempre va a "Pendiente armar tizada".
   const esPendienteDigitalizar = (sectionsData[secId].title||'').trim().toLowerCase().includes('pendiente digitalizar');
+  // "Molde - Pendiente Progresiones" (solo Minisur + Adela): mismo criterio, sección genérica,
+  // el único paso válido es confirmar progresiones → Pendiente Digitalizar.
+  const esPendienteProgresiones = (sectionsData[secId].title||'').trim().toLowerCase().includes('pendiente progresiones');
   // "Pendiente armar tizada": todos estos ítems salen de una base ya aprobada (molde existente),
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
@@ -7160,7 +7193,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canControlFichaCorreccion?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
           <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
         </div>`:''}
-        ${(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado)?`<div class="avio-item" style="padding-left:0;border-top:none">
+        ${(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado&&!necesitaProgresiones(item))?`<div class="avio-item" style="padding-left:0;border-top:none">
           <div class="c-check" onclick="${((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?`confirmarDigitalizacionYAvanzar('${secId}','${itemId}')`:''}"></div>
           <span class="c-label" style="font-size:11px">🖨️ Molde digitalizado (Guada) — al tildar pasa a Pendiente armar tizada</span>
         </div>`:''}
@@ -7214,7 +7247,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
-          ${esPendienteDigitalizar
+          ${esPendienteProgresiones
+            ? (canEdit?`<button class="btn-advance" onclick="confirmarProgresionesYAvanzar('${secId}','${itemId}')">📏 Progresiones hechas → Pendiente Digitalizar</button>`:'')
+            : esPendienteDigitalizar
             ? (canEdit?`<button class="btn-advance" onclick="confirmarDigitalizacionYAvanzar('${secId}','${itemId}')">🖨️ Molde digitalizado (Guada) → Pendiente armar tizada</button>`:'')
             : (canEdit?`<button class="btn-advance" ${necesitaRollosParaSeguir?'disabled':''} title="${necesitaRollosParaSeguir?'Falta cargar los rollos utilizados':''}" onclick="siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`:'')}
           ${moveOpts}

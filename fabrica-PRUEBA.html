@@ -7762,8 +7762,42 @@ function ordenCorteRefreshTotals(){
   const totalGeneral=totalPorTalle.reduce((a,b)=>a+b,0);
   const tc=document.getElementById('oc-total-capas'); if(tc) tc.textContent=totalCapas;
   const tg=document.getElementById('oc-total-general'); if(tg) tg.textContent=totalGeneral;
+  const pa=document.getElementById('oc-por-articulo'); if(pa) pa.innerHTML=ordenCortePorArticuloInner();
 }
 function sanitizeTalle(t){ return String(t).replace(/[^a-zA-Z0-9]/g,'_'); }
+// Corte compartido (varios artículos en la misma tiza): cuántas prendas sale de CADA artículo,
+// usando las capas de la orden y la curva propia de cada artículo. Con un solo artículo no se muestra.
+function ordenCortePorArticuloInner(){
+  const sec=sectionsData[ordenCtx.secId]; const item=sec&&sec.items&&sec.items[ordenCtx.itemId];
+  if(!item) return '';
+  const miembros=[[ordenCtx.itemId,item],...otrosDelMismoCorte(ordenCtx.secId,ordenCtx.itemId,item)];
+  if(miembros.length<2) return '';
+  const totalCapas=ordenCtx.colores.reduce((s,r)=>s+(parseInt(r.capas)||0),0);
+  let totalCorte=0;
+  const filas=miembros.map(([id,it])=>{
+    const talles=Array.isArray(it.capas_talles)?it.capas_talles:[];
+    const cv=it.curva_valores||{};
+    const porTalle=talles.map(t=>({t,n:totalCapas*(parseInt(cv[t])||0)}));
+    const total=porTalle.reduce((s,x)=>s+x.n,0);
+    totalCorte+=total;
+    const sinCurva=!talles.length||!Object.keys(cv).length;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      ${it.foto?`<img src="${it.foto}" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0">`:`<div style="width:36px;height:36px;border-radius:6px;background:var(--surface2);flex-shrink:0"></div>`}
+      <div style="flex:1;min-width:0;font-size:12px">
+        <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${it.code?it.code+' — ':''}${it.name||'(sin nombre)'}${id===ordenCtx.itemId?' <span style="font-weight:400;color:var(--text2)">(este)</span>':''}</div>
+        <div style="color:var(--text2)">${sinCurva?'⚠️ Sin curva cargada':porTalle.map(x=>`${x.t}: ${x.n}`).join(' · ')}</div>
+      </div>
+      <div style="font-size:15px;font-weight:700;flex-shrink:0">${total}</div>
+    </div>`;
+  }).join('');
+  return `<div style="font-size:12px;font-weight:700;margin-bottom:2px">✂️ Cuánto sale por artículo (corte compartido)</div>
+    ${filas}
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;padding-top:6px"><span>Total del corte</span><span>${totalCorte} prendas</span></div>`;
+}
+function ordenCortePorArticuloHtml(){
+  const inner=ordenCortePorArticuloInner();
+  return inner?`<div id="oc-por-articulo" style="margin-top:10px;padding:8px 10px;background:var(--surface2);border-radius:8px">${inner}</div>`:'';
+}
 function renderOrdenCorteModalReadOnly(){
   const{talles,curvaValores,colores}=ordenCtx;
   const curvaResumen=talles.map(t=>`${t}:${curvaValores[t]||0}`).join(' · ');
@@ -7784,6 +7818,7 @@ function renderOrdenCorteModalReadOnly(){
       <tfoot><tr><td>Total</td><td>${totalCapas}</td>${totalCells}</tr></tfoot>
     </table>
     <div class="oc-hint">Total general: <strong>${totalGeneral}</strong> prendas</div>
+    ${ordenCortePorArticuloHtml()}
   </div>`:`<div class="oc-hint">Todavía no hay colores cargados.</div>`;
   document.getElementById('modal-orden-corte-body').innerHTML=`
     <div class="oc-field-block" style="margin-bottom:10px">
@@ -7838,7 +7873,8 @@ function renderOrdenCorteModal(){
       <tbody>${bodyRows}</tbody>
       <tfoot><tr><td>Total</td><td id="oc-total-capas">${totalCapas}</td>${totalCells}<td></td></tr></tfoot>
     </table>
-    <div class="oc-hint">Total general: <strong id="oc-total-general">${totalGeneral}</strong> prendas</div>
+    <div class="oc-hint">Total general: <strong id="oc-total-general">${totalGeneral}</strong> prendas${ordenCortePorArticuloInner()?' <span style="color:var(--text2)">(de este artículo)</span>':''}</div>
+    ${ordenCortePorArticuloHtml()}
   </div>`:`<div class="oc-hint">Agregá al menos un color para armar la tabla.</div>`;
   document.getElementById('modal-orden-corte-body').innerHTML=`
     <div class="oc-fields-row">

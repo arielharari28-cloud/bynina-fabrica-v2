@@ -11793,7 +11793,11 @@ function logiExtraCerradoHtml(id,it,cerrado){
     const totalOk=filas.reduce((s,f)=>s+(f.ok||0),0);
     const totalDetalle=filas.reduce((s,f)=>s+(f.detalle||0),0);
     const puedeVerPlata=(currentUser==='ariel'||currentUser==='stef');
-    const plataHtml = puedeVerPlata ? `
+    // Precio de taller: además de Ariel/Stef, Emir también lo carga (él es quien lo pacta con
+    // el taller) — pero los precios de venta/costo de más abajo (preciosVentaHtml) siguen siendo
+    // solo para Ariel/Stef, así que usan puedeVerPlata sin tocar.
+    const puedeVerPrecioTaller=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
+    const plataHtml = puedeVerPrecioTaller ? `
       <div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:6px;margin-top:4px">
         💵 Precio taller: $<input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetPrecioTaller('${id}',this.value)">
         ${it.precio_taller?`<span style="font-weight:700;color:var(--accent)">→ Se le debe: $${(it.precio_taller*(totalOk+totalDetalle)).toLocaleString('es-AR')} (${totalOk+totalDetalle} u.)</span>`:''}

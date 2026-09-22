@@ -11608,13 +11608,40 @@ function comercItemsFiltrados(){
   }
   return items;
 }
+// "Costo confirmado" es un check MANUAL (no un cálculo automático) — el flag vive en el ítem de
+// Logística (fabrica_v5/logistica/items/{id}/costo_confirmado) para que sea el mismo dato se mire
+// desde donde se mire, pero se puede tildar/destildar desde Costeo, Logística o Comercializar.
+// Solo Ariel puede tocarlo.
+function setCostoConfirmado(itemId,val){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede confirmar el costo'); return; }
+  db.ref(`fabrica_v5/logistica/items/${itemId}/costo_confirmado`).set(!!val);
+  logActivity('Costo confirmado',val?'✅ Confirmado':'↩ Desmarcado');
+}
+// Encuentra el ítem de Logística correspondiente a un artículo de Costeo (mismo N° de corte +
+// código) — así el checkbox de Costeo puede tildar el mismo flag que vive en Logística.
+function logiItemDeArticuloCosteo(numeroCorte,code){
+  if(!numeroCorte||!code) return null;
+  return Object.entries(logiItemsData||{}).find(([,lit])=>lit.numero_corte===numeroCorte&&lit.code===code)||null;
+}
+// Checkbox reutilizable — usado en Costeo, Logística y Comercializar. Si no hay ítem de
+// Logística vinculado todavía (ej. artículo cargado a mano en Costeo, sin llegar a Logística
+// aún), se avisa en vez de mostrar un checkbox que no tendría dónde guardar el valor.
+function costoConfirmadoCheckboxHtml(itemId,confirmado){
+  if(!itemId) return `<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:4px">Todavía no hay un ítem de Logística vinculado a este artículo — no se puede confirmar el costo acá.</div>`;
+  const puedeTocar=currentUser==='ariel';
+  return `<label style="display:flex;align-items:center;gap:5px;margin-top:4px;cursor:${puedeTocar?'pointer':'default'}" onclick="event.stopPropagation()">
+    <input type="checkbox" ${confirmado?'checked':''} ${puedeTocar?'':'disabled'} onchange="setCostoConfirmado('${itemId}',this.checked)">
+    <span style="font-size:12px;${confirmado?'color:#15803d;font-weight:700':''}">${confirmado?'✅ Costo confirmado':'💰 Costo sin confirmar'}</span>
+  </label>`;
+}
 // Calcula los 6 chequeos para un ítem de Comercializar. null en un campo = "no aplica"
 // (ej: no se dividió nada para Depósito, así que no corresponde pedir que lo reciban ahí).
 function comercEstadoItem(it){
   const corteKeyCosteo=it.numero_corte?corteKeyFrom(it.numero_corte):null;
   const costeoEntry=corteKeyCosteo?(costeosData[corteKeyCosteo]||null):null;
   const esProveedor=it.origen==='proveedor';
-  const costoHecho = esProveedor ? !!it.precio_costo : !!(costeoEntry&&costeoEntry.precio_kg);
+  // Manual, no calculado — lo tilda Ariel a mano cuando da por hecho el costo de este artículo.
+  const costoHecho=!!it.costo_confirmado;
   const preciosFuente = esProveedor ? it : (costeoEntry||{});
   const preciosCount=['precio_lista_local','precio_tn_minorista','precio_tn_mayorista'].filter(c=>preciosFuente[c]).length;
   const recAvellaneda = it.division_avellaneda!=null ? !!it.recibido_avellaneda : null;
@@ -11662,7 +11689,7 @@ function renderComercializarTab(){
         <div style="font-size:11px;color:var(--text3)">${fecha?'Finalizado: '+fecha:''}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.costoHecho,'Costo')}</span>
+        <span onclick="event.stopPropagation();${currentUser==='ariel'?`setCostoConfirmado('${id}',${!it.costo_confirmado})`:`comercAbrirDetalle('${id}')`}">${comercChipHtml(e.costoHecho,'Costo')}</span>
         <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.preciosCount===3,'Precio venta',e.preciosCount<3?`${e.preciosCount}/3`:'')}</span>
         <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.recAvellaneda,'Avellaneda')}</span>
         <span onclick="event.stopPropagation();comercAbrirDetalle('${id}')">${comercChipHtml(e.recDeposito,'Depósito')}</span>
@@ -11801,7 +11828,8 @@ function logiExtraCerradoHtml(id,it,cerrado){
       <div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:6px;margin-top:4px">
         💵 Precio taller: $<input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetPrecioTaller('${id}',this.value)">
         ${it.precio_taller?`<span style="font-weight:700;color:var(--accent)">→ Se le debe: $${(it.precio_taller*(totalOk+totalDetalle)).toLocaleString('es-AR')} (${totalOk+totalDetalle} u.)</span>`:''}
-      </div>` : '';
+      </div>
+      ${costoConfirmadoCheckboxHtml(id,it.costo_confirmado)}` : '';
     if(cerrado){
       const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
       const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
@@ -13370,6 +13398,7 @@ function renderCosteoDetail(){
       </div>`;
     }).join(''):`<div style="font-size:11px;color:var(--text3);font-style:italic">Cargá los kg y piezas de este artículo (arriba, en 📦 Tela) para poder cargarle sus gastos.</div>`;
     const costoTotalArt=costoArt+costoOtrosArt;
+    const logiVinculado=logiItemDeArticuloCosteo(e.numero_corte,a.code);
     return `
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">💵 Costeo — ${a.code||a.name||'artículo '+(i+1)}</div>
@@ -13382,6 +13411,7 @@ function renderCosteoDetail(){
       </div>
       ${filasArt}
       ${piezasArt?`<div style="font-size:12px;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border)"><strong>Costo total: $${costoTotalArt.toFixed(2)}</strong> · $${(costoTotalArt/piezasArt).toFixed(2)}/u</div>`:''}
+      ${costoConfirmadoCheckboxHtml(logiVinculado?logiVinculado[0]:null,logiVinculado?logiVinculado[1].costo_confirmado:false)}
     </div>`;
   }).join(''):'';
   const otrosGastosRows=COSTEO_OTROS_CAMPOS.map(c=>{
@@ -13469,6 +13499,7 @@ function renderCosteoDetail(){
       </div>
       ${otrosGastosRows}
       <div style="font-size:12px;margin-top:4px">Subtotal otros gastos: <strong>$${t.costoOtros.toFixed(2)}</strong>${t.piezas?` · <span style="color:var(--text2)">$${(t.costoOtros/t.piezas).toFixed(2)}/u</span>`:''}</div>
+      ${(()=>{const lv=logiItemDeArticuloCosteo(e.numero_corte,(articulos[0]&&articulos[0].code)||'');return costoConfirmadoCheckboxHtml(lv?lv[0]:null,lv?lv[1].costo_confirmado:false);})()}
     </div>`}
     <div style="margin-bottom:10px">
       <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📝 Notas</div>

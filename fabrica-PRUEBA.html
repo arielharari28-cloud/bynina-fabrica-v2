@@ -452,6 +452,15 @@
 
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
   .modal{background:var(--surface);border-radius:14px;width:100%;max-width:440px;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+  .ord-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-bottom:1px solid var(--border);background:var(--surface)}
+  .ord-row.ord-drag{background:#fef3c7;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+  .ord-pos{width:44px;height:34px;text-align:center;font-size:15px;font-weight:700;border:1px solid var(--border2);border-radius:6px;padding:0;flex-shrink:0}
+  .ord-hdl{cursor:grab;touch-action:none;user-select:none;font-size:20px;color:var(--text2);padding:4px 6px;flex-shrink:0}
+  .ord-img{width:40px;height:40px;border-radius:6px;object-fit:cover;background:var(--surface2);flex-shrink:0}
+  .ord-txt{flex:1;min-width:0;font-size:13px;line-height:1.3}
+  .ord-txt b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ord-txt small{color:var(--text2);font-size:11px}
+  .ord-paso{font-size:10px;padding:2px 6px;border-radius:6px;background:var(--warn-bg);color:var(--warn-text);white-space:nowrap;flex-shrink:0}
   .modal-header{padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
   .modal-title{font-size:15px;font-weight:700}
   .modal-close{font-size:22px;background:none;border:none;cursor:pointer;color:var(--text2);line-height:1}
@@ -5801,6 +5810,9 @@ function renderSections(board){
     }
     const count=items.length;
     const div=document.createElement('div');div.className='section';
+    // "Cortes próximos a sacar": botón para ordenar los confirmados en una lista compacta.
+    const puedeOrdenarS3=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')&&!filtroMarca&&!searchQuery&&items.filter(([,it])=>!it.sin_confirmar).length>1;
+    const ordenarBtn=puedeOrdenarS3?`<button onclick="abrirOrdenarCortes()" style="background:#fff;border:none;border-radius:6px;padding:4px 10px;color:var(--accent);cursor:pointer;font-size:12px;font-weight:700">↕️ Ordenar</button>`:'';
     const FIXED_SECS=[SEC_PEND,SEC_CORT,SEC_LISTA,SEC_MOLD,SEC_DISENO,SEC_PREP,SEC_CANCEL];
     const hBtns=currentUser==='ariel'&&!FIXED_SECS.includes(secId)?`
       <button onclick="editSecTitle('${secId}')" style="background:rgba(255,255,255,.2);border:none;border-radius:6px;padding:3px 7px;color:#fff;cursor:pointer;font-size:11px">✏️</button>
@@ -5866,7 +5878,7 @@ function renderSections(board){
     div.innerHTML=`
       <div class="sec-header" style="background:${col.secBg}" onclick="toggleSec('${secId}')">
         <div class="sec-left"><span class="sec-title" style="color:${col.secText}">${displayTitle}</span><span class="sec-count" style="color:${col.secText}">${count}</span></div>
-        <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">${secOrderBtns}${hBtns}<span style="color:${col.secText};font-size:12px">${isSecCollapsed(secId)?'▶':'▼'}</span></div>
+        <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">${ordenarBtn}${secOrderBtns}${hBtns}<span style="color:${col.secText};font-size:12px">${isSecCollapsed(secId)?'▶':'▼'}</span></div>
       </div>
       <div class="sec-body ${isSecCollapsed(secId)?'hidden':''}" id="body-${secId}">
         ${addRowPrep}
@@ -8503,6 +8515,118 @@ function moveCorteOrder(secId,itemId,dir){
   updates[`fabrica_v5/sections/${secId}/items/${itemId}/orden`]=updates[`fabrica_v5/sections/${secId}/items/${otroId}/orden`];
   updates[`fabrica_v5/sections/${secId}/items/${otroId}/orden`]=tmp;
   db.ref().update(updates);
+}
+
+// ---- ORDENAR "CORTES PRÓXIMOS A SACAR" (lista compacta) ----
+// Solo los confirmados (los de "en cola" no entran). Los artículos que comparten N° de corte
+// se mueven juntos como una sola fila. El orden recién se guarda al tocar "Guardar orden".
+let ordCortes=[];
+function ordGruposConfirmados(){
+  const sec=sectionsData.s3; if(!sec) return [];
+  const conf=getSortedItems(sec).filter(([,it])=>!it.sin_confirmar);
+  const grupos=[]; const idx={};
+  conf.forEach(([id,it])=>{
+    const k=(it.numero_corte&&corteKeyFrom(it.numero_corte))||('_'+id);
+    if(idx[k]==null){ idx[k]=grupos.length; grupos.push({key:k,ids:[]}); }
+    grupos[idx[k]].ids.push(id);
+  });
+  return grupos;
+}
+function ordPasoPendiente(it){
+  const g=grupoCorteOf(it)||{};
+  if(!(g.orden_corte_cargada||it.orden_corte_cargada)) return 'Orden de corte';
+  if(!g.tiza_impresa) return 'Imprimir tiza';
+  if(!g.encimado_terminado) return 'Encimado';
+  return 'Marcar cortado';
+}
+function abrirOrdenarCortes(){
+  ordCortes=ordGruposConfirmados();
+  let m=document.getElementById('modal-ordenar-cortes');
+  if(!m){
+    m=document.createElement('div');
+    m.className='modal-overlay hidden'; m.id='modal-ordenar-cortes';
+    m.innerHTML=`<div class="modal" style="max-width:600px;display:flex;flex-direction:column">
+      <div class="modal-header"><span class="modal-title">Ordenar próximos cortes</span><button class="modal-close" onclick="cerrarOrdenarCortes()">×</button></div>
+      <div style="font-size:12px;color:var(--text2);padding:0 16px 8px">Arrastrá desde ☰ o escribí el número de posición.</div>
+      <div id="ord-lista" style="overflow-y:auto;flex:1;border-top:1px solid var(--border)"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)">
+        <button class="btn-sm" onclick="cerrarOrdenarCortes()">Cancelar</button>
+        <button class="btn-advance" onclick="guardarOrdenCortes()">💾 Guardar orden</button>
+      </div></div>`;
+    document.body.appendChild(m);
+    const L=m.querySelector('#ord-lista');
+    L.addEventListener('change',e=>{
+      if(!e.target.classList.contains('ord-pos')) return;
+      const from=+e.target.dataset.i;
+      let to=Math.round(+e.target.value)||1;
+      to=Math.max(1,Math.min(ordCortes.length,to))-1;
+      const [g]=ordCortes.splice(from,1); ordCortes.splice(to,0,g);
+      renderOrdenarCortes();
+      const row=L.children[to]; if(row){ row.classList.add('ord-drag'); row.scrollIntoView({block:'nearest'}); setTimeout(()=>row.classList.remove('ord-drag'),700); }
+    });
+    L.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.classList.contains('ord-pos')) e.target.blur(); });
+    let dg=null, scrollT=null, lastY=0;
+    const mover=y=>{
+      const rows=[...L.children];
+      for(let k=0;k<rows.length;k++){
+        const b=rows[k].getBoundingClientRect();
+        if(y>b.top&&y<b.bottom&&k!==dg){
+          const [g]=ordCortes.splice(dg,1); ordCortes.splice(k,0,g); dg=k;
+          renderOrdenarCortes(); L.children[dg].classList.add('ord-drag'); break;
+        }
+      }
+    };
+    L.addEventListener('pointerdown',e=>{
+      const h=e.target.closest('.ord-hdl'); if(!h) return;
+      e.preventDefault(); dg=+h.dataset.i; lastY=e.clientY;
+      L.children[dg].classList.add('ord-drag');
+      scrollT=setInterval(()=>{
+        if(dg===null) return;
+        const b=L.getBoundingClientRect();
+        if(lastY<b.top+40) L.scrollTop-=12; else if(lastY>b.bottom-40) L.scrollTop+=12; else return;
+        mover(lastY);
+      },30);
+    });
+    window.addEventListener('pointermove',e=>{ if(dg===null) return; lastY=e.clientY; mover(e.clientY); });
+    const soltar=()=>{ if(dg===null) return; dg=null; clearInterval(scrollT); renderOrdenarCortes(); };
+    window.addEventListener('pointerup',soltar); window.addEventListener('pointercancel',soltar);
+  }
+  renderOrdenarCortes();
+  m.classList.remove('hidden');
+}
+function renderOrdenarCortes(){
+  const L=document.getElementById('ord-lista'); if(!L) return;
+  const items=(sectionsData.s3&&sectionsData.s3.items)||{};
+  L.innerHTML=ordCortes.map((g,i)=>{
+    const its=g.ids.map(id=>items[id]).filter(Boolean); const p=its[0]||{};
+    const nombres=its.map(it=>`${it.code||''} ${it.name||''}`.trim()).join(' + ');
+    return `<div class="ord-row">
+      <input class="ord-pos" type="number" inputmode="numeric" min="1" max="${ordCortes.length}" value="${i+1}" data-i="${i}">
+      <span class="ord-hdl" data-i="${i}">☰</span>
+      ${p.foto?`<img class="ord-img" src="${p.foto}">`:`<div class="ord-img"></div>`}
+      <div class="ord-txt"><b>${nombres||'(sin nombre)'}</b><small>${p.numero_corte?'Corte N° '+p.numero_corte:'Sin N° de corte'}${its.length>1?' · '+its.length+' artículos':''}</small></div>
+      <span class="ord-paso">${ordPasoPendiente(p)}</span>
+    </div>`;
+  }).join('');
+}
+function cerrarOrdenarCortes(){
+  const m=document.getElementById('modal-ordenar-cortes'); if(m) m.classList.add('hidden');
+}
+function guardarOrdenCortes(){
+  const sec=sectionsData.s3; if(!sec){ cerrarOrdenarCortes(); return; }
+  const actuales=getSortedItems(sec);
+  const vistos=new Set(); const orden=[];
+  ordCortes.forEach(g=>g.ids.forEach(id=>{ if(sec.items&&sec.items[id]&&!sec.items[id].sin_confirmar&&!vistos.has(id)){ vistos.add(id); orden.push(id); } }));
+  // Confirmados que aparecieron mientras la lista estaba abierta: al final.
+  actuales.forEach(([id,it])=>{ if(!it.sin_confirmar&&!vistos.has(id)){ vistos.add(id); orden.push(id); } });
+  // Los de "en cola" quedan detrás, en el mismo orden relativo que tenían.
+  actuales.forEach(([id])=>{ if(!vistos.has(id)){ vistos.add(id); orden.push(id); } });
+  const updates={};
+  orden.forEach((id,i)=>{ updates[`fabrica_v5/sections/s3/items/${id}/orden`]=i; });
+  db.ref().update(updates);
+  logActivity('Orden de cortes','Reordenó Cortes próximos a sacar');
+  showToast('✓ Orden guardado');
+  cerrarOrdenarCortes();
 }
 
 function editNotaCorte(secId,itemId){

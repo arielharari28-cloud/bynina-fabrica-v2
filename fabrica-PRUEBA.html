@@ -2175,7 +2175,7 @@ function getSectionIdByTitleExact(title){
 
 function pasarABaseAprobada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef)||!(item.base_ref_id||item.base_ref_manual)){
+  if(!item.name||!item.name.trim()||!item.code||!item.code.trim()||!item.ficha_link||!item.en_ninox||!(item.control_ariel||item.control_stef||item.control_noelia)||!(item.base_ref_id||item.base_ref_manual)){
     showToast('Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale');
     return;
   }
@@ -2216,7 +2216,7 @@ function pasarABaseAprobada(secId,itemId){
 
 function assignModelista(secId,itemId,nombre){  const item=sectionsData[secId].items[itemId];
   const sec=sectionsData[secId];
-  if(sec.tipo==='muestra_prep'&&nombre&&!(item.en_ninox&&(item.control_ariel||item.control_stef))){
+  if(sec.tipo==='muestra_prep'&&nombre&&!(item.en_ninox&&(item.control_ariel||item.control_stef||item.control_noelia))){
     showToast('Falta tildar Ninox y el control de ficha antes de asignar modelista');
     return;
   }
@@ -2635,12 +2635,12 @@ function getResponsable(sec,item,secId){
   const tipo=sec.tipo||'';
   if(tipo==='mejora') return item.mejora_resuelta?null:'Peque';
   if(tipo==='muestra_prep'){
-    if(!stefCompletoNuevoDesarrollo(item)) return 'Stef';
+    if(!stefCompletoNuevoDesarrollo(item)) return 'Noelia'; // carga de datos del desarrollo: ahora la hace Noelia
     if(item.ficha_estado==='modificar') return 'Peque';
     if(!noeliaCompletoNuevoDesarrollo(item)) return 'Noelia';
     if(!pequeCompletoNuevoDesarrollo(item)) return 'Peque';
-    if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ariel y Stef';
-    if(!(item.control_ariel||item.control_stef)) return 'Ariel y Stef';
+    if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef||item.control_noelia)) return 'Noelia'; // control de ficha: Noelia
+    if(!(item.control_ariel||item.control_stef||item.control_noelia)) return 'Noelia';
     if(item.base_aprobada){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Peque';
       return 'Peque';
@@ -2654,13 +2654,13 @@ function getResponsable(sec,item,secId){
     return item.modelista||'Peque';
   }
   if(tipo==='muestra_diseno'){
-    if(item.ficha_control_pendiente) return 'Ariel y Stef';
+    if(item.ficha_control_pendiente) return 'Noelia'; // control de ficha corregida: Noelia
     if(item.ficha_ajuste_pendiente) return 'Peque';
     if(item.molde_aprobado&&necesitaProgresiones(item)) return 'Peque'; // progresiones Minisur
-    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 'Peque'; // Guada no tiene usuario propio; lo gestiona Peque
+    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 'Peque'; // digitalizar el molde: ahora lo hace Peque
     return 'Ariel y Stef';
   }
-  if(tipo==='muestra_pend') return 'Cortador';
+  if(tipo==='muestra_pend') return (!item.color||!item.talle)?'Noelia':'Cortador'; // color y talle los carga Noelia
   if(tipo==='muestra_cort') return 'Peque';
   if(tipo==='muestra_lista') return 'Peque';
   if(tipo==='muestra_en_taller') return 'Peque';
@@ -2716,7 +2716,7 @@ function getProximaAccion(sec,item,secId){
       if(!item.color_muestra) falta.push('color de la muestra');
       if(!item.ref_link) falta.push('link');
       if(!item.fecha_objetivo_recibir) falta.push('objetivo de recibir');
-      return `Falta cargar (Stef): ${falta.join(', ')}`;
+      return `Falta cargar (Noelia): ${falta.join(', ')}`;
     }
     if(item.ficha_estado==='modificar') return 'Falta corregir la ficha técnica pedida';
     if(!noeliaCompletoNuevoDesarrollo(item)){
@@ -2728,8 +2728,8 @@ function getProximaAccion(sec,item,secId){
       if(item.lleva_avios===true) return 'Falta cargar los avíos de la ficha';
       return 'Falta definir si lleva avíos';
     }
-    if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ficha corregida — esperando que Ariel/Stef la controlen';
-    if(!(item.control_ariel||item.control_stef)) return 'Esperando control de ficha (Ariel/Stef)';
+    if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef||item.control_noelia)) return 'Ficha corregida — esperando que Noelia la controle';
+    if(!(item.control_ariel||item.control_stef||item.control_noelia)) return 'Falta controlar la ficha (Noelia)';
     if(item.base_aprobada){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Falta elegir de qué base sale';
       return 'Falta enviar a Pendiente armar tizada (base ya aprobada, sin moldería)';
@@ -2744,7 +2744,7 @@ function getProximaAccion(sec,item,secId){
     return `Falta enviar a corte · Modelista: ${item.modelista||'sin asignar'}`;
   }
   if(tipo==='muestra_pend'){
-    if(!item.color||!item.talle) return 'Falta cargar Color y/o Talle antes de cortar';
+    if(!item.color||!item.talle) return 'Falta cargar Color y/o Talle antes de cortar (Noelia)';
     return 'Falta marcar cortada';
   }
   if(tipo==='muestra_cort'){
@@ -2761,10 +2761,10 @@ function getProximaAccion(sec,item,secId){
   if(tipo==='muestra_lista') return item.taller_elegido?`Falta marcar enviado · Taller: ${item.taller_elegido}`:'Falta elegir taller y enviar';
   if(tipo==='muestra_en_taller') return 'Esperando que el taller entregue';
   if(tipo==='muestra_diseno'){
-    if(item.ficha_control_pendiente) return '📋 Falta que Ariel/Stef controlen la ficha corregida';
+    if(item.ficha_control_pendiente) return '📋 Falta que Noelia controle la ficha corregida';
     if(item.ficha_ajuste_pendiente) return '📋 Falta que Peque ajuste la ficha técnica pedida';
     if(item.molde_aprobado&&necesitaProgresiones(item)) return '📏 Falta hacer las progresiones (Minisur)';
-    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return '🖨️ Falta digitalizar el molde (Guada)';
+    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return '🖨️ Falta digitalizar el molde (Peque)';
     const fotos=Object.keys(item.fotos_prueba||{});
     if(!fotos.length) return 'Falta cargar foto de cómo queda puesta';
     return 'Falta decidir: Aprobar / A revisión / Corregir sin muestra';
@@ -2785,7 +2785,7 @@ function getProximaAccion(sec,item,secId){
   if(!tipo){
     const t=(sec.title||'').trim().toLowerCase();
     if(t.includes('pendiente progresiones')) return '📏 Falta hacer las progresiones (Minisur)';
-    if(t.includes('pendiente digitalizar')) return '🖨️ Falta digitalizar el molde (Guada)';
+    if(t.includes('pendiente digitalizar')) return '🖨️ Falta digitalizar el molde (Peque)';
     return 'Falta armar la tizada';
   }
   return null;
@@ -3111,7 +3111,7 @@ function backfillPasosNuevoDesarrollo(){
       if(stefCompleta&&!item.fecha_paso_ingreso) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=ahora;
       if(noeliaCompletoNuevoDesarrollo(item)&&!item.fecha_paso_noelia) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_noelia`]=item.fecha_paso_peque||ahora;
       if(pequeCompletoNuevoDesarrollo(item)&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
-      if((item.control_ariel||item.control_stef)&&!item.fecha_paso_control) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_control`]=ahora;
+      if((item.control_ariel||item.control_stef||item.control_noelia)&&!item.fecha_paso_control) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_control`]=ahora;
       if(item.modelista&&!item.fecha_paso_modelista) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_modelista`]=ahora;
     });
   });
@@ -4236,7 +4236,8 @@ function pedirModificacionFicha(secId,itemId){
     ficha_mod_por:USER_DISPLAY[currentUser]||currentUser,
     ficha_mod_fecha:Date.now(),
     control_ariel:false,
-    control_stef:false
+    control_stef:false,
+    control_noelia:false
   };
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   logActivity('Pidió modificar ficha',`${item.code}: ${notas.trim().slice(0,60)}`);
@@ -4335,7 +4336,7 @@ function marcarFichaAjustada(secId,itemId){
   });
   logNotaAuto(secId,itemId,'✓ Peque marcó la ficha como ajustada — queda esperando control de Ariel/Stef');
   logActivity('Ajustó ficha (post-aprobación)',item.code);
-  showToast('✓ Ficha ajustada — falta que Ariel/Stef la controlen');
+  showToast('✓ Ficha ajustada — falta que Noelia la controle');
 }
 function deshacerFichaAjustada(secId,itemId){
   const item=sectionsData[secId].items[itemId];
@@ -4356,7 +4357,7 @@ function toggleControlFichaCorregida(secId,itemId,campo){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/${campo}`).set(nv);
   if(nv){
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/ficha_control_pendiente`).set(false);
-    const quien=campo.endsWith('ariel')?'Ariel':'Stef';
+    const quien=campo.endsWith('ariel')?'Ariel':campo.endsWith('noelia')?'Noelia':'Stef';
     logNotaAuto(secId,itemId,`✅ ${quien} controló y dio por buena la ficha corregida`);
   }
   logActivity(`Control ficha corregida ${nv?'✓':'✗'}`,item.code);
@@ -4427,7 +4428,7 @@ function confirmarDigitalizacionYAvanzar(secId,itemId){
   delete newItem.modificaciones;
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
-  logActivity('Molde digitalizado (Guada) — a Pendiente armar tizada',item.code);
+  logActivity('Molde digitalizado (Peque) — a Pendiente armar tizada',item.code);
   showToast(`🖨️ ${item.code} digitalizado → Pendiente armar tizada`);
 }
 
@@ -5182,7 +5183,7 @@ function fechaInicioResponsableActual(sec,item,secId){
     if(item.ficha_estado==='modificar') return item.ficha_mod_fecha||fechaPasoPeque||fechaPasoIngreso;
     if(!noeliaCompleta) return fechaPasoIngreso;
     if(!pequeCompleta) return fechaPasoNoelia;
-    const controlDone=!!(item.control_ariel||item.control_stef);
+    const controlDone=!!(item.control_ariel||item.control_stef||item.control_noelia);
     if(item.ficha_estado==='modificada'&&!controlDone) return item.ficha_resuelta_fecha||fechaPasoPeque;
     if(!controlDone) return fechaPasoPeque;
     if(item.base_aprobada) return item.fecha_paso_control||fechaPasoPeque;
@@ -5239,7 +5240,7 @@ function checkPasosNuevoDesarrollo(secId,itemId,patch){
   if(stefCompleta&&!item.fecha_paso_ingreso) updates.fecha_paso_ingreso=Date.now();
   if(noeliaCompletoNuevoDesarrollo(merged)&&!item.fecha_paso_noelia) updates.fecha_paso_noelia=item.fecha_paso_peque||Date.now();
   if(pequeCompletoNuevoDesarrollo(merged)&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
-  if((merged.control_ariel||merged.control_stef)&&!item.fecha_paso_control) updates.fecha_paso_control=Date.now();
+  if((merged.control_ariel||merged.control_stef||merged.control_noelia)&&!item.fecha_paso_control) updates.fecha_paso_control=Date.now();
   if(merged.modelista&&!item.fecha_paso_modelista) updates.fecha_paso_modelista=Date.now();
   if(Object.keys(updates).length){
     const dbUpdates={};
@@ -5713,19 +5714,19 @@ function buildPasosPanelHtml(item,secId,itemId){
   // (tiene que corregir la ficha) en vez de quedar en Ariel/Stef. Una vez que Peque la corrige,
   // vuelve a Ariel/Stef para el re-control.
   const fichaModPendiente=item.ficha_estado==='modificar';
-  const fichaControlDone=!!(item.control_ariel||item.control_stef);
+  const fichaControlDone=!!(item.control_ariel||item.control_stef||item.control_noelia);
   const fichaCorregidaEsperando=item.ficha_estado==='modificada'&&!fichaControlDone;
   const pasoControlFicha=fichaModPendiente
     ? { label:'Modificar ficha (pedido)', resp:'Peque', start:item.ficha_mod_fecha||fechaPasoPeque, end:null }
-    : { label:'Control de ficha', resp:'Ariel / Stef', start:fichaCorregidaEsperando?(item.ficha_resuelta_fecha||fechaPasoPeque):fechaPasoPeque, end:item.fecha_paso_control };
+    : { label:'Control de ficha', resp:'Noelia', start:fichaCorregidaEsperando?(item.ficha_resuelta_fecha||fechaPasoPeque):fechaPasoPeque, end:item.fecha_paso_control };
   const pasos=item.base_aprobada?[
-    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
+    { label:'Ingreso desarrollo', resp:'Noelia', start:item.fecha_ingreso, end:fechaPasoIngreso },
     { label:'Cargar código + Ninox', resp:'Noelia', start:fechaPasoIngreso, end:fechaPasoNoelia },
     { label:item.base_aprobada?'Ficha técnica':'Ficha técnica + avíos', resp:'Peque', start:fechaPasoNoelia, end:fechaPasoPeque },
     pasoControlFicha,
     { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_control, end:null }
   ]:[
-    { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
+    { label:'Ingreso desarrollo', resp:'Noelia', start:item.fecha_ingreso, end:fechaPasoIngreso },
     { label:'Cargar código + Ninox', resp:'Noelia', start:fechaPasoIngreso, end:fechaPasoNoelia },
     { label:item.base_aprobada?'Ficha técnica':'Ficha técnica + avíos', resp:'Peque', start:fechaPasoNoelia, end:fechaPasoPeque },
     pasoControlFicha,
@@ -5752,16 +5753,27 @@ function buildPasosPanelHtml(item,secId,itemId){
 }
 
 // Cuántos días en la misma etapa se consideran "atrasado", según lo definido para cada proceso
+// Nuevos desarrollos: plazo según el paso que está pendiente (mismo orden que getResponsable).
+function umbralNuevoDesarrollo(item){
+  if(!stefCompletoNuevoDesarrollo(item)) return 2;                 // Noelia: cargar datos
+  if(item.ficha_estado==='modificar') return 1;                    // Peque: corregir ficha pedida
+  if(!noeliaCompletoNuevoDesarrollo(item)) return 1;               // Noelia: código + Ninox
+  if(!pequeCompletoNuevoDesarrollo(item)) return 2;                // Peque: ficha técnica + avíos
+  if(!(item.control_ariel||item.control_stef||item.control_noelia)) return 1;           // Noelia: controlar ficha
+  if(item.base_aprobada) return 2;                                 // Peque: elegir base / enviar a tizada
+  if(!item.modelista) return 2;                                    // Ariel y Stef: asignar modelista
+  return 1;                                                        // Peque: separar tela y enviar a moldería
+}
 function umbralAtraso(sec,item,secId){
   const tipo=sec.tipo||'';
-  if(tipo==='muestra_prep') return 2;      // Nuevos Desarrollos (Peque: Ninox / ficha / enviar a moldería)
+  if(tipo==='muestra_prep') return umbralNuevoDesarrollo(item); // por paso, ver abajo
   if(tipo==='muestra_molderia'){
     // Esperando que la modelista entregue:
     //  - Adela hace molde + muestra: 7 días hábiles desde que se le da la tela (= se manda a moldería).
-    //  - Peque (u otra modelista) hace/modifica el molde: 4 días; después la muestra sigue a corte y
+    //  - Peque (u otra modelista) hace/modifica el molde: 2 días; después la muestra sigue a corte y
     //    taller muestrista, que tienen sus propios plazos.
     // Resto de los pasos de moldería (foto en Drive, enviar a corte): 2.
-    if(!item.entregada_modelista) return item.modelista==='Adela'?7:4;
+    if(!item.entregada_modelista) return item.modelista==='Adela'?7:2;
     return 2;
   }
   if(tipo==='muestra_cort'){               // Peque: pedir avíos (2) / esperar que lleguen (teñido 7, sin teñido 2)
@@ -5771,8 +5783,14 @@ function umbralAtraso(sec,item,secId){
   if(tipo==='muestra_en_taller') return 4; // Taller: entregar la muestra (máx. 4 días hábiles, reclama Peque)
   if(tipo==='muestra_lista') return 1;     // Peque: elegir taller y enviar (1 día desde que se corta)
   if(tipo==='mejora') return 2;            // Peque: resolver mejora
-  if(tipo==='muestra_pend') return 3;      // Cortador
-  if(tipo==='muestra_diseno') return 5;    // Ariel y Stef
+  if(tipo==='muestra_pend') return 1;      // Noelia: color y talle (1) / Cortador: cortar la muestra (1)
+  if(tipo==='muestra_diseno'){
+    if(item.ficha_control_pendiente) return 1;                            // Noelia: controlar ficha corregida
+    if(item.ficha_ajuste_pendiente) return 1;                             // Peque: ajustar ficha pedida
+    if(item.molde_aprobado&&necesitaProgresiones(item)) return 7;         // Peque: progresiones Minisur
+    if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 4; // Peque: digitalizar molde
+    return 5;                                                             // Ariel y Stef: probar y decidir
+  }
   if(tipo==='revision_final') return 5;    // Ariel y Stef
   if(tipo==='en_estampado_taller') return 5; // Emir/Plancha Nina: entregar estampado
   if(tipo==='en_terminacion') return 5;    // Taller de terminación (plancha/ojal/broche): entregar
@@ -5792,7 +5810,8 @@ function umbralAtraso(sec,item,secId){
   }
   if(!tipo){
     const t=(sec.title||'').trim().toLowerCase();
-    if(t.includes('pendiente progresiones')||t.includes('pendiente digitalizar')) return 2; // Peque / Guada
+    if(t.includes('pendiente progresiones')) return 7; // Peque: progresiones Minisur
+    if(t.includes('pendiente digitalizar')) return 4;  // Peque: digitalizar molde
     return 1; // secciones custom (ej. "Pendiente armar tizada") — Peque
   }
   return 5;
@@ -6708,8 +6727,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // --- NUEVOS DESARROLLOS: nombre + código + ficha + control, todo en la misma tarjeta ---
   if(tipo==='muestra_prep'){
     const ninox=item.en_ninox||false;
-    const cStef=item.control_stef||false, cAriel=item.control_ariel||false;
-    const controlDone=cAriel||cStef;
+    const cStef=item.control_stef||false, cAriel=item.control_ariel||false, cNoelia=item.control_noelia||false;
+    const controlDone=cAriel||cStef||cNoelia;
     const fichaModPendiente=item.ficha_estado==='modificar';
     const fichaCorregidaEsperando=item.ficha_estado==='modificada'&&!controlDone;
     const fichaStatusLabel=fichaModPendiente
@@ -6763,7 +6782,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canStef?buildTemporadaHtml(secId,itemId,item):''}
           ${buildFechaObjetivoRecibirHtml(secId,itemId,item,canStef)}
           ${canStef?buildColorMuestraHtml(secId,itemId,item):(item.color_muestra?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Color de la muestra: <strong>${item.color_muestra}</strong></div>`:'')}
-          ${!item.color_muestra?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:6px">⚠️ Falta elegir el color de la muestra (Stef)</div>`:''}
+          ${!item.color_muestra?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:6px">⚠️ Falta elegir el color de la muestra (Noelia)</div>`:''}
 
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
             <span class="modelista-label">Link:</span>
@@ -6805,6 +6824,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             <span style="font-size:12px;font-weight:600;color:${fichaStatusColor}">${fichaStatusLabel}</span>
             ${canControl&&item.ficha_link&&!fichaModPendiente?`<button class="radio-btn ${cAriel?'selected':''}" onclick="toggleControlFicha('${secId}','${itemId}','control_ariel')">${cAriel?'✓ ':''}Ariel</button>
             <button class="radio-btn ${cStef?'selected':''}" onclick="toggleControlFicha('${secId}','${itemId}','control_stef')">${cStef?'✓ ':''}Stef</button>
+            <button class="radio-btn ${cNoelia?'selected':''}" onclick="toggleControlFicha('${secId}','${itemId}','control_noelia')">${cNoelia?'✓ ':''}Noelia</button>
             ${!fichaCorregidaEsperando?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirModificacionFicha('${secId}','${itemId}')">🔧 Pedir modificación</button>`:''}`:''}
             ${canControl&&!item.ficha_link?`<span style="font-size:11px;color:var(--text3);font-style:italic">Cargá la ficha primero</span>`:''}
           </div>
@@ -6972,10 +6992,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
             }
             if(item.ficha_control_pendiente){
               return `<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
-                <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
+                <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Noelia vuelva a controlar la ficha ajustada</div>
                 ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
                 ${canControlFicha?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
-                <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
+                <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>
+                <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_noelia')">Noelia</button>`:''}
               </div>`;
             }
             if(item.ficha_confirmada_ok){
@@ -7254,7 +7275,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const canCortar=secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const necesitaRollosParaSeguir=POST_S3_SECS.includes(secId)&&secId!=='s3'&&secId!=='sFIN'&&!Object.values(item.rollos||{}).some(r=>r&&(r.color||r.kgmts||r.capas));
   const canFicha=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='arimoron';
-  const canControlFichaCorreccion=(currentUser==='ariel'||currentUser==='stef');
+  const canControlFichaCorreccion=(currentUser==='ariel'||currentUser==='stef'||usuarioLogueado==='noelia');
   // "Molde - Pendiente Digitalizar" es una sección genérica (sin tipo propio), así que NO puede
   // usar el botón estándar "▶ Siguiente paso" (avanza por orden en el tablero, no por el flujo
   // real) — eso es lo que la mandaba mal a "Muestras — canceladas". El único paso válido acá es
@@ -7506,14 +7527,15 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" onclick="editarAjusteFichaDiseno('${secId}','${itemId}')">✏️ Editar</button>`:''}
         </div>`:''}
         ${(!item.ficha_ajuste_pendiente&&item.ficha_control_pendiente)?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
-          <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Ariel/Stef vuelvan a controlar la ficha ajustada</div>
+          <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Noelia vuelva a controlar la ficha ajustada</div>
           ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
           ${canControlFichaCorreccion?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
-          <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>`:''}
+          <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>
+          <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_noelia')">Noelia</button>`:''}
         </div>`:''}
         ${(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado&&!necesitaProgresiones(item))?`<div class="avio-item" style="padding-left:0;border-top:none">
           <div class="c-check" onclick="${((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?`confirmarDigitalizacionYAvanzar('${secId}','${itemId}')`:''}"></div>
-          <span class="c-label" style="font-size:11px">🖨️ Molde digitalizado (Guada) — al tildar pasa a Pendiente armar tizada</span>
+          <span class="c-label" style="font-size:11px">🖨️ Molde digitalizado (Peque) — al tildar pasa a Pendiente armar tizada</span>
         </div>`:''}
         ${(!POST_S3_SECS.includes(secId)&&(!esArmarTizada||!item.base_aprobada))?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
           <div class="c-check ${item.base_aprobada?'checked':''}" onclick="toggleBaseAprobada('${secId}','${itemId}')">${item.base_aprobada?'✓':''}</div>
@@ -7530,7 +7552,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
           }
           if(item.ficha_ajuste_pendiente) faltantes.push('Ajustar ficha técnica pedida');
-          else if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida (Ariel/Stef)');
+          else if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida (Noelia)');
           const list=faltantes.filter(Boolean);
           if(!list.length) return '';
           return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
@@ -7569,7 +7591,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${esPendienteProgresiones
             ? (canEdit?`<button class="btn-advance" onclick="confirmarProgresionesYAvanzar('${secId}','${itemId}')">📏 Progresiones hechas → Pendiente Digitalizar</button>`:'')
             : esPendienteDigitalizar
-            ? (canEdit?`<button class="btn-advance" onclick="confirmarDigitalizacionYAvanzar('${secId}','${itemId}')">🖨️ Molde digitalizado (Guada) → Pendiente armar tizada</button>`:'')
+            ? (canEdit?`<button class="btn-advance" onclick="confirmarDigitalizacionYAvanzar('${secId}','${itemId}')">🖨️ Molde digitalizado (Peque) → Pendiente armar tizada</button>`:'')
             : (canEdit?`<button class="btn-advance" ${necesitaRollosParaSeguir?'disabled':''} title="${necesitaRollosParaSeguir?'Falta cargar los rollos utilizados':''}" onclick="siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`:'')}
           ${moveOpts}
           ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
@@ -9507,7 +9529,7 @@ function moveItem(secId,itemId,targetSecId){
     const esArmarTizada=(sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
     const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null,
       ...(esArmarTizada?[!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null]:[]),
-      item.ficha_ajuste_pendiente?'Ajustar ficha técnica pedida':(item.ficha_control_pendiente?'Control de ficha corregida (Ariel/Stef)':null)
+      item.ficha_ajuste_pendiente?'Ajustar ficha técnica pedida':(item.ficha_control_pendiente?'Control de ficha corregida (Noelia)':null)
     ].filter(Boolean);
     if(faltantes.length){
       showToast(`⏳ Pendiente completar Peque: falta ${faltantes.join(', ')}`);

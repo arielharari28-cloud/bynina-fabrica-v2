@@ -1105,6 +1105,10 @@
       </div>
       <div class="field" id="base-add-manual-wrap" style="display:none"><label>Base manual (código/nombre)</label><input type="text" id="base-add-manual"></div>
       <div class="field"><label>Código (opcional — lo puede cargar Peque después)</label><input type="text" id="base-add-code" placeholder="Si todavía no lo tenés, dejalo vacío…"></div>
+      <div class="field"><label>Nota (opcional)</label><textarea id="base-add-nota" rows="2" placeholder="Ej: cambia el largo, va con bolsillo…" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical"></textarea></div>
+      <div class="field"><label>Foto (si es un artículo nuevo — si no, usa la de la base)</label>
+        <div id="base-add-foto-preview" onclick="baseAddTriggerFoto()" style="width:100%;height:110px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:12px;overflow:hidden;background:var(--surface2)">📷 Agregar foto</div>
+      </div>
     </div>
     <div class="modal-footer"><button class="btn-secondary" id="cancel-modal-base-add">Cancelar</button><button class="btn-primary" id="save-modal-base-add">Crear</button></div>
   </div>
@@ -7095,6 +7099,9 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // así que acá hace falta elegir de qué base salimos y, como es un código nuevo, Peque tiene
   // que asignarle ficha, nombre, código y cargarlo en Ninox antes de poder pasar a tiza.
   const esArmarTizada = (sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
+  // Noelia carga artículos en "Pendiente armar tizada": ahí puede agregar notas al historial y
+  // poner/cambiar la foto (nada más — el resto de la tarjeta sigue de solo lectura para ella).
+  const noeliaEnTizada = esArmarTizada && currentUser==='noelia';
   const baseHtml = (esArmarTizada&&item.base_aprobada) ? buildBaseTizadaHtml(secId,itemId,item,canFicha) : '';
   const reposicionHtml = (esArmarTizada && item.origen_reposicion) ? buildReposicionBannerHtml(item) : '';
   const checkHtml = secId==='s3'
@@ -7222,7 +7229,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
     ${orderHtml}
     ${checkHtml}
     <div class="item-with-photo" style="flex:2;min-width:280px">
-      ${buildPhotoHtml(secId,itemId,item,canEdit)}
+      ${buildPhotoHtml(secId,itemId,item,canEdit||noeliaEnTizada)}
       <div class="item-body">
         ${POST_S3_SECS.includes(secId)
           ? (()=>{
@@ -7370,6 +7377,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${secId==='sFIN'?buildEntregasFabricaHtml(secId,itemId,item):''}
         ${avioPendienteBannerHtml}
         ${notaHtml}
+        ${esArmarTizada?buildNotasHtml(secId,itemId,item,canFicha||noeliaEnTizada,'Notas:'):''}
         ${liquidarBadgeHtml}
         ${pedidoSinAvioHtml}
         ${aviosHtml}
@@ -7383,7 +7391,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${sacarTallerHtml}
           ${canEntregarRevision?`<button class="btn-advance" ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||(item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item))?'title="Faltan movimientos a talleres extra por cerrar"':''} onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
-          ${canFicha?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
+          ${(canFicha&&!esArmarTizada)?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
           ${esPendienteProgresiones
             ? (canEdit?`<button class="btn-advance" onclick="confirmarProgresionesYAvanzar('${secId}','${itemId}')">📏 Progresiones hechas → Pendiente Digitalizar</button>`:'')
@@ -9170,7 +9178,43 @@ function openBaseAddModal(secId){
   document.getElementById('base-add-code').value='';
   document.getElementById('base-add-manual').value='';
   document.getElementById('base-add-manual-wrap').style.display='none';
+  document.getElementById('base-add-nota').value='';
+  baseAddFotoFile=null;
+  baseAddActualizarPreviewFoto();
   document.getElementById('modal-base-add').classList.remove('hidden');
+}
+// Foto opcional al crear desde base: si se elige una, se sube a Cloudinary al tocar "Crear" y
+// reemplaza la de la base; si no, el artículo hereda la foto de la base (como antes).
+let baseAddFotoFile=null;
+function baseAddTriggerFoto(){
+  const input=document.createElement('input');
+  input.type='file'; input.accept='image/*';
+  input.onchange=e=>{ if(e.target.files[0]){ baseAddFotoFile=e.target.files[0]; baseAddActualizarPreviewFoto(); } };
+  input.click();
+}
+function baseAddActualizarPreviewFoto(){
+  const box=document.getElementById('base-add-foto-preview');
+  if(!box) return;
+  if(baseAddFotoFile){
+    const url=URL.createObjectURL(baseAddFotoFile);
+    box.innerHTML=`<img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain">`;
+    return;
+  }
+  const sel=document.getElementById('base-add-select');
+  const [rs,ri]=(sel&&sel.value&&sel.value!=='__manual__')?sel.value.split('::'):[null,null];
+  const ref=rs?sectionsData[rs]?.items?.[ri]:null;
+  box.innerHTML=ref&&ref.foto
+    ? `<div style="position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center"><img src="${ref.foto}" style="max-width:100%;max-height:100%;object-fit:contain;opacity:.55"><span style="position:absolute;background:var(--surface);padding:2px 8px;border-radius:6px;font-size:11px">Foto de la base · tocá para cambiarla</span></div>`
+    : '📷 Agregar foto';
+}
+async function baseAddSubirFoto(file){
+  const formData=new FormData();
+  formData.append('file',file);
+  formData.append('upload_preset',CLOUDINARY_PRESET);
+  const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+  const data=await res.json();
+  if(!data.secure_url) throw new Error('sin url');
+  return data.secure_url;
 }
 function closeBaseAddModal(){
   document.getElementById('modal-base-add').classList.add('hidden');
@@ -9184,8 +9228,9 @@ document.getElementById('base-add-select').onchange=function(){
     const nameInp=document.getElementById('base-add-name');
     if(ref&&ref.name&&!nameInp.value.trim()) nameInp.value=ref.name;
   }
+  baseAddActualizarPreviewFoto();
 };
-function confirmBaseAdd(){
+async function confirmBaseAdd(){
   const name=(document.getElementById('base-add-name').value||'').trim();
   if(!name){ showToast('Falta el nombre de la prenda'); return; }
   const code=(document.getElementById('base-add-code').value||'').trim();
@@ -9200,6 +9245,15 @@ function confirmBaseAdd(){
     ref=sectionsData[refSec]?.items?.[refId];
     if(!ref){ showToast('No encontré esa base'); return; }
   }
+  const notaExtra=(document.getElementById('base-add-nota').value||'').trim();
+  let fotoNueva='';
+  if(baseAddFotoFile){
+    const btn=document.getElementById('save-modal-base-add');
+    btn.disabled=true; showToast('📤 Subiendo foto...');
+    try{ fotoNueva=await baseAddSubirFoto(baseAddFotoFile); }
+    catch(e){ btn.disabled=false; showToast('✗ No se pudo subir la foto — probá de nuevo o creá sin foto'); return; }
+    btn.disabled=false;
+  }
   const ahora=Date.now();
   const ni={
     code,
@@ -9210,10 +9264,11 @@ function confirmBaseAdd(){
     tela:ref?.tela||null,
     proveedor:ref?.proveedor||null,
     ref_link:ref?.ref_link||null,
-    foto:ref?.foto||'',
+    foto:fotoNueva||ref?.foto||'',
     base_aprobada:true,
     base_ref_sec:refSec,base_ref_id:refId,base_ref_manual:refManual,
     nota:`Base ya aprobada — cargado directo en Pendiente armar tizada${ref?.code||ref?.name?` (base: ${ref?.code||''} ${ref?.name||''})`.trim():''}`,
+    ...(notaExtra?{notas_log:{['n'+ahora]:{texto:notaExtra,autor:currentUser,fecha:ahora}}}:{}),
     done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora
   };
   db.ref(`fabrica_v5/sections/${baseAddSecId}/items`).push(ni);
@@ -10541,9 +10596,10 @@ function renderPendientes(){
     });
   });
 
-  const esAriel=(currentUser==='ariel'||currentUser==='stef');
+  // Ariel, Stef y Noelia ven los pendientes de todos; el resto solo los suyos.
+  const verTodos=(currentUser==='ariel'||currentUser==='stef'||currentUser==='noelia');
   const miNombre=USER_DISPLAY[currentUser];
-  const filasVisibles=esAriel?filas:filas.filter(f=>f.resp===miNombre);
+  const filasVisibles=verTodos?filas:filas.filter(f=>f.resp===miNombre);
 
   // Clave de agrupamiento según el modo elegido arriba.
   const claveDe = f => pendAgrupar==='empleado' ? f.resp : pendAgrupar==='sector' ? f.secTitle : f.accion;

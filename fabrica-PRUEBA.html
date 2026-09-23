@@ -5988,8 +5988,15 @@ function renderSections(board){
         const itemsF=aplicarFiltroYOrdenCorte(items);
         itemsHtml=buildFiltroCorteBarHtml(items)+buildCompactRowsHtml(secId,itemsF,sec);
       } else if(secId==='s3'){
-        // Confirmados primero (en su orden), los de la cola al final.
-        itemsHtml=buildCompactRowsHtml(secId,[...items.filter(([,it])=>!it.sin_confirmar),...items.filter(([,it])=>it.sin_confirmar)],sec);
+        // Igual que en tarjetas: la cola (pendientes de aprobación) arriba y plegable, después los confirmados.
+        const enColaC=items.filter(([,it])=>it.sin_confirmar);
+        const confC=items.filter(([,it])=>!it.sin_confirmar);
+        const hdr=(txt,extra)=>`<div style="font-size:12px;font-weight:700;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;${extra||''}">${txt}</div>`;
+        itemsHtml=(enColaC.length
+            ? hdr(`<span style="display:inline-block;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span> 🕓 En cola — pendientes de aprobación de Ari (${enColaC.length})`,'color:var(--warn-text);cursor:pointer" onclick="toggleColaCollapsed()')
+              +(colaCollapsed?'':buildCompactRowsHtml(secId,enColaC,sec))
+            : '')
+          +(confC.length?(enColaC.length?hdr(`✂️ Próximos a sacar (${confC.length})`,'color:var(--text2)'):'')+buildCompactRowsHtml(secId,confC,sec):'');
       } else {
         itemsHtml=buildCompactRowsHtml(secId,items,sec);
       }

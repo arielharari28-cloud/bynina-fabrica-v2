@@ -2637,6 +2637,7 @@ function getResponsable(sec,item,secId){
   if(tipo==='muestra_prep'){
     if(!stefCompletoNuevoDesarrollo(item)) return 'Stef';
     if(item.ficha_estado==='modificar') return 'Peque';
+    if(!noeliaCompletoNuevoDesarrollo(item)) return 'Noelia';
     if(!pequeCompletoNuevoDesarrollo(item)) return 'Peque';
     if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ariel y Stef';
     if(!(item.control_ariel||item.control_stef)) return 'Ariel y Stef';
@@ -2718,10 +2719,14 @@ function getProximaAccion(sec,item,secId){
       return `Falta cargar (Stef): ${falta.join(', ')}`;
     }
     if(item.ficha_estado==='modificar') return 'Falta corregir la ficha técnica pedida';
+    if(!noeliaCompletoNuevoDesarrollo(item)){
+      if(!item.code||!String(item.code).trim()) return 'Falta cargar el código (Noelia)';
+      return 'Falta cargar en Ninox (Noelia)';
+    }
     if(!pequeCompletoNuevoDesarrollo(item)){
-      if(!item.code||!item.code.trim()) return 'Falta cargar el código';
-      if(!item.en_ninox) return 'Falta cargar en Ninox';
-      return 'Falta subir la ficha técnica';
+      if(!item.ficha_link) return 'Falta subir la ficha técnica';
+      if(item.lleva_avios===true) return 'Falta cargar los avíos de la ficha';
+      return 'Falta definir si lleva avíos';
     }
     if(item.ficha_estado==='modificada'&&!(item.control_ariel||item.control_stef)) return 'Ficha corregida — esperando que Ariel/Stef la controlen';
     if(!(item.control_ariel||item.control_stef)) return 'Esperando control de ficha (Ariel/Stef)';
@@ -2748,7 +2753,8 @@ function getProximaAccion(sec,item,secId){
     if(item.lleva_avios===true){
       const avios=Object.values(item.avios||{});
       if(!avios.length) return 'Falta cargar los avíos';
-      if(!avios.every(a=>a.recibido)) return 'Esperando que lleguen los avíos';
+      if(avios.some(a=>!a.recibido&&!a.fecha_pedido)) return 'Falta pedir los avíos';
+      if(!avios.every(a=>a.recibido)) return avios.some(a=>!a.recibido&&a.tenido)?'Esperando que lleguen los avíos (con teñido)':'Esperando que lleguen los avíos';
     }
     return 'Falta pasar a Muestra Lista';
   }
@@ -2774,8 +2780,14 @@ function getProximaAccion(sec,item,secId){
   if(secId==='s5') return 'Esperando que llegue el avío pedido';
   if(secId==='s3b') return 'Esperando que llegue el avío (antes de salir a taller)';
   if(secId==='s6') return 'Esperando que llegue el avío pedido (la prenda ya está en el taller)';
-  if(secId==='sLT'||secId==='sFIN') return 'Falta que el taller lo entregue';
-  if(!tipo) return 'Falta armar la tizada';
+  if(secId==='sLT') return 'Falta sacar a taller (Emir)';
+  if(secId==='sFIN') return 'Falta que el taller lo entregue';
+  if(!tipo){
+    const t=(sec.title||'').trim().toLowerCase();
+    if(t.includes('pendiente progresiones')) return '📏 Falta hacer las progresiones (Minisur)';
+    if(t.includes('pendiente digitalizar')) return '🖨️ Falta digitalizar el molde (Guada)';
+    return 'Falta armar la tizada';
+  }
   return null;
 }
 
@@ -2805,6 +2817,9 @@ function esSeccionTalleres(secId,sec){
 }
 
 // Nombre visible de cada login
+// Usuario que inició sesión de verdad — currentUser se cambia temporalmente al renderizar
+// Diseño para Noelia (se la trata como Stef), así que para permisos puntuales de ella se usa este.
+let usuarioLogueado=null;
 const USER_DISPLAY = {ariel:'Ariel',stef:'Stef',peque:'Peque',emir:'Emir',arimoron:'Ari Morón',nahuel:'Nahuel',noemi:'Noemí',noelia:'Noelia',meli:'Meli',alejandro:'Alejandro'};
 
 // Lista de modelistas (editable: se puede agregar una nueva directo desde la ficha)
@@ -3009,6 +3024,7 @@ document.getElementById('user-chip').onclick=doLogout;
 
 function doLogin(user){
   currentUser=user;
+  usuarioLogueado=user;
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app').style.display='block';
   document.getElementById('user-chip').innerHTML=user.charAt(0).toUpperCase()+user.slice(1)+' <span style="opacity:.4">salir</span>';
@@ -3093,7 +3109,8 @@ function backfillPasosNuevoDesarrollo(){
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       const stefCompleta=stefCompletoNuevoDesarrollo(item);
       if(stefCompleta&&!item.fecha_paso_ingreso) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=ahora;
-      if(item.code&&item.code.trim()&&item.en_ninox&&item.ficha_link&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
+      if(noeliaCompletoNuevoDesarrollo(item)&&!item.fecha_paso_noelia) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_noelia`]=item.fecha_paso_peque||ahora;
+      if(pequeCompletoNuevoDesarrollo(item)&&!item.fecha_paso_peque) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=ahora;
       if((item.control_ariel||item.control_stef)&&!item.fecha_paso_control) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_control`]=ahora;
       if(item.modelista&&!item.fecha_paso_modelista) updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_modelista`]=ahora;
     });
@@ -3580,8 +3597,12 @@ function moverACortada(secId,itemId){
   const fecha=prompt('¿Qué fecha se cortó esta muestra?',fechaDefault);
   if(fecha===null) return;
   const fechaFinal=fecha.trim()||fechaDefault;
-  const newItem={...item,ficha:false,lleva_avios:null,avios:item.avios||{},fecha_corte:fechaFinal,fecha_corte_ts:Date.now(),cortado_por:currentUser,fecha_etapa:Date.now()};
-  db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
+  // La ficha y la definición de avíos ya se hicieron en Nuevos desarrollos: vienen con la muestra.
+  // Si no lleva avíos (o ya llegaron todos), pasa sola a Muestra lista.
+  const llevaPrevio=(item.lleva_avios===true||item.lleva_avios===false)?item.lleva_avios:null;
+  const newItem={...item,ficha:!!item.ficha_link||!!item.ficha,lleva_avios:llevaPrevio,avios:item.avios||{},fecha_corte:fechaFinal,fecha_corte_ts:Date.now(),cortado_por:currentUser,fecha_etapa:Date.now()};
+  const nuevoRef=db.ref(`fabrica_v5/sections/${SEC_CORT}/items`).push(newItem);
+  setTimeout(()=>checkListaParaTaller(SEC_CORT,nuevoRef.key,newItem.ficha,newItem.lleva_avios,newItem.avios),300);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra cortada',`${item.code}: ${fechaFinal}`);
   showToast(`✂️ ${item.code} pasó a Cortadas`);
@@ -3673,6 +3694,7 @@ function marcarEnviadoTallerAutorizado(secId,itemId){
 function setLlevaAviosLista(secId,itemId,val){
   const item=sectionsData[secId].items[itemId];
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/lleva_avios`).set(val);
+  checkPasosNuevoDesarrollo(secId,itemId,{lleva_avios:val});
   logActivity(`Lleva avíos: ${val?'Sí':'No'}`,item.code);
   showToast(val?'Lleva avíos: Sí':'Sin avíos requeridos');
 }
@@ -5125,8 +5147,21 @@ function diasEntreTs(a,b){
 function stefCompletoNuevoDesarrollo(item){
   return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada&&!!item.color_muestra&&!!item.ref_link&&!!item.fecha_objetivo_recibir;
 }
+// Nuevos desarrollos, después de lo que carga Stef: primero Noelia carga código y Ninox, después
+// Peque hace la ficha técnica y define los avíos (si lleva o no, y cuáles). Los avíos se definen
+// acá pero se PIDEN recién cuando la muestra está cortada.
+function noeliaCompletoNuevoDesarrollo(item){
+  return !!(item.code&&String(item.code).trim())&&!!item.en_ninox;
+}
+function aviosDefinidosNuevoDesarrollo(item){
+  if(item.base_aprobada) return true;       // sale de base: los avíos se manejan en el corte
+  if(item.fecha_paso_peque) return true;    // ya había pasado este paso antes del cambio
+  if(item.lleva_avios===false) return true;
+  if(item.lleva_avios===true) return Object.keys(item.avios||{}).length>0;
+  return false;
+}
 function pequeCompletoNuevoDesarrollo(item){
-  return !!(item.code&&String(item.code).trim())&&!!item.en_ninox&&!!item.ficha_link;
+  return noeliaCompletoNuevoDesarrollo(item)&&!!item.ficha_link&&aviosDefinidosNuevoDesarrollo(item);
 }
 // Fecha en que arrancó el reloj de la tarea que hoy le toca al responsable ACTUAL —
 // no la fecha en que el ítem entró a la sección. En "Nuevos Desarrollos" el responsable
@@ -5138,12 +5173,15 @@ function fechaInicioResponsableActual(sec,item,secId){
   const tipo=sec.tipo||'';
   if(tipo==='muestra_prep'){
     const stefCompleta=stefCompletoNuevoDesarrollo(item);
+    const noeliaCompleta=noeliaCompletoNuevoDesarrollo(item);
     const pequeCompleta=pequeCompletoNuevoDesarrollo(item);
     const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompleta?item.fecha_ingreso:null);
-    const fechaPasoPeque=item.fecha_paso_peque||(pequeCompleta?fechaPasoIngreso:null);
+    const fechaPasoNoelia=item.fecha_paso_noelia||(noeliaCompleta?(item.fecha_paso_peque||fechaPasoIngreso):null);
+    const fechaPasoPeque=item.fecha_paso_peque||(pequeCompleta?fechaPasoNoelia:null);
     if(!stefCompleta) return item.fecha_ingreso;
     if(item.ficha_estado==='modificar') return item.ficha_mod_fecha||fechaPasoPeque||fechaPasoIngreso;
-    if(!pequeCompleta) return fechaPasoIngreso;
+    if(!noeliaCompleta) return fechaPasoIngreso;
+    if(!pequeCompleta) return fechaPasoNoelia;
     const controlDone=!!(item.control_ariel||item.control_stef);
     if(item.ficha_estado==='modificada'&&!controlDone) return item.ficha_resuelta_fecha||fechaPasoPeque;
     if(!controlDone) return fechaPasoPeque;
@@ -5152,7 +5190,44 @@ function fechaInicioResponsableActual(sec,item,secId){
     if(item.modelista==='Adela'&&!item.tela_entregada) return item.fecha_paso_control||fechaPasoPeque;
     return item.fecha_paso_modelista||item.fecha_paso_control||fechaPasoPeque;
   }
+  // Esperando avíos: el reloj arranca cuando se pidió el último avío que falta, no cuando entró a la etapa.
+  const esperandoAvios = (tipo==='muestra_cort'&&item.lleva_avios===true) || secId==='s5'||secId==='s3b'||secId==='s6'
+    || (secId==='s3'&&!item.sin_confirmar);
+  if(esperandoAvios){
+    const e=esperaAvios(item);
+    if(e&&e.inicio) return e.inicio;
+  }
   return item.fecha_etapa;
+}
+
+// Avíos que faltan recibir: si ya están todos pedidos, devuelve el plazo de espera (7 días hábiles
+// si alguno lleva teñido, 2 si no) y desde cuándo corre (el último pedido). Si falta pedir alguno, null.
+function esperaAvios(item){
+  const pend=Object.values(item.avios||{}).filter(a=>a&&!a.recibido);
+  if(!pend.length||pend.some(a=>!a.fecha_pedido)) return null;
+  const inicio=Math.max(...pend.map(a=>logiParseFechaEntregado(a.fecha_pedido)||0));
+  return {umbral:pend.some(a=>a.tenido)?7:2, inicio:inicio||null};
+}
+
+// Días hábiles hasta una fecha: positivo si es a futuro, 0 si es hoy, negativo si ya pasó.
+function diasHabilesHasta(ts){
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const d=new Date(ts); d.setHours(0,0,0,0);
+  if(d>=hoy){
+    let n=0; const c=new Date(hoy);
+    while(c<d){ c.setDate(c.getDate()+1); const w=c.getDay(); if(w!==0&&w!==6) n++; }
+    return n;
+  }
+  return -diasHabilesEntre(d.getTime());
+}
+// Cortes confirmados con fecha objetivo: el plazo en Pendientes es esa fecha (reemplaza el plazo
+// fijo por paso). Devuelve {dias,umbral} en el mismo formato que usa avisoPlazo(), o null.
+function plazoObjetivoCorte(sec,item,secId){
+  if(secId!=='s3'||item.sin_confirmar||!item.fecha_objetivo_corte) return null;
+  const ts=logiParseFechaEntregado(item.fecha_objetivo_corte);
+  if(!ts) return null;
+  const h=diasHabilesHasta(ts);
+  return h>=0?{dias:0,umbral:h+1}:{dias:-h,umbral:1};
 }
 
 function checkPasosNuevoDesarrollo(secId,itemId,patch){
@@ -5162,7 +5237,8 @@ function checkPasosNuevoDesarrollo(secId,itemId,patch){
   const updates={};
   const stefCompleta=stefCompletoNuevoDesarrollo(merged);
   if(stefCompleta&&!item.fecha_paso_ingreso) updates.fecha_paso_ingreso=Date.now();
-  if(merged.code&&String(merged.code).trim()&&merged.en_ninox&&merged.ficha_link&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
+  if(noeliaCompletoNuevoDesarrollo(merged)&&!item.fecha_paso_noelia) updates.fecha_paso_noelia=item.fecha_paso_peque||Date.now();
+  if(pequeCompletoNuevoDesarrollo(merged)&&!item.fecha_paso_peque) updates.fecha_paso_peque=Date.now();
   if((merged.control_ariel||merged.control_stef)&&!item.fecha_paso_control) updates.fecha_paso_control=Date.now();
   if(merged.modelista&&!item.fecha_paso_modelista) updates.fecha_paso_modelista=Date.now();
   if(Object.keys(updates).length){
@@ -5612,17 +5688,20 @@ function buildPasosPanelHtml(item,secId,itemId){
   // exclusivamente de que algún backfill haya corrido a tiempo — así el panel nunca
   // se queda pegado en "Pendiente" aunque los datos ya estén completos.
   const stefCompletaLive=stefCompletoNuevoDesarrollo(item);
+  const noeliaCompletaLive=noeliaCompletoNuevoDesarrollo(item);
   const pequeCompletaLive=pequeCompletoNuevoDesarrollo(item);
   // Importante: el fallback de cada paso tiene que ser "ahora" (el momento en que lo vemos
   // completo por primera vez), NUNCA la fecha del paso anterior — si no, el conteo de días
   // del paso siguiente arranca desde una fecha vieja aunque recién se acabó de completar.
   const fechaPasoIngreso=item.fecha_paso_ingreso||(stefCompletaLive?now:null);
+  const fechaPasoNoelia=item.fecha_paso_noelia||(noeliaCompletaLive?(item.fecha_paso_peque||now):null);
   const fechaPasoPeque=item.fecha_paso_peque||(pequeCompletaLive?now:null);
   if(secId&&itemId){
     const key=secId+'/'+itemId;
     if(!pasosAutoFixed.has(key)){
       const upd={};
       if(stefCompletaLive&&!item.fecha_paso_ingreso) upd[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_ingreso`]=fechaPasoIngreso;
+      if(noeliaCompletaLive&&!item.fecha_paso_noelia) upd[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_noelia`]=fechaPasoNoelia;
       if(pequeCompletaLive&&!item.fecha_paso_peque) upd[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_paso_peque`]=fechaPasoPeque;
       if(Object.keys(upd).length){
         pasosAutoFixed.add(key);
@@ -5641,12 +5720,14 @@ function buildPasosPanelHtml(item,secId,itemId){
     : { label:'Control de ficha', resp:'Ariel / Stef', start:fichaCorregidaEsperando?(item.ficha_resuelta_fecha||fechaPasoPeque):fechaPasoPeque, end:item.fecha_paso_control };
   const pasos=item.base_aprobada?[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
-    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
+    { label:'Cargar código + Ninox', resp:'Noelia', start:fechaPasoIngreso, end:fechaPasoNoelia },
+    { label:item.base_aprobada?'Ficha técnica':'Ficha técnica + avíos', resp:'Peque', start:fechaPasoNoelia, end:fechaPasoPeque },
     pasoControlFicha,
     { label:'Enviar a Pendiente armar tizada', resp:'Peque', start:item.fecha_paso_control, end:null }
   ]:[
     { label:'Ingreso desarrollo', resp:'Stef', start:item.fecha_ingreso, end:fechaPasoIngreso },
-    { label:'Cargar código + Ninox + ficha', resp:'Peque', start:fechaPasoIngreso, end:fechaPasoPeque },
+    { label:'Cargar código + Ninox', resp:'Noelia', start:fechaPasoIngreso, end:fechaPasoNoelia },
+    { label:item.base_aprobada?'Ficha técnica':'Ficha técnica + avíos', resp:'Peque', start:fechaPasoNoelia, end:fechaPasoPeque },
     pasoControlFicha,
     { label:'Elegir modelista', resp:'Ariel / Stef', start:item.fecha_paso_control, end:item.fecha_paso_modelista },
     { label:'Enviar a moldería', resp:'Peque', start:item.fecha_paso_modelista, end:null }
@@ -5675,7 +5756,10 @@ function umbralAtraso(sec,item,secId){
   const tipo=sec.tipo||'';
   if(tipo==='muestra_prep') return 2;      // Nuevos Desarrollos (Peque: Ninox / ficha / enviar a moldería)
   if(tipo==='muestra_molderia') return 2;  // Peque: foto en Drive
-  if(tipo==='muestra_cort') return 2;      // Peque: avíos
+  if(tipo==='muestra_cort'){               // Peque: pedir avíos (2) / esperar que lleguen (teñido 7, sin teñido 2)
+    const e=item.lleva_avios===true?esperaAvios(item):null;
+    return e?e.umbral:2;
+  }
   if(tipo==='muestra_en_taller') return 3; // Peque: reclamar al taller
   if(tipo==='muestra_lista') return 2;     // Peque: elegir taller
   if(tipo==='mejora') return 2;            // Peque: resolver mejora
@@ -5685,17 +5769,24 @@ function umbralAtraso(sec,item,secId){
   if(tipo==='en_estampado_taller') return 5; // Emir/Plancha Nina: entregar estampado
   if(tipo==='en_terminacion') return 5;    // Taller de terminación (plancha/ojal/broche): entregar
   if(secId==='s4') return 2;               // Peque: pedir avío
-  if(secId==='s5') return 7;               // Peque: esperando que llegue el avío
+  if(secId==='s5'||secId==='s3b'||secId==='s6'){ // esperando que llegue el avío: teñido 7, sin teñido 2
+    const e=esperaAvios(item);
+    return e?e.umbral:2;
+  }
   if(secId==='sLT') return 2;              // Emir: sacar a taller
   if(secId==='sFIN') return 10;            // Emir: marcar entregado
   if(secId==='s3'){
     if(item.sin_confirmar) return 5;       // Ariel: confirmar
     const avios=Object.values(item.avios||{});
-    if(avios.length&&!avios.every(a=>a.recibido)) return 3; // Peque: avíos
+    if(avios.length&&!avios.every(a=>a.recibido)){ const e=esperaAvios(item); return e?e.umbral:2; } // Peque: pedir / esperar avíos
     if(!ordenCargadaGrupo(item)) return 3; // Ariel: cargar orden de corte
     return 3;                              // Cortador: encimar/cortar
   }
-  if(!tipo) return 1; // secciones custom (ej. "Pendiente armar tizada") — Peque
+  if(!tipo){
+    const t=(sec.title||'').trim().toLowerCase();
+    if(t.includes('pendiente progresiones')||t.includes('pendiente digitalizar')) return 2; // Peque / Guada
+    return 1; // secciones custom (ej. "Pendiente armar tizada") — Peque
+  }
   return 5;
 }
 
@@ -6344,7 +6435,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`
             :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
           return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
-            <span class="avio-name">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
+            <span class="avio-name">${avio.nombre}${avio.tenido?' <span title="Lleva teñido" style="font-size:10px;color:#7c3aed">🎨 teñido</span>':''}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
             ${badge}${btns}</div>`;
         }).join('');
         if(canEdit) aviosPanel+=`<div class="avio-item"><button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar avíos</button></div>`;
@@ -6592,10 +6683,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
     const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone&&!!(item.base_ref_id||item.base_ref_manual);
     const puedeAvanzar=item.base_aprobada
       ? baseAprobadaCompleta
-      : !!(item.code&&item.code.trim())&&!!item.ficha_link&&!fichaModPendiente&&!!item.color_muestra&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
+      : !!(item.code&&item.code.trim())&&!!item.ficha_link&&aviosDefinidosNuevoDesarrollo(item)&&!fichaModPendiente&&!!item.color_muestra&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
     const canControl=(currentUser==='ariel'||currentUser==='stef');
     const canStef=(currentUser==='ariel'||currentUser==='stef')||esMinisurPeque(item);
     const canPeque=(currentUser==='ariel'||currentUser==='peque');
+    // Código y Ninox los carga Noelia (Peque y Ariel también pueden, por si hace falta).
+    const canCodigoNinox=canPeque||usuarioLogueado==='noelia';
     // El nombre del producto lo pone Peque (es su tarea asignarlo), así que además de
     // Ariel/Stef también puede editarlo acá — el resto de los campos de esta tarjeta (tipo de
     // desarrollo, tela, etc.) siguen limitados a canStef como antes.
@@ -6643,15 +6736,20 @@ function buildItem(secId,itemId,item,sec,idx,total){
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
             <span class="modelista-label">${item.base_aprobada?'Código nuevo:':'Código:'}</span>
             ${item.code?`<span class="item-code" style="margin-top:0">${item.code}</span>`:`<span style="font-size:12px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-            ${canPeque?`<button class="btn-sm" onclick="editCodigoPrompt('${secId}','${itemId}')">✏️ Editar código</button>`:''}
+            ${canCodigoNinox?`<button class="btn-sm" onclick="editCodigoPrompt('${secId}','${itemId}')">✏️ Editar código</button>`:''}
           </div>
           <div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${ninox?'checked':''}" onclick="${canPeque?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
+            <div class="c-check ${ninox?'checked':''}" onclick="${canCodigoNinox?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
             <span class="c-label" style="font-size:11px">Cargado en Ninox</span>
           </div>
-          <div class="avio-item" style="padding-left:0;border-top:none">
-            <span class="c-label" style="font-size:11px">🧵 Avíos: ${Object.keys(item.avios||{}).length?`<strong>${Object.keys(item.avios||{}).length} cargado${Object.keys(item.avios||{}).length!==1?'s':''}</strong>`:'<span style="color:var(--text3);font-style:italic">sin cargar</span>'}</span>
-            ${canPeque?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar':'+ Cargar si ya se sabe'}</button>`:''}
+          <div class="avio-item" style="padding-left:0;border-top:none;flex-wrap:wrap;gap:6px">
+            <span class="c-label" style="font-size:11px">🧵 ¿Lleva avíos?${item.base_aprobada?'':' <span style="color:var(--text3)">(se define con la ficha)</span>'}</span>
+            ${canPeque?`<div class="radio-group">
+                <button class="radio-btn ${item.lleva_avios===true?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',true)">Sí</button>
+                <button class="radio-btn ${item.lleva_avios===false?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',false)">No</button>
+              </div>`:`<span style="font-size:11px;color:var(--text2)">${item.lleva_avios===true?'Sí':item.lleva_avios===false?'No':'Sin definir'}</span>`}
+            ${item.lleva_avios===true?`<span style="font-size:11px">${Object.keys(item.avios||{}).length?`<strong>${Object.keys(item.avios||{}).length} cargado${Object.keys(item.avios||{}).length!==1?'s':''}</strong>`:'<span style="color:var(--warn-text);font-style:italic">falta cargarlos</span>'}</span>
+              ${canPeque?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar avíos':'+ Cargar avíos'}</button>`:''}`:''}
           </div>
 
           <div style="margin-top:10px">
@@ -7242,7 +7340,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <span class="c-label" style="font-weight:600;color:var(--warn-text)">⏳ Todavía no lo confirmó Ari — no es prioridad</span>
         ${canConfirmarCorte?`<button class="btn-advance" onclick="toggleCorteSinConfirmar('${secId}','${itemId}')">✅ Confirmar para cortar</button>`:''}
       </div>`
-    : (canConfirmarCorte?`<div style="margin:4px 0"><button class="btn-sm" onclick="toggleCorteSinConfirmar('${secId}','${itemId}')">⏳ Marcar sin confirmar</button></div>`:'')) : '';
+    : `${buildObjetivoCorteHtml(secId,itemId,item,canConfirmarCorte)}${canConfirmarCorte?`<div style="margin:4px 0"><button class="btn-sm" onclick="toggleCorteSinConfirmar('${secId}','${itemId}')">⏳ Marcar sin confirmar</button></div>`:''}`) : '';
   const orderHtml = (secId==='s3'&&canEdit&&total>1) ? `<div style="display:flex;flex-direction:column;gap:2px;margin-right:2px">
       <button title="Subir" ${idx===0?'disabled':''} onclick="moveCorteOrder('${secId}','${itemId}',-1)" style="border:1px solid var(--border);background:${idx===0?'#f3f4f6':'#fff'};border-radius:4px;width:22px;height:20px;font-size:10px;cursor:${idx===0?'default':'pointer'};color:${idx===0?'#ccc':'inherit'}">▲</button>
       <button title="Bajar" ${idx===total-1?'disabled':''} onclick="moveCorteOrder('${secId}','${itemId}',1)" style="border:1px solid var(--border);background:${idx===total-1?'#f3f4f6':'#fff'};border-radius:4px;width:22px;height:20px;font-size:10px;cursor:${idx===total-1?'default':'pointer'};color:${idx===total-1?'#ccc':'inherit'}">▼</button>
@@ -8364,10 +8462,47 @@ function setEncimadoTerminado(secId,itemId,val){
 // Un corte marcado "sin confirmar" puede seguir su preparación (orden de corte, encimado)
 // con total libertad, pero no se puede marcar como efectivamente cortado hasta que
 // Ariel o Stef lo confirmen — así lo que queda confirmado en esta sección sí o sí se corta.
+// Pide la fecha objetivo de corte (dd/mm/aaaa). Devuelve el texto válido, o null si se canceló/no es válida.
+function pedirFechaObjetivoCorte(item){
+  const val=prompt(`¿Para qué fecha tiene que estar cortado ${item.code||''}? (dd/mm/aaaa)`,item.fecha_objetivo_corte||'');
+  if(val===null) return null;
+  const txt=val.trim();
+  if(!logiParseFechaEntregado(txt)){ showToast('Fecha inválida — usá el formato dd/mm/aaaa'); return null; }
+  return txt;
+}
+function editFechaObjetivoCorte(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const txt=pedirFechaObjetivoCorte(item);
+  if(!txt) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_objetivo_corte`).set(txt);
+  logActivity('Fecha objetivo de corte',`${item.code}: ${txt}`);
+  showToast(`🎯 Objetivo: cortar para el ${txt}`);
+}
+function buildObjetivoCorteHtml(secId,itemId,item,canEditar){
+  const obj=plazoObjetivoCorte(sectionsData[secId],item,secId);
+  if(!obj){
+    return `<div class="cortada-row" style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:4px 0">
+      <span class="c-label" style="font-weight:600;color:var(--warn-text)">🎯 Sin fecha objetivo de corte</span>
+      ${canEditar?`<button class="btn-sm" onclick="editFechaObjetivoCorte('${secId}','${itemId}')">+ Poner fecha</button>`:''}
+    </div>`;
+  }
+  const p=avisoPlazo(obj.dias,obj.umbral);
+  return `<div class="cortada-row" style="margin:4px 0;gap:8px;flex-wrap:wrap">
+    <span class="c-label">🎯 Cortar para el <strong>${item.fecha_objetivo_corte}</strong></span>
+    <span style="font-size:11px;color:${p.color};font-weight:${p.peso}">${p.texto}</span>
+    ${canEditar?`<button class="btn-sm" onclick="editFechaObjetivoCorte('${secId}','${itemId}')">✏️</button>`:''}
+  </div>`;
+}
 function toggleCorteSinConfirmar(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const nv=!item.sin_confirmar;
   const updates={sin_confirmar:nv};
+  // Al confirmar un corte, se le pone la fecha objetivo de corte (obligatoria para confirmar).
+  if(!nv){
+    const txt=pedirFechaObjetivoCorte(item);
+    if(!txt) return;
+    updates.fecha_objetivo_corte=txt;
+  }
   if(!nv&&!item.fecha_paso_confirmado) updates.fecha_paso_confirmado=Date.now();
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   logActivity('Confirmación de corte',`${item.code}: ${nv?'marcado sin confirmar':'confirmado para cortar'}`);
@@ -9399,6 +9534,7 @@ function openEditModal(secId,itemId){
         <div class="field"><label>Cantidad por unidad${esCorte?' *':''}</label><input type="text" id="aq-${avioId}" value="${avio.cantidad||''}" placeholder="Ej: 2"></div>
         <div class="field"><label>Precio${esCorte?' *':''}</label><input type="text" id="apr-${avioId}" value="${avio.precio||''}" placeholder="Ej: 150"></div>
         <div class="field"><label>Fecha pedido</label><input type="text" id="af-${avioId}" value="${avio.fecha_pedido||''}"></div>
+        <div class="field"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="at-${avioId}" ${avio.tenido?'checked':''} style="width:auto;margin:0"> Lleva teñido (tarda ~7 días hábiles en llegar)</label></div>
         ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" style="margin-top:4px;width:100%" onclick="deleteAvio('${secId}','${itemId}','${avioId}')">Eliminar avío</button>`:''}
       </div>`).join('')}
     </div>
@@ -9480,7 +9616,8 @@ function addAvioField(){
     <div class="field"><label>Proveedor${esCorte?' *':''}</label><input type="text" id="ap-${n}" placeholder="Ej: Button Company"></div>
     <div class="field"><label>Cantidad por unidad${esCorte?' *':''}</label><input type="text" id="aq-${n}" placeholder="Ej: 2"></div>
     <div class="field"><label>Precio${esCorte?' *':''}</label><input type="text" id="apr-${n}" placeholder="Ej: 150"></div>
-    <div class="field"><label>Fecha pedido</label><input type="text" id="af-${n}" placeholder="Ej: 8/6/2026"></div>`;
+    <div class="field"><label>Fecha pedido</label><input type="text" id="af-${n}" placeholder="Ej: 8/6/2026"></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="at-${n}" style="width:auto;margin:0"> Lleva teñido (tarda ~7 días hábiles en llegar)</label></div>`;
   document.getElementById('avios-edit').appendChild(d);
 }
 
@@ -9564,6 +9701,7 @@ function saveEditItem(){
       cantidad:(document.getElementById(`aq-${avioId}`)?.value||'').trim(),
       precio:(document.getElementById(`apr-${avioId}`)?.value||'').trim(),
       fecha_pedido:nuevaFechaPedido,
+      tenido:!!document.getElementById(`at-${avioId}`)?.checked,
     };
     // Si cargan una fecha de pedido anterior a hoy (ej: Peque anota que lo pidió hace unos días
     // y recién ahora lo carga), se guarda igual — pero le queda un aviso a Ariel/Stef en "Mis
@@ -9585,6 +9723,7 @@ function saveEditItem(){
         cantidad:(document.getElementById(`aq-new${i}`)?.value||'').trim(),
         precio:(document.getElementById(`apr-new${i}`)?.value||'').trim(),
         fecha_pedido:(document.getElementById(`af-new${i}`)?.value||'').trim(),
+        tenido:!!document.getElementById(`at-new${i}`)?.checked,
         recibido:false
       };
       nuevosAviosGuardados[nuevoId]=nuevoAvio;
@@ -9595,6 +9734,7 @@ function saveEditItem(){
   // avío nuevo sin recibir, lo devuelve a bloqueado — antes esto solo pasaba al DESmarcar un
   // avío ya existente, no al agregar uno nuevo, así que un corte podía quedar "listo" con un
   // avío pendiente sin que nada lo frenara.
+  checkPasosNuevoDesarrollo(secId,itemId,{avios:{...(item.avios||{}),...nuevosAviosGuardados}});
   if(Object.keys(nuevosAviosGuardados).length){
     checkCorteVuelveABloqueado(secId,itemId,{...(item.avios||{}),...nuevosAviosGuardados});
   }
@@ -10304,8 +10444,9 @@ function publishPendientesResumen(){
       if(item.done) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
-      const dias=diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
-      const umbral=umbralAtraso(sec,item,secId);
+      const objetivo=plazoObjetivoCorte(sec,item,secId);
+      const dias=objetivo?objetivo.dias:diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
+      const umbral=objetivo?objetivo.umbral:umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
       const accion=getProximaAccion(sec,item,secId);
       resumen[`${secId}__${itemId}`]={
@@ -10316,6 +10457,7 @@ function publishPendientesResumen(){
         responsable: resp,
         dias: dias===null?null:dias,
         atrasado: !!atrasado,
+        fecha_objetivo_corte: objetivo?item.fecha_objetivo_corte:null,
         dias_para_demora: dias===null?null:umbral-dias,
         accion: accion||'',
         board: getBoard(sec)
@@ -10618,12 +10760,13 @@ function renderPendientes(){
       if(filtroMarca&&(item.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
-      const dias=diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
-      const umbral=umbralAtraso(sec,item,secId);
+      const objetivo=plazoObjetivoCorte(sec,item,secId);
+      const dias=objetivo?objetivo.dias:diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
+      const umbral=objetivo?objetivo.umbral:umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
       const accion=getProximaAccion(sec,item,secId)||'Sin acción definida';
       const procesoOrden=(BOARD_ORDEN[getBoard(sec)]||0)*1000+(sec.order||0);
-      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,atrasado,resp,accion,procesoOrden});
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,objetivo:!!objetivo,atrasado,resp,accion,procesoOrden});
     });
   });
 
@@ -10668,7 +10811,7 @@ function renderPendientes(){
         ${numVencenHoy?`<span class="sec-count" style="background:#fef3c7;color:#92400e">⏰ ${numVencenHoy} vence${numVencenHoy!==1?'n':''} hoy</span>`:''}
       </summary>
       <div class="pend-rows">`;
-    lista.forEach(({item,secTitle,secId,itemId,dias,umbral,atrasado,resp,accion})=>{
+    lista.forEach(({item,secTitle,secId,itemId,dias,umbral,objetivo,atrasado,resp,accion})=>{
       const plazo=avisoPlazo(dias,umbral);
       html+=`<div class="pend-row" style="border-left:3px solid ${atrasado?'#dc2626':plazo.venceHoy?'#f59e0b':'var(--border)'}" onclick="irAItem('${secId}','${itemId}')">
         <span class="pend-row-code">${item.code||item.name||'(sin código)'}</span>
@@ -10676,7 +10819,8 @@ function renderPendientes(){
         ${pendAgrupar!=='sector'?`<span class="pend-row-tag">${secTitle}</span>`:''}
         ${pendAgrupar!=='tarea'?`<span class="pend-row-tag">👉 ${accion}</span>`:''}
         ${pendAgrupar!=='empleado'?`<span class="pend-row-tag">🧍 ${resp}</span>`:''}
-        <span class="pend-row-dias" title="${dias!==null?`En esta tarea hace ${dias} día${dias!==1?'s':''} hábil${dias!==1?'es':''} · plazo: ${umbral} día${umbral!==1?'s':''} hábil${umbral!==1?'es':''}`:''}" style="color:${plazo.color};font-weight:${plazo.peso}">${plazo.texto}</span>
+        ${objetivo?`<span class="pend-row-tag">🎯 Cortar para el ${item.fecha_objetivo_corte}</span>`:''}
+        <span class="pend-row-dias" title="${objetivo?`Fecha objetivo de corte: ${item.fecha_objetivo_corte}`:dias!==null?`En esta tarea hace ${dias} día${dias!==1?'s':''} hábil${dias!==1?'es':''} · plazo: ${umbral} día${umbral!==1?'s':''} hábil${umbral!==1?'es':''}`:''}" style="color:${plazo.color};font-weight:${plazo.peso}">${plazo.texto}</span>
       </div>`;
     });
     html+=`</div></details>`;

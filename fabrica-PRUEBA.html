@@ -5755,13 +5755,21 @@ function buildPasosPanelHtml(item,secId,itemId){
 function umbralAtraso(sec,item,secId){
   const tipo=sec.tipo||'';
   if(tipo==='muestra_prep') return 2;      // Nuevos Desarrollos (Peque: Ninox / ficha / enviar a moldería)
-  if(tipo==='muestra_molderia') return 2;  // Peque: foto en Drive
+  if(tipo==='muestra_molderia'){
+    // Esperando que la modelista entregue:
+    //  - Adela hace molde + muestra: 7 días hábiles desde que se le da la tela (= se manda a moldería).
+    //  - Peque (u otra modelista) hace/modifica el molde: 4 días; después la muestra sigue a corte y
+    //    taller muestrista, que tienen sus propios plazos.
+    // Resto de los pasos de moldería (foto en Drive, enviar a corte): 2.
+    if(!item.entregada_modelista) return item.modelista==='Adela'?7:4;
+    return 2;
+  }
   if(tipo==='muestra_cort'){               // Peque: pedir avíos (2) / esperar que lleguen (teñido 7, sin teñido 2)
     const e=item.lleva_avios===true?esperaAvios(item):null;
-    return e?e.umbral:2;
+    return e?e.umbral:1;                   // de corte a taller es 1 día: pedir avíos no puede esperar
   }
-  if(tipo==='muestra_en_taller') return 3; // Peque: reclamar al taller
-  if(tipo==='muestra_lista') return 2;     // Peque: elegir taller
+  if(tipo==='muestra_en_taller') return 4; // Taller: entregar la muestra (máx. 4 días hábiles, reclama Peque)
+  if(tipo==='muestra_lista') return 1;     // Peque: elegir taller y enviar (1 día desde que se corta)
   if(tipo==='mejora') return 2;            // Peque: resolver mejora
   if(tipo==='muestra_pend') return 3;      // Cortador
   if(tipo==='muestra_diseno') return 5;    // Ariel y Stef
@@ -5805,6 +5813,33 @@ function avisoPlazo(dias,umbral){
 }
 
 // Muestra "Ingresó: fecha · hace X días" y "En esta etapa: hace Y días" en la tarjeta
+// Suma n días hábiles (lun-vie) a una fecha. n=0 devuelve el mismo día.
+function sumarDiasHabiles(ts,n){
+  const d=new Date(ts); d.setHours(0,0,0,0);
+  let k=Math.max(0,n);
+  while(k>0){ d.setDate(d.getDate()+1); const w=d.getDay(); if(w!==0&&w!==6) k--; }
+  return d.getTime();
+}
+// Fecha límite de la tarea que está pendiente ahora en este ítem (mismo cálculo que Pendientes):
+// último día hábil antes de pasar a demorada, o la fecha objetivo si es un corte confirmado.
+// Devuelve {limite, aviso} o null si no hay tarea pendiente o no hay fecha de inicio.
+function fechaLimiteTarea(sec,item,secId){
+  if(!sec||!getResponsable(sec,item,secId)) return null;
+  const obj=plazoObjetivoCorte(sec,item,secId);
+  if(obj){
+    return {limite:logiParseFechaEntregado(item.fecha_objetivo_corte), aviso:avisoPlazo(obj.dias,obj.umbral)};
+  }
+  const ini=fechaInicioResponsableActual(sec,item,secId);
+  if(!ini) return null;
+  const umbral=umbralAtraso(sec,item,secId);
+  return {limite:sumarDiasHabiles(ini,umbral-1), aviso:avisoPlazo(diasHabilesEntre(ini),umbral)};
+}
+function textoFechaLimite(fl){
+  const f=new Date(fl.limite).toLocaleDateString('es-AR',{weekday:'short',day:'2-digit',month:'2-digit'});
+  if(fl.aviso.venceHoy) return 'Vence hoy';
+  if(fl.aviso.color==='#dc2626') return `Venció el ${f}`;
+  return `Hasta el ${f}`;
+}
 function procesoInfoHtml(item,secId,itemId){
   const parts=[];
   const fCreado=item.fecha_creado||item.fecha_ingreso;
@@ -5820,6 +5855,8 @@ function procesoInfoHtml(item,secId,itemId){
     const d=diasEntre(item.fecha_etapa);
     parts.push(`⏱ En esta etapa hace ${d} día${d!==1?'s':''}`);
   }
+  const flCard=fechaLimiteTarea(sectionsData[secId],item,secId);
+  if(flCard) parts.push(`<span style="color:${flCard.aviso.color};font-weight:${flCard.aviso.peso}">📌 ${textoFechaLimite(flCard)}</span>`);
   if(fCreado){
     // Tiempo en diseño/moldería: desde que se creó hasta que se aprobó (fecha_aprobada) y pasó
     // a producción. Si todavía no se aprobó, sigue corriendo; una vez aprobada queda congelado
@@ -5970,6 +6007,9 @@ function buildCompactRowsHtml(secId,items,sec){
       ${item.foto?`<img class="cmp-img" src="${item.foto}" loading="lazy">`:`<div class="cmp-img"></div>`}
       <div class="cmp-txt"><b>${item.code?item.code+' ':''}${item.name||'(sin nombre)'}</b>${sub?`<small>${sub}</small>`:''}</div>
       ${chip?`<span class="cmp-chip">${chip}</span>`:''}
+      ${(()=>{ const fl=fechaLimiteTarea(sec,item,secId); if(!fl) return '';
+        const bg=fl.aviso.color==='#dc2626'?'#fee2e2':fl.aviso.venceHoy?'#fef3c7':'var(--surface2)';
+        return `<span class="cmp-chip" title="Fecha límite de la tarea pendiente (días hábiles)" style="background:${bg};color:${fl.aviso.color==='var(--text3)'?'var(--text2)':fl.aviso.color};font-weight:${fl.aviso.peso}">📌 ${textoFechaLimite(fl)}</span>`; })()}
       <span style="color:var(--text2);font-size:12px;flex-shrink:0">${abierto?'▲':'▼'}</span>
     </div>${abierto?buildItem(secId,itemId,item,sec,idx,items.length):''}`;
   }).join('');
@@ -7341,7 +7381,11 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${canConfirmarCorte?`<button class="btn-advance" onclick="toggleCorteSinConfirmar('${secId}','${itemId}')">✅ Confirmar para cortar</button>`:''}
       </div>`
     : `${buildObjetivoCorteHtml(secId,itemId,item,canConfirmarCorte)}${canConfirmarCorte?`<div style="margin:4px 0"><button class="btn-sm" onclick="toggleCorteSinConfirmar('${secId}','${itemId}')">⏳ Marcar sin confirmar</button></div>`:''}`) : '';
-  const orderHtml = (secId==='s3'&&canEdit&&total>1) ? `<div style="display:flex;flex-direction:column;gap:2px;margin-right:2px">
+  // Pendiente armar tizada: Ariel/Stef la ordenan por prioridad para que Peque sepa qué va primero.
+  const prioridadTizada = esArmarTizada ? prioridadEnSeccion(secId,itemId) : null;
+  const prioridadHtml = prioridadTizada ? `<div style="display:inline-block;font-size:11px;font-weight:700;background:#ede9fe;color:#5b21b6;border-radius:6px;padding:2px 8px;margin-bottom:4px">⭐ Prioridad ${prioridadTizada}</div>` : '';
+  const canOrdenarSeccion = secId==='s3' ? canEdit : (esArmarTizada&&(currentUser==='ariel'||currentUser==='stef'));
+  const orderHtml = (canOrdenarSeccion&&total>1) ? `<div style="display:flex;flex-direction:column;gap:2px;margin-right:2px">
       <button title="Subir" ${idx===0?'disabled':''} onclick="moveCorteOrder('${secId}','${itemId}',-1)" style="border:1px solid var(--border);background:${idx===0?'#f3f4f6':'#fff'};border-radius:4px;width:22px;height:20px;font-size:10px;cursor:${idx===0?'default':'pointer'};color:${idx===0?'#ccc':'inherit'}">▲</button>
       <button title="Bajar" ${idx===total-1?'disabled':''} onclick="moveCorteOrder('${secId}','${itemId}',1)" style="border:1px solid var(--border);background:${idx===total-1?'#f3f4f6':'#fff'};border-radius:4px;width:22px;height:20px;font-size:10px;cursor:${idx===total-1?'default':'pointer'};color:${idx===total-1?'#ccc':'inherit'}">▼</button>
     </div>` : '';
@@ -7378,6 +7422,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
             const ref=(item.reposicion_ref_sec&&sectionsData[item.reposicion_ref_sec])?sectionsData[item.reposicion_ref_sec].items?.[item.reposicion_ref_id]:null;
             return ref?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Reponiendo: <strong>${ref.code?ref.code+' — ':''}${ref.name||''}</strong></div>`:'';
           })()):''}`}
+        ${prioridadHtml}
         ${item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
         ${buildNameHtml(secId,itemId,item,canEdit,true)}
         ${!item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
@@ -8838,6 +8883,14 @@ function editFichaLink(secId,itemId){
   showToast(link.trim()?'✓ Link guardado':'Link eliminado');
 }
 
+// Posición (1, 2, 3…) del ítem en el orden guardado de su sección — solo si ya se ordenó a mano
+// (tiene campo orden). Se usa para la prioridad de "Pendiente armar tizada".
+function prioridadEnSeccion(secId,itemId){
+  const sec=sectionsData[secId]; if(!sec) return null;
+  const it=(sec.items||{})[itemId]; if(!it||it.orden==null) return null;
+  const idx=getSortedItems(sec).findIndex(([id])=>id===itemId);
+  return idx===-1?null:idx+1;
+}
 function moveCorteOrder(secId,itemId,dir){
   const sec=sectionsData[secId];
   const items=getSortedItems(sec);
@@ -10766,7 +10819,8 @@ function renderPendientes(){
       const atrasado=dias!==null&&dias>=umbral;
       const accion=getProximaAccion(sec,item,secId)||'Sin acción definida';
       const procesoOrden=(BOARD_ORDEN[getBoard(sec)]||0)*1000+(sec.order||0);
-      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,objetivo:!!objetivo,atrasado,resp,accion,procesoOrden});
+      const prioridad=((sec.title||'').trim()==='Pendiente armar tizada')?prioridadEnSeccion(secId,itemId):null;
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,objetivo:!!objetivo,prioridad,atrasado,resp,accion,procesoOrden});
     });
   });
 
@@ -10796,6 +10850,12 @@ function renderPendientes(){
   let html='';
   claves.forEach(clave=>{
     const lista=grupos[clave].slice().sort((a,b)=>{
+      // Pendiente armar tizada: manda la prioridad que puso Ariel/Stef (los sin prioridad van al final).
+      if(a.secId===b.secId&&(a.prioridad!=null||b.prioridad!=null)){
+        if(a.prioridad==null) return 1;
+        if(b.prioridad==null) return -1;
+        return a.prioridad-b.prioridad;
+      }
       if(a.atrasado!==b.atrasado) return a.atrasado?-1:1;
       const fa=a.dias==null?999:a.umbral-a.dias, fb=b.dias==null?999:b.umbral-b.dias;
       return fa-fb; // lo que está más cerca de demorarse (o más demorado) primero
@@ -10811,7 +10871,7 @@ function renderPendientes(){
         ${numVencenHoy?`<span class="sec-count" style="background:#fef3c7;color:#92400e">⏰ ${numVencenHoy} vence${numVencenHoy!==1?'n':''} hoy</span>`:''}
       </summary>
       <div class="pend-rows">`;
-    lista.forEach(({item,secTitle,secId,itemId,dias,umbral,objetivo,atrasado,resp,accion})=>{
+    lista.forEach(({item,secTitle,secId,itemId,dias,umbral,objetivo,prioridad,atrasado,resp,accion})=>{
       const plazo=avisoPlazo(dias,umbral);
       html+=`<div class="pend-row" style="border-left:3px solid ${atrasado?'#dc2626':plazo.venceHoy?'#f59e0b':'var(--border)'}" onclick="irAItem('${secId}','${itemId}')">
         <span class="pend-row-code">${item.code||item.name||'(sin código)'}</span>
@@ -10819,6 +10879,7 @@ function renderPendientes(){
         ${pendAgrupar!=='sector'?`<span class="pend-row-tag">${secTitle}</span>`:''}
         ${pendAgrupar!=='tarea'?`<span class="pend-row-tag">👉 ${accion}</span>`:''}
         ${pendAgrupar!=='empleado'?`<span class="pend-row-tag">🧍 ${resp}</span>`:''}
+        ${prioridad?`<span class="pend-row-tag" style="color:#5b21b6;font-weight:700">⭐ Prioridad ${prioridad}</span>`:''}
         ${objetivo?`<span class="pend-row-tag">🎯 Cortar para el ${item.fecha_objetivo_corte}</span>`:''}
         <span class="pend-row-dias" title="${objetivo?`Fecha objetivo de corte: ${item.fecha_objetivo_corte}`:dias!==null?`En esta tarea hace ${dias} día${dias!==1?'s':''} hábil${dias!==1?'es':''} · plazo: ${umbral} día${umbral!==1?'s':''} hábil${umbral!==1?'es':''}`:''}" style="color:${plazo.color};font-weight:${plazo.peso}">${plazo.texto}</span>
       </div>`;

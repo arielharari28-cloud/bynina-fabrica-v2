@@ -234,7 +234,7 @@
   .pend-row-code{font-weight:700;flex-shrink:0}
   .pend-row-name{color:var(--text2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pend-row-tag{color:var(--text2);font-size:11px;flex-shrink:0;white-space:nowrap}
-  .pend-row-dias{flex-shrink:0;font-size:11px;white-space:nowrap;min-width:44px;text-align:right}
+  .pend-row-dias{flex-shrink:0;font-size:11px;white-space:nowrap;min-width:96px;text-align:right}
   .pendientes-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:12px 14px;margin-bottom:0}
   .pendientes-etapa{font-size:11px;color:var(--text2);margin-top:2px}
   .pendientes-accion{font-size:12px;font-weight:600;color:var(--accent);margin-top:4px;line-height:1.3}
@@ -5095,6 +5095,22 @@ function diasEntre(ts){
   if(!ts) return null;
   return Math.floor((Date.now()-ts)/(1000*60*60*24));
 }
+// Días HÁBILES (lunes a viernes) transcurridos desde ts hasta hoy — se usa para los plazos de
+// Pendientes (quedan X días / vence hoy / demorada), así el fin de semana no consume plazo.
+// Cuenta los días hábiles posteriores al día de inicio hasta hoy inclusive: si algo entra un
+// viernes, el lunes lleva 1 día. No descuenta feriados.
+function diasHabilesEntre(ts){
+  if(!ts) return null;
+  const d=new Date(ts); d.setHours(0,0,0,0);
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  let n=0;
+  while(d<hoy){
+    d.setDate(d.getDate()+1);
+    const dow=d.getDay();
+    if(dow!==0&&dow!==6) n++;
+  }
+  return n;
+}
 function diasEntreTs(a,b){
   if(!a) return null;
   return Math.floor(((b||Date.now())-a)/(1000*60*60*24));
@@ -5681,6 +5697,20 @@ function umbralAtraso(sec,item,secId){
   }
   if(!tipo) return 1; // secciones custom (ej. "Pendiente armar tizada") — Peque
   return 5;
+}
+
+// Aviso de plazo para Pendientes: cuántos días quedan antes de que la tarea pase a demorada.
+// Se considera demorada desde que dias >= umbral, así que el último día hábil de plazo es
+// dias === umbral-1 ("vence hoy"). Devuelve {texto, color, peso, venceHoy}.
+function avisoPlazo(dias,umbral){
+  if(dias===null||dias===undefined) return {texto:'',color:'var(--text3)',peso:400,venceHoy:false};
+  const faltan=umbral-dias;
+  if(faltan<=0){
+    const d=dias-umbral+1;
+    return {texto:`⚠️ Demorada ${d} día${d!==1?'s':''}`,color:'#dc2626',peso:700,venceHoy:false};
+  }
+  if(faltan===1) return {texto:'⏰ Vence hoy',color:'#b45309',peso:700,venceHoy:true};
+  return {texto:`Quedan ${faltan} días`,color:'var(--text3)',peso:400,venceHoy:false};
 }
 
 // Muestra "Ingresó: fecha · hace X días" y "En esta etapa: hace Y días" en la tarjeta
@@ -10274,7 +10304,7 @@ function publishPendientesResumen(){
       if(item.done) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
-      const dias=diasEntre(fechaInicioResponsableActual(sec,item,secId));
+      const dias=diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
       const umbral=umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
       const accion=getProximaAccion(sec,item,secId);
@@ -10286,6 +10316,7 @@ function publishPendientesResumen(){
         responsable: resp,
         dias: dias===null?null:dias,
         atrasado: !!atrasado,
+        dias_para_demora: dias===null?null:umbral-dias,
         accion: accion||'',
         board: getBoard(sec)
       };
@@ -10587,12 +10618,12 @@ function renderPendientes(){
       if(filtroMarca&&(item.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
-      const dias=diasEntre(fechaInicioResponsableActual(sec,item,secId));
+      const dias=diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
       const umbral=umbralAtraso(sec,item,secId);
       const atrasado=dias!==null&&dias>=umbral;
       const accion=getProximaAccion(sec,item,secId)||'Sin acción definida';
       const procesoOrden=(BOARD_ORDEN[getBoard(sec)]||0)*1000+(sec.order||0);
-      filas.push({item,secTitle:sec.title,secId,itemId,dias,atrasado,resp,accion,procesoOrden});
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,atrasado,resp,accion,procesoOrden});
     });
   });
 
@@ -10623,25 +10654,29 @@ function renderPendientes(){
   claves.forEach(clave=>{
     const lista=grupos[clave].slice().sort((a,b)=>{
       if(a.atrasado!==b.atrasado) return a.atrasado?-1:1;
-      return (b.dias||0)-(a.dias||0);
+      const fa=a.dias==null?999:a.umbral-a.dias, fb=b.dias==null?999:b.umbral-b.dias;
+      return fa-fb; // lo que está más cerca de demorarse (o más demorado) primero
     });
     const numAtrasados=lista.filter(x=>x.atrasado).length;
+    const numVencenHoy=lista.filter(x=>avisoPlazo(x.dias,x.umbral).venceHoy).length;
     const colorTitulo = pendAgrupar==='empleado' ? colorForPersonName(clave) : 'var(--text)';
     html+=`<details class="pend-group" open>
       <summary class="pendientes-group-title" style="color:${colorTitulo};cursor:pointer;list-style:none">
         ${clave}
         <span class="sec-count" style="background:${colorTitulo}22;color:${colorTitulo}">${lista.length}</span>
-        ${numAtrasados?`<span class="sec-count" style="background:#fee2e2;color:#991b1b">⚠️ ${numAtrasados} atrasado${numAtrasados!==1?'s':''}</span>`:''}
+        ${numAtrasados?`<span class="sec-count" style="background:#fee2e2;color:#991b1b">⚠️ ${numAtrasados} demorado${numAtrasados!==1?'s':''}</span>`:''}
+        ${numVencenHoy?`<span class="sec-count" style="background:#fef3c7;color:#92400e">⏰ ${numVencenHoy} vence${numVencenHoy!==1?'n':''} hoy</span>`:''}
       </summary>
       <div class="pend-rows">`;
-    lista.forEach(({item,secTitle,secId,itemId,dias,atrasado,resp,accion})=>{
-      html+=`<div class="pend-row" style="border-left:3px solid ${atrasado?'#dc2626':'var(--border)'}" onclick="irAItem('${secId}','${itemId}')">
+    lista.forEach(({item,secTitle,secId,itemId,dias,umbral,atrasado,resp,accion})=>{
+      const plazo=avisoPlazo(dias,umbral);
+      html+=`<div class="pend-row" style="border-left:3px solid ${atrasado?'#dc2626':plazo.venceHoy?'#f59e0b':'var(--border)'}" onclick="irAItem('${secId}','${itemId}')">
         <span class="pend-row-code">${item.code||item.name||'(sin código)'}</span>
         <span class="pend-row-name">${item.name&&item.code?item.name:''}</span>
         ${pendAgrupar!=='sector'?`<span class="pend-row-tag">${secTitle}</span>`:''}
         ${pendAgrupar!=='tarea'?`<span class="pend-row-tag">👉 ${accion}</span>`:''}
         ${pendAgrupar!=='empleado'?`<span class="pend-row-tag">🧍 ${resp}</span>`:''}
-        <span class="pend-row-dias" style="color:${atrasado?'#dc2626':'var(--text3)'};font-weight:${atrasado?700:400}">${dias!==null?(atrasado?'⚠️ ':'')+dias+'d':''}</span>
+        <span class="pend-row-dias" title="${dias!==null?`En esta tarea hace ${dias} día${dias!==1?'s':''} hábil${dias!==1?'es':''} · plazo: ${umbral} día${umbral!==1?'s':''} hábil${umbral!==1?'es':''}`:''}" style="color:${plazo.color};font-weight:${plazo.peso}">${plazo.texto}</span>
       </div>`;
     });
     html+=`</div></details>`;

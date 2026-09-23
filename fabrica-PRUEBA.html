@@ -225,6 +225,24 @@
   .pendientes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
   /* --- Pendientes: filas compactas + grupos colapsables --- */
   .pend-group{margin-bottom:10px}
+  /* Pendientes en columnas por persona */
+  .pcols{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;scroll-snap-type:x proximity}
+  .pcol{flex:0 0 280px;max-width:88vw;background:var(--surface2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;scroll-snap-align:start}
+  .pcol-head{display:flex;align-items:center;gap:8px}
+  .pcol-av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+  .pcol-name{font-size:15px;font-weight:700}
+  .pcol-counts{display:flex;gap:4px;flex-wrap:wrap}
+  .pcol-b{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600}
+  .pcol-list{display:flex;flex-direction:column;gap:6px;max-height:72vh;overflow-y:auto;padding-right:2px}
+  .pcard{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;transition:box-shadow .15s}
+  .pcard:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
+  .pcard-code{font-size:13px;font-weight:700}
+  .pcard-name{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pcard-acc{font-size:12px;margin:5px 0 6px;line-height:1.3}
+  .pcard-tags{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+  .pcard-tag{font-size:10.5px;padding:1px 6px;border-radius:5px;background:var(--surface2);color:var(--text2)}
+  .pcard-foot{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11px;color:var(--text3)}
+  .pcard-plazo{font-size:11px;padding:2px 7px;border-radius:6px;white-space:nowrap}
   .pend-group summary::-webkit-details-marker{display:none}
   .pend-group summary:before{content:'▾ ';font-size:11px}
   .pend-group:not([open]) summary:before{content:'▸ '}
@@ -678,13 +696,13 @@
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--text2)">Agrupar por:</span>
         <div style="display:flex;gap:6px" id="pend-agrupar-selector">
-          <button class="btn-sm active" data-modo="tarea" onclick="pendSetAgrupar('tarea')">👉 Tarea pendiente</button>
-          <button class="btn-sm" data-modo="empleado" onclick="pendSetAgrupar('empleado')">🧍 Empleado</button>
+          <button class="btn-sm active" data-modo="empleado" onclick="pendSetAgrupar('empleado')">🧍 Por persona</button>
+          <button class="btn-sm" data-modo="tarea" onclick="pendSetAgrupar('tarea')">👉 Tarea pendiente</button>
           <button class="btn-sm" data-modo="sector" onclick="pendSetAgrupar('sector')">🗂️ Sector</button>
         </div>
         <span style="flex:1"></span>
-        <button class="btn-sm" onclick="pendExpandirTodo(true)">⬇ Desplegar todo</button>
-        <button class="btn-sm" onclick="pendExpandirTodo(false)">⬆ Colapsar todo</button>
+        <button class="btn-sm pend-expandir-btn" style="display:none" onclick="pendExpandirTodo(true)">⬇ Desplegar todo</button>
+        <button class="btn-sm pend-expandir-btn" style="display:none" onclick="pendExpandirTodo(false)">⬆ Colapsar todo</button>
       </div>
       <div id="pendientes-list"><div class="loading">Cargando...</div></div>
     </div>
@@ -10542,9 +10560,10 @@ function publishPendientesResumen(){
   db.ref('fabrica_v5/pendientes_resumen').set(resumen);
 }
 
-let pendAgrupar='tarea';
+let pendAgrupar='empleado'; // por defecto: columnas por persona
 function pendSetAgrupar(m){
   pendAgrupar=m;
+  document.querySelectorAll('.pend-expandir-btn').forEach(b=>b.style.display=m==='empleado'?'none':'');
   document.querySelectorAll('#pend-agrupar-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo===m));
   renderPendientes();
 }
@@ -10868,6 +10887,57 @@ function renderPendientes(){
     const ordB=Math.min(...grupos[b].map(x=>x.procesoOrden));
     return ordA-ordB;
   });
+
+  const ordenarLista=l=>l.slice().sort((a,b)=>{
+      if(a.secId===b.secId&&(a.prioridad!=null||b.prioridad!=null)){
+        if(a.prioridad==null) return 1;
+        if(b.prioridad==null) return -1;
+        return a.prioridad-b.prioridad;
+      }
+      if(a.atrasado!==b.atrasado) return a.atrasado?-1:1;
+      const fa=a.dias==null?999:a.umbral-a.dias, fb=b.dias==null?999:b.umbral-b.dias;
+      return fa-fb;
+    });
+
+  // Vista por persona: una columna por responsable, tarjetas ordenadas por urgencia.
+  if(pendAgrupar==='empleado'){
+    if(!claves.length){ cont.innerHTML=`<div class="empty-state">No hay pendientes por ahora 🎉</div>`; return; }
+    const iniciales=n=>{ const w=n.split(/\s+y\s+|\s+/).filter(Boolean); return (w.length>1?w.map(x=>x[0]).join(''):w[0]||'?').slice(0,2).toUpperCase(); };
+    let cols='<div class="pcols">';
+    claves.forEach(clave=>{
+      const lista=ordenarLista(grupos[clave]);
+      const col=colorForPersonName(clave);
+      const nDem=lista.filter(x=>x.atrasado).length;
+      const nHoy=lista.filter(x=>avisoPlazo(x.dias,x.umbral).venceHoy).length;
+      cols+=`<div class="pcol">
+        <div class="pcol-head"><span class="pcol-av" style="background:${col}22;color:${col}">${iniciales(clave)}</span><span class="pcol-name">${clave}</span></div>
+        <div class="pcol-counts">
+          ${nDem?`<span class="pcol-b" style="background:#fee2e2;color:#991b1b">⚠️ ${nDem} demorada${nDem!==1?'s':''}</span>`:''}
+          ${nHoy?`<span class="pcol-b" style="background:#fef3c7;color:#92400e">⏰ ${nHoy} vence${nHoy!==1?'n':''} hoy</span>`:''}
+          <span class="pcol-b" style="background:var(--surface);color:var(--text2)">${lista.length} en total</span>
+        </div>
+        <div class="pcol-list">`;
+      lista.forEach(({item,secTitle,secId,itemId,dias,umbral,objetivo,prioridad,atrasado,accion})=>{
+        const plazo=avisoPlazo(dias,umbral);
+        const borde=atrasado?'#dc2626':plazo.venceHoy?'#f59e0b':'var(--border)';
+        const fondoPlazo=atrasado?'#fee2e2':plazo.venceHoy?'#fef3c7':'var(--surface2)';
+        const tit=objetivo?`Fecha objetivo de corte: ${item.fecha_objetivo_corte}`:dias!==null?`En esta tarea hace ${dias} día${dias!==1?'s':''} hábil${dias!==1?'es':''} · plazo: ${umbral} día${umbral!==1?'s':''} hábil${umbral!==1?'es':''}`:'';
+        cols+=`<div class="pcard" style="border-left-color:${borde}" onclick="irAItem('${secId}','${itemId}')">
+          <div class="pcard-code">${item.code||'(sin código)'}</div>
+          ${item.name?`<div class="pcard-name" title="${String(item.name).replace(/"/g,'&quot;')}">${item.name}</div>`:''}
+          <div class="pcard-acc">👉 ${accion}</div>
+          ${(prioridad||objetivo)?`<div class="pcard-tags">
+            ${prioridad?`<span class="pcard-tag" style="background:#ede9fe;color:#5b21b6;font-weight:700">⭐ Prioridad ${prioridad}</span>`:''}
+            ${objetivo?`<span class="pcard-tag">🎯 Cortar para el ${item.fecha_objetivo_corte}</span>`:''}
+          </div>`:''}
+          <div class="pcard-foot"><span>${secTitle}</span>${plazo.texto?`<span class="pcard-plazo" title="${tit}" style="background:${fondoPlazo};color:${plazo.color};font-weight:${plazo.peso}">${plazo.texto}</span>`:''}</div>
+        </div>`;
+      });
+      cols+='</div></div>';
+    });
+    cont.innerHTML=cols+'</div>';
+    return;
+  }
 
   let html='';
   claves.forEach(clave=>{

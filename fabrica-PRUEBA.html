@@ -11441,17 +11441,150 @@ function facturacionSaldoCC(destino){
   const haberPagos=Object.values(fabricaPagosTallerData||{}).filter(p=>p.destino===destino).reduce((s,p)=>s+(p.monto||0),0);
   return (debeFacturas+debeAjustes)-(haberPagos+haberAjustes);
 }
+// ===== Aplicar pagos a cortes (imputación) =====
+// Un pago se puede repartir entre uno o varios cortes FACTURADOS del mismo taller. Se guarda
+// dentro del pago como imputaciones:{itemId:monto}. El saldo de la cuenta corriente NO cambia
+// (se sigue calculando igual): esto solo registra a qué cortes va cada peso. Lo que no se
+// aplica queda "a cuenta" del taller. Si se borra el pago, se borra su reparto con él.
+// Solo tienen estado Pagado/Parcial/Impago los cortes facturados DESDE que existe esta función
+// (marca en fabrica_v5/imputacion_pagos_desde) — los cortes viejos no, porque sus pagos se
+// cargaron sin aplicar y aparecerían como impagos sin serlo.
+let facturacionImputacionDesde=null;
+db.ref('fabrica_v5/imputacion_pagos_desde').on('value',snap=>{
+  const v=snap.val();
+  if(v==null){ db.ref('fabrica_v5/imputacion_pagos_desde').transaction(cur=>cur==null?Date.now():undefined); return; }
+  facturacionImputacionDesde=v;
+  const tab=document.getElementById('tab-facturacion');
+  if(tab&&!tab.classList.contains('hidden')) renderFacturacionTab();
+});
+function facturacionCorteConEstado(it){
+  return !!(it&&it.facturado_cta_cte) && facturacionImputacionDesde!=null && (it.facturacion_fecha_registro||0)>=facturacionImputacionDesde;
+}
+function facturacionPagadoCorte(itemId){
+  return Object.values(fabricaPagosTallerData||{}).reduce((s,p)=>s+((p.imputaciones&&p.imputaciones[itemId])||0),0);
+}
+function facturacionFaltaCorte(itemId,it){
+  return Math.max(0,(it.facturacion_monto||0)-facturacionPagadoCorte(itemId));
+}
+// Cortes de un taller a los que se les puede aplicar un pago: facturados, con estado, y con
+// algo pendiente. Ordenados del más viejo al más nuevo (por fecha de entrega, igual que la
+// cuenta corriente).
+function facturacionCortesImputables(destino){
+  return Object.entries(logiItemsData||{})
+    .filter(([id,it])=>it.estado==='cerrado'&&facturacionDestino(it)===destino&&facturacionCorteConEstado(it)&&facturacionFaltaCorte(id,it)>0.009)
+    .sort((a,b)=>(logiParseFechaEntregado(a[1].fecha_entregado)||a[1].facturacion_fecha_registro||0)-(logiParseFechaEntregado(b[1].fecha_entregado)||b[1].facturacion_fecha_registro||0));
+}
+// Borrador del formulario de pago — se guarda aparte porque la pestaña se redibuja entera
+// cada vez que cambia algo en Firebase, y no queremos que Meli pierda lo que venía cargando.
+let facturacionPagoDraft={destino:'',monto:'',fecha:'',imput:{}};
+function facturacionPagoSetDestino(v){
+  const nuevo=(v||'').trim();
+  if(nuevo===facturacionPagoDraft.destino) return;
+  facturacionPagoDraft.destino=nuevo;
+  facturacionPagoDraft.imput={};
+  facturacionRenderImputacion();
+}
+function facturacionPagoSetMonto(v){ facturacionPagoDraft.monto=v; facturacionActualizarTotalesImput(); }
+function facturacionPagoSetImput(itemId,v){
+  const n=Math.max(0,parseFloat(v)||0);
+  if(n) facturacionPagoDraft.imput[itemId]=n; else delete facturacionPagoDraft.imput[itemId];
+  facturacionActualizarTotalesImput();
+}
+function facturacionPagoRepartirAuto(){
+  let resto=parseFloat(facturacionPagoDraft.monto)||0;
+  if(resto<=0){ showToast('Cargá el monto primero'); return; }
+  facturacionPagoDraft.imput={};
+  facturacionCortesImputables(facturacionPagoDraft.destino).forEach(([id,it])=>{
+    if(resto<=0.009) return;
+    const x=Math.min(resto,facturacionFaltaCorte(id,it));
+    if(x>0.009){ facturacionPagoDraft.imput[id]=Math.round(x*100)/100; resto-=x; }
+  });
+  facturacionRenderImputacion();
+}
+// Devuelve el primer error del reparto (o '' si está todo bien).
+function facturacionErrorImputacion(){
+  const monto=parseFloat(facturacionPagoDraft.monto)||0;
+  const imput=facturacionPagoDraft.imput;
+  const aplicado=Object.values(imput).reduce((s,x)=>s+x,0);
+  if(aplicado>monto+0.009) return 'Aplicaste más de lo que se pagó.';
+  for(const [id,x] of Object.entries(imput)){
+    const it=(logiItemsData||{})[id];
+    if(!it) return 'Uno de los cortes ya no existe — volvé a elegir el taller.';
+    if(x>facturacionFaltaCorte(id,it)+0.009) return `${it.code||it.numero_corte||id}: no podés aplicar más de lo que falta pagar.`;
+  }
+  return '';
+}
+function facturacionActualizarTotalesImput(){
+  const monto=parseFloat(facturacionPagoDraft.monto)||0;
+  const aplicado=Object.values(facturacionPagoDraft.imput).reduce((s,x)=>s+x,0);
+  const a=document.getElementById('fp-imput-aplicado'), b=document.getElementById('fp-imput-sin'), e=document.getElementById('fp-imput-error');
+  if(a) a.textContent='$'+aplicado.toLocaleString('es-AR');
+  if(b) b.textContent='$'+Math.max(0,monto-aplicado).toLocaleString('es-AR');
+  if(e) e.textContent=facturacionErrorImputacion();
+}
+function facturacionRenderImputacion(){
+  const box=document.getElementById('facturacion-pago-imput');
+  if(!box) return;
+  const destino=facturacionPagoDraft.destino;
+  if(!destino){ box.innerHTML=''; return; }
+  const cortes=facturacionCortesImputables(destino);
+  // Si algún corte del borrador ya no tiene saldo (lo pagó otro), se saca del reparto.
+  Object.keys(facturacionPagoDraft.imput).forEach(id=>{ if(!cortes.some(([cid])=>cid===id)) delete facturacionPagoDraft.imput[id]; });
+  if(!cortes.length){
+    box.innerHTML=`<div style="font-size:11.5px;color:var(--text3);margin-top:10px">${destino} no tiene cortes facturados con saldo para aplicar — el pago queda a cuenta.</div>`;
+    return;
+  }
+  const filas=cortes.map(([id,it])=>{
+    const falta=facturacionFaltaCorte(id,it);
+    const val=facturacionPagoDraft.imput[id]||'';
+    return `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:5px 4px;font-size:12px">${it.code||'(sin código)'}${it.numero_corte?' · N° '+it.numero_corte:''} <span style="color:var(--text3)">${it.name||''}</span></td>
+      <td style="padding:5px 4px;font-size:12px;text-align:right">$${(it.facturacion_monto||0).toLocaleString('es-AR')}</td>
+      <td style="padding:5px 4px;font-size:12px;text-align:right;font-weight:700">$${falta.toLocaleString('es-AR')}</td>
+      <td style="padding:5px 4px;text-align:right"><input type="number" min="0" value="${val}" placeholder="0" oninput="facturacionPagoSetImput('${id}',this.value)" style="width:100px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px;text-align:right"></td>
+    </tr>`;
+  }).join('');
+  box.innerHTML=`<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:4px">
+      <span style="font-size:12px;font-weight:700">Aplicar a cortes <span style="font-weight:400;color:var(--text3)">(opcional)</span></span>
+      <button class="btn-sm" style="font-size:11px" onclick="facturacionPagoRepartirAuto()">Repartir del más viejo al más nuevo</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="text-align:left;color:var(--text3);font-size:11px">
+        <th style="padding:4px">Corte</th><th style="padding:4px;text-align:right">Facturado</th>
+        <th style="padding:4px;text-align:right">Falta pagar</th><th style="padding:4px;text-align:right">Aplicar</th>
+      </tr>
+      ${filas}
+    </table>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;font-size:12px">
+      <span>Aplicado a cortes: <strong id="fp-imput-aplicado"></strong></span>
+      <span>Sin aplicar (queda a cuenta): <strong id="fp-imput-sin"></strong></span>
+    </div>
+    <div id="fp-imput-error" style="font-size:12px;color:var(--danger);margin-top:4px;font-weight:700"></div>
+  </div>`;
+  facturacionActualizarTotalesImput();
+}
 function facturacionRegistrarPago(){
   const destino=document.getElementById('facturacion-pago-destino').value.trim();
   const monto=parseFloat(document.getElementById('facturacion-pago-monto').value);
   const fecha=document.getElementById('facturacion-pago-fecha').value||new Date().toLocaleDateString('es-AR');
   if(!destino){ showToast('Elegí a quién le estás pagando'); return; }
   if(!monto||monto<=0){ showToast('Cargá un monto válido'); return; }
+  if(destino!==facturacionPagoDraft.destino) facturacionPagoSetDestino(destino);
+  facturacionPagoDraft.monto=String(monto);
+  const err=facturacionErrorImputacion();
+  if(err){ showToast(err); facturacionActualizarTotalesImput(); return; }
+  const imputaciones={};
+  Object.entries(facturacionPagoDraft.imput).forEach(([id,x])=>{ if(x>0.009) imputaciones[id]=x; });
   const pagoId='pago_'+Date.now();
-  db.ref(`fabrica_v5/pagos_taller/${pagoId}`).set({destino,monto,fecha,registrado_por:currentUser,fecha_registro:Date.now()});
-  logActivity('Registró pago',`${destino}: $${monto.toLocaleString('es-AR')}`);
-  document.getElementById('facturacion-pago-monto').value='';
-  showToast(`✓ Pago de $${monto.toLocaleString('es-AR')} registrado en la cuenta de ${destino}`);
+  const registro={destino,monto,fecha,registrado_por:currentUser,fecha_registro:Date.now()};
+  if(Object.keys(imputaciones).length) registro.imputaciones=imputaciones;
+  db.ref(`fabrica_v5/pagos_taller/${pagoId}`).set(registro);
+  const aplicado=Object.values(imputaciones).reduce((s,x)=>s+x,0);
+  const detalleCortes=Object.entries(imputaciones).map(([id,x])=>{const it=(logiItemsData||{})[id]||{};return `${it.code||it.numero_corte||id} $${x.toLocaleString('es-AR')}`;}).join(', ');
+  logActivity('Registró pago',`${destino}: $${monto.toLocaleString('es-AR')}${detalleCortes?' — aplicado a '+detalleCortes:''}`);
+  facturacionPagoDraft={destino:'',monto:'',fecha:'',imput:{}};
+  showToast(`✓ Pago de $${monto.toLocaleString('es-AR')} registrado${aplicado?` ($${aplicado.toLocaleString('es-AR')} aplicado a cortes)`:''}`);
   renderFacturacionTab();
 }
 function facturacionEliminarPago(pagoId,destino){
@@ -11518,7 +11651,7 @@ function facturacionRenderCuentaCorriente(destino){
     }
   });
   Object.entries(fabricaPagosTallerData||{}).forEach(([pagoId,p])=>{
-    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}`,cantidad:null,precio:null,debe:0,haber:p.monto||0,pagoId});
+    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}${p.imputaciones?`<div style="font-size:10.5px;color:var(--text3)">Aplicado a: ${Object.entries(p.imputaciones).map(([id,x])=>{const c=(logiItemsData||{})[id]||{};return `${c.code||c.numero_corte||'corte'} $${(x||0).toLocaleString('es-AR')}`;}).join(', ')}</div>`:''}`,cantidad:null,precio:null,debe:0,haber:p.monto||0,pagoId});
   });
   Object.entries(fabricaAjustesTallerData||{}).forEach(([ajusteId,a])=>{
     if(a.destino===destino) movs.push({ts:a.fecha_registro||0,fecha:a.fecha,detalle:`Ajuste: ${a.motivo}`,cantidad:a.cantidad||null,precio:a.precio||null,debe:a.tipo==='debe'?a.monto:0,haber:a.tipo==='haber'?a.monto:0,ajusteId});
@@ -11608,7 +11741,7 @@ function facturacionExportarCuentaCorriente(destino){
     }
   });
   Object.entries(fabricaPagosTallerData||{}).forEach(([,p])=>{
-    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}`,cantidad:'',precio:'',debe:0,haber:p.monto||0});
+    if(p.destino===destino) movs.push({ts:p.fecha_registro||0,fecha:p.fecha,detalle:`Pago · ${USER_DISPLAY[p.registrado_por]||p.registrado_por}${p.imputaciones?' — aplicado a: '+Object.entries(p.imputaciones).map(([id,x])=>{const c=(logiItemsData||{})[id]||{};return `${c.code||c.numero_corte||'corte'} $${(x||0).toLocaleString('es-AR')}`;}).join(', '):''}`,cantidad:'',precio:'',debe:0,haber:p.monto||0});
   });
   Object.entries(fabricaAjustesTallerData||{}).forEach(([,a])=>{
     if(a.destino===destino) movs.push({ts:a.fecha_registro||0,fecha:a.fecha,detalle:`Ajuste: ${a.motivo}`,cantidad:a.cantidad||'',precio:a.precio||'',debe:a.tipo==='debe'?a.monto:0,haber:a.tipo==='haber'?a.monto:0});
@@ -11685,23 +11818,24 @@ function renderFacturacionTab(){
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div>
         <label style="font-size:11px;color:var(--text3);display:block">Taller / Proveedor</label>
-        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
+        <input list="facturacion-destinos-list" id="facturacion-pago-destino" placeholder="Elegí o escribí..." value="${facturacionPagoDraft.destino.replace(/"/g,'&quot;')}" oninput="facturacionPagoSetDestino(this.value)" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:160px">
         <datalist id="facturacion-destinos-list">${destinos.map(d=>`<option value="${d}">`).join('')}</datalist>
       </div>
       <div>
         <label style="font-size:11px;color:var(--text3);display:block">Monto</label>
-        <input type="number" min="0" id="facturacion-pago-monto" placeholder="0" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:110px">
+        <input type="number" min="0" id="facturacion-pago-monto" placeholder="0" value="${facturacionPagoDraft.monto}" oninput="facturacionPagoSetMonto(this.value)" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;width:110px">
       </div>
       <div>
         <label style="font-size:11px;color:var(--text3);display:block">Fecha</label>
-        <input type="date" id="facturacion-pago-fecha" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
+        <input type="date" id="facturacion-pago-fecha" value="${facturacionPagoDraft.fecha}" oninput="facturacionPagoDraft.fecha=this.value" style="border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px">
       </div>
       <button class="btn-sm" onclick="facturacionRegistrarPago()">✓ Registrar pago</button>
     </div>
-    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">El pago queda como un movimiento (Haber) en la cuenta corriente del taller — no se debita contra un corte puntual. Vas a ver el detalle completo en "Cuenta corriente" de cada taller.</div>
+    <div id="facturacion-pago-imput"></div>
+    <div style="font-size:10.5px;color:var(--text3);margin-top:6px">El pago queda como un movimiento (Haber) en la cuenta corriente del taller. Si querés, podés aplicarlo a uno o varios cortes facturados — lo que no apliques queda a cuenta.</div>
   </div>`;
 
-  if(!items.length){ el.innerHTML=formHtml+'<div class="empty">No hay cortes acá.</div>'; return; }
+  if(!items.length){ el.innerHTML=formHtml+'<div class="empty">No hay cortes acá.</div>'; facturacionRenderImputacion(); return; }
 
   // Agrupado por taller/proveedor — cada grupo con su saldo total, ordenado por el corte más
   // atrasado primero (para ver de un vistazo a quién le debés hace más tiempo).
@@ -11769,6 +11903,13 @@ function renderFacturacionTab(){
       const estadoBadge = facturado ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">✓ Facturado ${it.facturacion_fecha?'el '+it.facturacion_fecha:''}</span>`
         : !precio ? `<span class="logi-badge" style="background:#f3f4f6;color:#6b7280">Sin precio cargado</span>`
         : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">Pendiente de facturar</span>`;
+      let pagoBadge='';
+      if(facturacionCorteConEstado(it)){
+        const pagado=facturacionPagadoCorte(id), falta=facturacionFaltaCorte(id,it);
+        pagoBadge = falta<=0.009 ? `<span class="logi-badge" style="background:#dcfce7;color:#15803d">💵 Pagado</span>`
+          : pagado>0.009 ? `<span class="logi-badge" style="background:#fef3c7;color:#92400e">💵 Parcial · falta $${falta.toLocaleString('es-AR')}</span>`
+          : `<span class="logi-badge" style="background:#fee2e2;color:#b91c1c">💵 Impago · $${falta.toLocaleString('es-AR')}</span>`;
+      }
       return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px${facturado?';opacity:.75':''}">
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px">
           <div>
@@ -11776,7 +11917,7 @@ function renderFacturacionTab(){
             <div class="logi-name">${it.name||''}</div>
             <div style="font-size:11.5px;color:var(--text2);margin-top:2px">📅 Entregado: ${fecha} ${diasHtml}</div>
           </div>
-          ${estadoBadge}
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start">${estadoBadge}${pagoBadge}</div>
         </div>
         ${facturado?`
         <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12.5px;color:var(--text2)">
@@ -11815,6 +11956,7 @@ function renderFacturacionTab(){
   }).join('');
 
   el.innerHTML=formHtml+resumenHtml+gruposHtml;
+  facturacionRenderImputacion();
 }
 function facturacionExportarExcel(){
   const items=facturacionItemsFiltrados();

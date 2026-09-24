@@ -6067,6 +6067,19 @@ function getSortedItems(sec){
   });
 }
 
+// Cortes próximos a sacar (confirmados): ordenados por la misma fecha que se ve en la fila
+// ("Vence hoy" / "Hasta el ..."). Empate → mismo N° de corte juntos → orden manual. Sin fecha, al final.
+function ordenarS3PorFecha(list,sec){
+  const lim=([,it])=>{
+    const fl=fechaLimiteTarea(sec,it,'s3');
+    return (fl&&fl.limite)||logiParseFechaEntregado(it.fecha_objetivo_corte)||Infinity;
+  };
+  return list.slice().sort((a,b)=>{
+    const d=lim(a)-lim(b); if(d) return d;
+    const c=extractCorteNumber(a[1])-extractCorteNumber(b[1]); if(c) return c;
+    return (a[1].orden??1e9)-(b[1].orden??1e9);
+  });
+}
 function getBoard(sec){
   if(sec.board) return sec.board;
   return (sec.tipo||'').startsWith('muestra_') ? 'diseno' : 'fabrica';
@@ -6237,7 +6250,7 @@ function renderSections(board){
       }).join('');
     } else if(secId==='s3'){
       const enCola=items.filter(([,item])=>item.sin_confirmar);
-      const confirmados=items.filter(([,item])=>!item.sin_confirmar);
+      const confirmados=ordenarS3PorFecha(items.filter(([,item])=>!item.sin_confirmar),sec);
       const colaHtml=enCola.length
         ? `<div class="group-header" style="font-size:12px;font-weight:700;color:var(--warn-text);margin:4px 0 6px;padding-bottom:4px;border-bottom:1px dashed var(--border);cursor:pointer;display:flex;align-items:center;gap:6px" onclick="toggleColaCollapsed()">
             <span style="display:inline-block;transition:transform .15s;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span>
@@ -6269,7 +6282,7 @@ function renderSections(board){
       } else if(secId==='s3'){
         // Igual que en tarjetas: la cola (pendientes de aprobación) arriba y plegable, después los confirmados.
         const enColaC=items.filter(([,it])=>it.sin_confirmar);
-        const confC=items.filter(([,it])=>!it.sin_confirmar);
+        const confC=ordenarS3PorFecha(items.filter(([,it])=>!it.sin_confirmar),sec);
         const hdr=(txt,extra)=>`<div style="font-size:12px;font-weight:700;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;${extra||''}">${txt}</div>`;
         itemsHtml=(enColaC.length
             ? hdr(`<span style="display:inline-block;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span> 🕓 En cola — pendientes de aprobación de Ari (${enColaC.length})`,'color:var(--warn-text);cursor:pointer" onclick="toggleColaCollapsed()')

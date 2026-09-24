@@ -13386,10 +13386,36 @@ function logiCloseDetail(){
 // Borra el movimiento entero de Logística (una entrega cargada de prueba, por error, etc.).
 // Si esta entrega estaba enlazada a un corte de Fábrica (fabrica_item_id), al borrarla ese
 // corte vuelve a mostrar el saldo "En taller" como si nunca se hubiera abierto.
+// Corrige una entrega vieja que quedó a nombre del taller de costura pero en realidad era el
+// regreso de estampado (interno, no se factura) o de plancha (se factura al taller de plancha).
+function logiMarcarProceso(id,tipo){
+  const it=logiItemsData[id];
+  if(!it) return;
+  if(it.facturado_cta_cte){ showToast('Ya está facturada — corregilo con un ajuste en la cuenta corriente'); return; }
+  let upd;
+  if(tipo==='estampado'){
+    if(!confirm(`¿Marcar esta entrega (${it.code||''} — Corte ${it.numero_corte||'?'}) como reconteo de Estampado Nina? Deja de figurar para ${it.taller||'el taller'} y no se factura.`)) return;
+    upd={proceso:'estampado',no_facturar:true,taller:'Estampado Nina (interno)',taller_original:it.taller||null,precio_taller:null};
+  } else {
+    const t=prompt('¿Qué taller hizo la plancha/terminación? (se le factura a ese taller)','');
+    if(t===null||!t.trim()) return;
+    upd={proceso:'terminacion',taller:t.trim(),taller_original:it.taller||null,precio_taller:null};
+  }
+  db.ref(`fabrica_v5/logistica/items/${id}`).update(upd);
+  logActivity('Corrigió entrega como proceso',`${it.code||''} — Corte ${it.numero_corte||'?'} → ${upd.taller}`);
+  showToast('✓ Entrega corregida');
+}
 function logiEliminarItem(id){
   const it=logiItemsData[id];
   if(!it) return;
-  if(!confirm(`¿Eliminar este movimiento de Logística (${it.code||'sin código'} — Corte ${it.numero_corte||'?'})? No se puede deshacer.`)) return;
+  const avPend=it.avance_pendiente&&!it.avance_pendiente.avanzado&&it.avance_pendiente.item_snapshot;
+  const aviso=avPend?`\n\n⚠️ Esta entrega tiene retenido el corte en Logística. Si la borrás, el corte pasa directo a Fábrica → ${it.avance_pendiente.destino_label||it.avance_pendiente.destino_tipo} para que no se pierda.`:'';
+  if(!confirm(`¿Eliminar este movimiento de Logística (${it.code||'sin código'} — Corte ${it.numero_corte||'?'})? No se puede deshacer.${aviso}`)) return;
+  if(avPend){
+    const destSecId=getSectionIdByTipo(it.avance_pendiente.destino_tipo);
+    if(!destSecId){ showToast('No encontré la sección de destino del corte — no borro nada'); return; }
+    db.ref(`fabrica_v5/sections/${destSecId}/items`).push(it.avance_pendiente.item_snapshot);
+  }
   db.ref(`fabrica_v5/logistica/items/${id}`).remove();
   logActivity('Eliminó un movimiento de Logística',`${it.code||''} — Corte ${it.numero_corte||'?'}`);
   showToast('🗑 Movimiento eliminado');
@@ -13437,7 +13463,11 @@ function logiRenderDetail(id){
       <option value="dividir" ${etapaActual==='dividir'?'selected':''}>🔀 Pendiente dividir</option>
       <option value="finalizado" ${etapaActual==='finalizado'?'selected':''}>✅ Finalizado (habilita Web)</option>
     </select>` : '';
+  const avPend=it.avance_pendiente&&!it.avance_pendiente.avanzado;
   document.getElementById('logi-detail-eliminar').innerHTML = (currentUser==='ariel'||currentUser==='stef') ? `
+    ${avPend?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔒 Esta entrega tiene retenido el corte: cuando se cierre el control vuelve solo a Fábrica → ${it.avance_pendiente.destino_label||it.avance_pendiente.destino_tipo}</div>`:''}
+    ${(!it.proceso&&!it.facturado_cta_cte)?`<button class="btn-sm" style="margin-right:6px" onclick="logiMarcarProceso('${id}','estampado')">🎨 Es reconteo de estampado Nina (no se factura)</button>
+    <button class="btn-sm" style="margin-right:6px" onclick="logiMarcarProceso('${id}','terminacion')">🧺 Es entrega de plancha/terminación</button>`:''}
     <button class="btn-sm" style="border-color:var(--danger);color:var(--danger)" onclick="logiEliminarItem('${id}')">🗑 Eliminar este movimiento (era una prueba, etc.)</button>` : '';
 
   // Mismo bloque de costo/precios de venta/recepción por destino/Ninox/colores web que se ve

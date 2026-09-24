@@ -2741,7 +2741,10 @@ function getResponsable(sec,item,secId){
   if(secId==='s5') return 'Peque';
   if(secId==='sLT') return 'Emir';
   if(secId==='sFIN') return 'Emir';
-  if(!tipo) return 'Peque'; // secciones custom tipo "Pendiente armar tizada": tarea de Peque
+  if(!tipo){
+    if((sec.title||'').trim()==='Pendiente armar tizada'&&faltantesNoeliaTizada(item).length) return 'Noelia';
+    return 'Peque'; // secciones custom tipo "Pendiente armar tizada": resto es tarea de Peque
+  }
   return null;
 }
 
@@ -5199,6 +5202,13 @@ function diasEntreTs(a,b){
 // Criterio único de "¿ya completó lo suyo?" para Stef y Peque en Nuevos Desarrollos —
 // usado por el panel de pasos, los backfills y la pestaña Pendientes, para que todos
 // coincidan siempre (antes cada uno tenía su propia copia y se desincronizaban).
+// "Pendiente armar tizada": datos que carga Noelia (código, nombre, marca, tela, proveedor y Ninox).
+// Lo de Peque (ficha, curva, ancho, control de piezas) va aparte.
+function faltantesNoeliaTizada(item){
+  const vacio=v=>!(v&&String(v).trim());
+  return [vacio(item.code)?'Código':null,vacio(item.name)?'Nombre':null,vacio(item.marca)?'Marca':null,
+    vacio(item.tela)?'Tela':null,vacio(item.proveedor)?'Proveedor':null,!item.en_ninox?'Ninox':null].filter(Boolean);
+}
 function stefCompletoNuevoDesarrollo(item){
   return !!(item.name&&item.name.trim())&&!!(item.tela_nombre&&item.tela_nombre.trim())&&!!(item.tela_proveedor&&item.tela_proveedor.trim())&&!!item.marca&&!!item.categoria&&!!item.temporada&&!!item.color_muestra&&!!item.ref_link&&!!item.fecha_objetivo_recibir;
 }
@@ -7502,22 +7512,22 @@ function buildItem(secId,itemId,item,sec,idx,total){
             return ref?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Reponiendo: <strong>${ref.code?ref.code+' — ':''}${ref.name||''}</strong></div>`:'';
           })()):''}`}
         ${prioridadHtml}
-        ${item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
-        ${buildNameHtml(secId,itemId,item,canEdit,true)}
-        ${!item.code?buildCodeHtml(secId,itemId,item,canEdit):''}
+        ${item.code?buildCodeHtml(secId,itemId,item,canEdit||noeliaEnTizada):''}
+        ${buildNameHtml(secId,itemId,item,canEdit||noeliaEnTizada,true)}
+        ${!item.code?buildCodeHtml(secId,itemId,item,canEdit||noeliaEnTizada):''}
         ${(POST_S3_SECS.includes(secId)&&item.numero_corte)?`<div style="display:flex;align-items:center;gap:6px;margin:2px 0 6px">
             <div style="display:inline-block;background:var(--accent);color:#fff;font-weight:700;font-size:13px;border-radius:8px;padding:4px 10px;letter-spacing:.2px">✂️ Corte N° ${item.numero_corte}</div>
             ${corteColapseKey?`<button class="btn-sm" onclick="toggleCorteItemCollapse('${corteColapseKey}')">${corteColapsado?'▸ Expandir':'▾ Colapsar'}</button>`:''}
           </div>`:''}
         <div class="${corteColapsado?'hidden':''}">
         ${procesoInfoHtml(item,secId,itemId)}
-        ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
+        ${(canEdit||noeliaEnTizada)?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
         ${(secId==='sFIN'||item.base_aprobada)?(canEdit?buildCategoriaHtml(secId,itemId,item):(item.categoria?`<div style="font-size:11px;color:var(--text2)">Categoría: <strong>${item.categoria}</strong></div>`:'')):''}
         ${(secId==='sFIN'||item.base_aprobada)?(canEdit?buildTemporadaHtml(secId,itemId,item):(item.temporada?`<div style="font-size:11px;color:var(--text2)">Temporada: <strong>${item.temporada}</strong></div>`:'')):''}
         ${item.base_aprobada
           ? `<div style="display:flex;flex-direction:column;gap:2px;margin-top:6px">
-              ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
-              ${canFicha?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
+              ${(canFicha||noeliaEnTizada)?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
+              ${(canFicha||noeliaEnTizada)?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
               <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
                 <span style="font-size:11px;color:var(--text2)">Link:</span>
                 ${item.ref_link?`<a href="${item.ref_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">🔗 Ver</a>`:`<span style="font-size:12px;color:var(--text3);font-style:italic">Sin link</span>`}
@@ -7525,8 +7535,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
               </div>
             </div>`
           : `<div style="display:flex;flex-direction:column;gap:2px">
-              ${canFicha?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
-              ${canFicha?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
+              ${(canFicha||noeliaEnTizada)?buildTelaHtml(secId,itemId,item):(item.tela?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Tela: <strong>${item.tela}</strong></div>`:'')}
+              ${(canFicha||noeliaEnTizada)?buildProveedorHtml(secId,itemId,item):(item.proveedor?`<div style="font-size:11px;color:var(--text2)">Proveedor: <strong>${item.proveedor}</strong></div>`:'')}
             </div>`}
         ${reposicionHtml}
         ${baseHtml}
@@ -7575,7 +7585,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
           ${canFicha?`<button class="btn-sm" onclick="editControlPiezasLink('${secId}','${itemId}')">${item.control_piezas_link?'🔗 Editar link':'+ Link'}</button>`:''}
         </div>
         ${esArmarTizada?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
-          <div class="c-check ${item.en_ninox?'checked':''}" onclick="${canFicha?`toggleNinox('${secId}','${itemId}')`:''}">${item.en_ninox?'✓':''}</div>
+          <div class="c-check ${item.en_ninox?'checked':''}" onclick="${(canFicha||noeliaEnTizada)?`toggleNinox('${secId}','${itemId}')`:''}">${item.en_ninox?'✓':''}</div>
           <span class="c-label ${item.en_ninox?'done':''}" style="font-size:11px">Cargado en Ninox</span>
         </div>`:''}
         ${item.ficha_ajuste_pendiente?`<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
@@ -7606,14 +7616,12 @@ function buildItem(secId,itemId,item,sec,idx,total){
         ${(()=>{
           if(POST_S3_SECS.includes(secId)) return '';
           const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null];
-          if(esArmarTizada){
-            faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
-          }
           if(item.ficha_ajuste_pendiente) faltantes.push('Ajustar ficha técnica pedida');
-          else if(item.ficha_control_pendiente) faltantes.push('Control de ficha corregida (Noelia)');
           const list=faltantes.filter(Boolean);
-          if(!list.length) return '';
-          return `<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar Peque: falta ${list.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
+          const listNoe=esArmarTizada?faltantesNoeliaTizada(item):[];
+          if(item.ficha_control_pendiente&&!item.ficha_ajuste_pendiente) listNoe.push('Control de ficha corregida');
+          const caja=(quien,l)=>`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar ${quien}: falta ${l.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
+          return (listNoe.length?caja('Noelia',listNoe):'')+(list.length?caja('Peque',list):'');
         })()}
         ${numeroCorteHtml}
         ${estampadoBadgeHtml(item,secId,itemId)}
@@ -9577,7 +9585,7 @@ async function confirmBaseAdd(){
   const ni={
     code,
     name,
-    marca:ref?.marca||(marcasList&&marcasList[0])||'By Nina',
+    marca:ref?.marca||null, // con base manual no se asume By Nina: la elige Noelia
     categoria:ref?.categoria||null,
     temporada:ref?.temporada||null,
     tela:ref?.tela||null,
@@ -9592,7 +9600,7 @@ async function confirmBaseAdd(){
   };
   db.ref(`fabrica_v5/sections/${baseAddSecId}/items`).push(ni);
   logActivity('Agregó artículo nuevo desde base (sin moldería)',`${name} ← ${ref?.code||ref?.name||refManual||''}`);
-  showToast(code?'✓ Artículo agregado — falta Ficha, Curva, Ancho, Control de piezas y Ninox':'✓ Artículo agregado — falta código (Peque), Ficha, Curva, Ancho, Control de piezas y Ninox');
+  showToast('✓ Artículo agregado — Noelia completa código/nombre/marca/tela/proveedor/Ninox y Peque ficha, curva, ancho y control de piezas');
   closeBaseAddModal();
 }
 document.getElementById('close-modal-base-add').onclick=closeBaseAddModal;
@@ -9607,7 +9615,7 @@ function moveItem(secId,itemId,targetSecId){
   if(targetSecId==='s3'){
     const esArmarTizada=(sectionsData[secId].title||'').trim()==='Pendiente armar tizada';
     const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null,
-      ...(esArmarTizada?[!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null]:[]),
+      ...(esArmarTizada?faltantesNoeliaTizada(item):[]),
       item.ficha_ajuste_pendiente?'Ajustar ficha técnica pedida':(item.ficha_control_pendiente?'Control de ficha corregida (Noelia)':null)
     ].filter(Boolean);
     if(faltantes.length){
@@ -10292,9 +10300,6 @@ function getMisPendientesPeque(){
     const esArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null];
-      if(esArmarTizada){
-        faltantes.push(!item.name||!item.name.trim()?'Nombre':null,!item.code||!item.code.trim()?'Código':null,!item.en_ninox?'Ninox':null);
-      }
       const flist=faltantes.filter(Boolean);
       if(flist.length) list.push({secId,itemId,item,texto:'Falta '+flist.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
       if(item.ficha_ajuste_pendiente) list.push({secId,itemId,item,texto:'Ajustar ficha técnica pedida',ts:item.ficha_ajuste_fecha||item.fecha_etapa||item.fecha_ingreso||0});
@@ -10383,7 +10388,17 @@ function getMisPendientesLogistica(){
   return list;
 }
 
+function getMisPendientesNoelia(){
+  const list=[];
+  const destId=getSectionIdByTitleExact('Pendiente armar tizada');
+  Object.entries((destId&&sectionsData[destId]?.items)||{}).forEach(([itemId,item])=>{
+    const f=faltantesNoeliaTizada(item);
+    if(f.length) list.push({secId:destId,itemId,item,texto:'Armar tizada — falta '+f.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  return list;
+}
 function getMisPendientes(){
+  if(currentUser==='noelia'||usuarioLogueado==='noelia') return getMisPendientesNoelia();
   if(currentUser==='peque') return getMisPendientesPeque();
   if(currentUser==='emir') return getMisPendientesEmir();
   if(currentUser==='ariel'||currentUser==='stef') return getMisPendientesArielStef();
@@ -11130,8 +11145,25 @@ function logiCerrarNuevaEntregaModal(){
   document.getElementById('logi-nueva-entrega-modal').classList.remove('logi-show');
 }
 
+// Pide la fecha de entrega (precargada con hoy). Devuelve dd/mm/aaaa o null si cancela.
+function pedirFechaEntrega(msg){
+  const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  let val=hoy;
+  while(true){
+    const r=prompt(msg,val);
+    if(r===null) return null;
+    const t=r.trim()||hoy;
+    const m=t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m) return `${m[1].padStart(2,'0')}/${m[2].padStart(2,'0')}/${m[3]}`;
+    alert('Fecha inválida — usá el formato dd/mm/aaaa');
+    val=t;
+  }
+}
 function logiCrearEntregaDesdeCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  // Antes esta entrega se creaba SIN fecha_entregado → aparecía "Entregado sin fecha de entrega".
+  const fechaEntrega=pedirFechaEntrega(`¿Qué fecha entregó el taller? (Corte ${item.numero_corte||''} — ${item.code||''})`);
+  if(fechaEntrega===null) return;
   const {filas}=resumenEntregasFabrica(item,itemId);
   // Lo ya entregado por color/talle en entregas anteriores de este mismo corte — por N° de
   // corte + código, no por fabrica_item_id (cambia con cada etapa), para no perder de vista
@@ -11155,7 +11187,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   const logisticaItem={
     code:item.code||'', name:item.name||'', foto:item.foto||'',
     numero_corte:item.numero_corte||'', taller:item.taller_corte||'',
-    fecha_creado:Date.now(), estado:'pendiente_conteo',
+    fecha_entregado:fechaEntrega, fecha_creado:Date.now(), estado:'pendiente_conteo',
     fabrica_sec_id:secId, fabrica_item_id:itemId,
     entrega_parcial:true, abierta_por:currentUser,
     categoria:item.categoria||'',
@@ -11165,7 +11197,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   db.ref('fabrica_v5/logistica/items').push(logisticaItem).then(()=>{
     logActivity('Abrió una entrega del taller en Logística',`Corte ${item.numero_corte}: ${item.code}`);
     if(esPrimeraEntrega){
-      avanzarCorteAlAbrirPrimeraEntrega(secId,itemId);
+      avanzarCorteAlAbrirPrimeraEntrega(secId,itemId,fechaEntrega);
     } else {
       showToast('📦 Entrega abierta en Logística — falta que la cuenten');
     }
@@ -11178,7 +11210,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
 // a Taller de terminación si tiene pasos extra sin tildar, a Estampado si tiene DTF pendiente,
 // o directo a Revisión Final para que Stef/Ariel lo revisen. No crea un segundo registro de
 // Logística — el conteo recién abierto es el que van a usar Nahuel/Noemí. ---
-function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId){
+function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId,fechaEntrega){
   const item=sectionsData[secId]&&sectionsData[secId].items[itemId];
   if(!item) return; // Puede haber sido movido/eliminado ya por otra vía.
   // Si el corte ya está en Taller de Estampado o de Terminación, ya está en el lugar correcto
@@ -11189,8 +11221,7 @@ function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId){
     showToast('📦 Entrega abierta en Logística — falta que la cuenten');
     return;
   }
-  const hoy=new Date();
-  const fechaFinal=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const fechaFinal=fechaEntrega||new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
   let targetSec,fechaField,msg,logMsg,esDestinoFinal=false;
   if(pasosPendientes.length){
@@ -11228,6 +11259,7 @@ let logiNotaPendiente = null;
 // "Entregas del taller" en Fábrica/Talleres siempre está al día, lo abra o no Emir.
 db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
+  logiBackfillFechaEntrega();
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
   if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
   if(!document.getElementById('tab-comerc').classList.contains('hidden')) renderComercializarTab();
@@ -11315,7 +11347,7 @@ function listaEntHtml(ctx){
   const visibles=st.verTodas?filas:filas.slice(0,LIM);
   let html='', ultimoDia=null;
   visibles.forEach(({id,it,col})=>{
-    const dia=it.fecha_entregado||'Sin fecha de entrega';
+    const dia=it.fecha_entregado||(it.fecha_creado?new Date(it.fecha_creado).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}):'sin fecha');
     if(dia!==ultimoDia){ html+=`<div class="le-dia">Entregado ${dia}</div>`; ultimoDia=dia; }
     const controlado = col==='dividir'||col==='finalizado';
     const precio=it.precio_taller||0;
@@ -11390,6 +11422,21 @@ function logiInit(){
 // Los ítems de Logística creados antes de guardar N° de corte/Taller no lo tienen.
 // Lo completamos buscando en el tablero un ítem con el mismo código.
 let logiBackfillIntentado = new Set();
+// Entregas viejas creadas sin fecha: se completan con el día en que se abrió la entrega en
+// Logística (fecha_creado), que es cuando se registró que llegó. Queda marcado como estimada.
+let logiBackfillFechaHecho=false;
+function logiBackfillFechaEntrega(){
+  if(logiBackfillFechaHecho) return;
+  logiBackfillFechaHecho=true;
+  const updates={};
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+    if(it.fecha_entregado || !it.fecha_creado) return;
+    const f=new Date(it.fecha_creado).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    updates[`fabrica_v5/logistica/items/${id}/fecha_entregado`]=f;
+    updates[`fabrica_v5/logistica/items/${id}/fecha_entregado_estimada`]=true;
+  });
+  if(Object.keys(updates).length) db.ref().update(updates);
+}
 function logiBackfillCorteTaller(){
   if(typeof sectionsData==='undefined' || !sectionsData) return;
   const updates={};

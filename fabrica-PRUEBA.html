@@ -4576,7 +4576,7 @@ function resumenEntregasFabrica(item,itemId){
   // entregas ya contadas ANTES de ese cambio de etapa dejaran de sumarse (parecía "0 contadas"
   // aunque ya se hubiera contado algo), y encima permitía abrir una entrega duplicada.
   const entregas=Object.entries(logiItemsData||{})
-    .filter(([,it])=>it.numero_corte===item.numero_corte&&it.code===item.code)
+    .filter(([,it])=>it.numero_corte===item.numero_corte&&it.code===item.code&&!it.proceso) // solo costura: plancha/estampado no suman como entregado
     .sort((a,b)=>(a[1].fecha_creado||0)-(b[1].fecha_creado||0));
   const totalEntregado=entregas.reduce((s,[,e])=>s+Object.values(e.grilla||{}).reduce((s2,f)=>s2+(parseInt(f.contado)||0),0),0);
   const totalFaltante=parseInt(item.faltante_total)||0;
@@ -4640,18 +4640,29 @@ function marcarEntregadoCorte(secId,itemId){
   if(pasosPendientes.length){
     if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
     const nombres=pasosPendientes.map(p=>p.nombre+(p.taller?` (${p.taller})`:'')).join(', ');
-    const fecha=prompt(`¿Qué fecha salió del taller? (pasa a terminación: ${nombres})`,fechaDefault);
-    if(fecha===null) return;
-    const fechaFinal=fecha.trim()||fechaDefault;
+    const fechaFinal=pedirFechaEntrega(`¿Qué fecha entregó el taller de costura? (pasa a terminación: ${nombres})`);
+    if(fechaFinal===null) return;
     const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_armado:Date.now(),fecha_etapa:Date.now()};
+    // Si nadie abrió todavía la entrega de costura en Logística, la creamos acá: si no, el taller
+    // de costura quedaba sin entrega para contar y facturar.
+    const yaTieneCostura=Object.values(logiItemsData||{}).some(l=>l.numero_corte===item.numero_corte&&l.code===item.code&&!l.proceso);
+    if(!yaTieneCostura){
+      const grillaObj={}; calcularGrillaEsperada(item).forEach((f,i)=>{ grillaObj['f'+i]=f; });
+      db.ref('fabrica_v5/logistica/items').push({
+        code:item.code||'', name:item.name||'', foto:item.foto||'',
+        numero_corte:item.numero_corte||'', taller:item.taller_corte||'',
+        fecha_entregado:fechaFinal, fecha_creado:Date.now(), estado:'pendiente_conteo',
+        categoria:item.categoria||'', grilla:grillaObj, abierta_por:currentUser,
+        ...(item.precio_taller?{precio_taller:item.precio_taller}:{})
+      });
+    }
     moveItemUndoable(secId,itemId,SEC_TALLER_TERMINACION,newItem);
     logActivity('Entregado — pasa a taller de terminación',`${item.code}: ${fechaFinal} (${nombres})`);
     showToast(`🧵 ${item.code} pasó a taller de terminación (${nombres})`);
     return;
   }
-  const fecha=prompt('¿Qué fecha se entregó?',fechaDefault);
-  if(fecha===null) return;
-  const fechaFinal=fecha.trim()||fechaDefault;
+  const fechaFinal=pedirFechaEntrega('¿Qué fecha entregó el taller de costura?');
+  if(fechaFinal===null) return;
   continuarDespuesDeTaller(secId,itemId,fechaFinal);
 }
 
@@ -4662,7 +4673,10 @@ function marcarEntregadoCorte(secId,itemId){
 // El ítem sale de Fábrica por completo apenas se marca "Entregado" — no queda ni con cartel de
 // "esperando", solo vive en Logística mientras tanto — y recién cuando se cierra el control
 // (logiCerrarConteo) reaparece solo, automáticamente, en la sección de destino de Fábrica.
-function crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,destinoTipo,camposFecha,destinoLabel){
+// extra (opcional): pisa campos del registro de Logística — ej. {taller:'Plancha X', proceso:'plancha'}
+// para que la entrega de un taller de terminación quede a nombre de ese taller y no del de costura,
+// o {proceso:'estampado', no_facturar:true} para el estampado interno.
+function crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,destinoTipo,camposFecha,destinoLabel,extra){
   const filas=calcularGrillaEsperada(item);
   const grillaObj={};
   filas.forEach((f,i)=>{ grillaObj['f'+i]=f; });
@@ -4673,22 +4687,23 @@ function crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,destinoTipo
     fecha_entregado:fechaFinal, fecha_creado:Date.now(),
     estado:'pendiente_conteo', categoria:item.categoria||'',
     grilla:grillaObj,
-    avance_pendiente:{destino_tipo:destinoTipo,destino_label:destinoLabel,item_snapshot:itemSnapshot}
+    avance_pendiente:{destino_tipo:destinoTipo,destino_label:destinoLabel,item_snapshot:itemSnapshot},
+    ...(extra||{})
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Entregado — queda en Logística pendiente de contar y controlar',`${item.code} → ${destinoLabel}`);
   showToast(`📦 ${item.code} pasó a Logística — falta contar y controlar antes de seguir a ${destinoLabel}`);
 }
-function continuarDespuesDeTaller(secId,itemId,fechaFinal){
+function continuarDespuesDeTaller(secId,itemId,fechaFinal,extra){
   const item=sectionsData[secId].items[itemId];
   if(item.estampado_dtf && !item.estampado_taller_entregado){
     if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
-    crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'en_estampado_taller',{fecha_entregado_taller_costura:Date.now()},'taller de estampado');
+    crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'en_estampado_taller',{fecha_entregado_taller_costura:Date.now()},'taller de estampado',extra);
     return;
   }
   if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
-  crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'revision_final',{fecha_entregado_revision:Date.now()},'Revisión Final');
+  crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'revision_final',{fecha_entregado_revision:Date.now()},'Revisión Final',extra);
 }
 
 // --- TALLER DE TERMINACIÓN (pasos extra: plancha, ojal, broche...) — bloquea hasta que estén
@@ -4700,19 +4715,31 @@ function marcarEntregadoTerminacion(secId,itemId){
     showToast(`⏳ Faltan pasos: ${pasosPendientes.map(p=>p.nombre).join(', ')}`);
     return;
   }
-  const hoy=new Date();
-  const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
-  const fecha=prompt('¿Qué fecha se entregó (terminación)?',fechaDefault);
-  if(fecha===null) return;
-  const fechaFinal=fecha.trim()||fechaDefault;
-  continuarDespuesDeTaller(secId,itemId,fechaFinal);
+  // La entrega queda a nombre del taller de terminación (se le paga aparte), no del de costura.
+  const pasos=Object.values(item.pasos_extra||{});
+  let talleres=[...new Set(pasos.map(p=>(p.taller||'').trim()).filter(Boolean))];
+  if(!talleres.length){
+    const t=prompt(`¿Qué taller hizo ${pasos.map(p=>p.nombre).join(', ')||'la terminación'}? (se le factura a ese taller)`,'');
+    if(t===null||!t.trim()){ showToast('Falta el taller de terminación'); return; }
+    talleres=[t.trim()];
+  }
+  if(talleres.length>1&&!confirm(`Los pasos los hicieron talleres distintos (${talleres.join(', ')}). Se va a cargar una sola entrega a nombre de "${talleres.join(' + ')}" — después separala a mano en Facturación. ¿Seguimos?`)) return;
+  const fechaFinal=pedirFechaEntrega(`¿Qué fecha entregó ${talleres.join(' + ')}?`);
+  if(fechaFinal===null) return;
+  continuarDespuesDeTaller(secId,itemId,fechaFinal,{
+    taller:talleres.join(' + '), proceso:'terminacion',
+    proceso_detalle:pasos.map(p=>p.nombre).join(', ')
+  });
 }
 
 // --- TALLER DE ESTAMPADO (Plancha Nina) → recién ahí sigue a Revisión Final ---
 function marcarEntregadoEstampadoTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
-  crearEntregaLogisticaConAvance(secId,itemId,item,item.fecha_entregado||'','revision_final',{estampado_taller_entregado:true,fecha_entregado_revision:Date.now()},'Revisión Final');
+  const fechaFinal=pedirFechaEntrega('¿Qué fecha terminó el estampado?');
+  if(fechaFinal===null) return;
+  crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'revision_final',{estampado_taller_entregado:true,fecha_entregado_revision:Date.now()},'Revisión Final',
+    {taller:'Estampado Nina (interno)', proceso:'estampado', no_facturar:true});
 }
 
 // --- REVISIÓN FINAL (llegó el corte del taller) ---
@@ -11125,7 +11152,7 @@ function logiAbrirNuevaEntregaCorte(){
       // cambia cada vez que el corte pasa de etapa (ej: al tocar "Entregado" y pasar de
       // Revisión Final a Estampado), así que compararlo por id dejaba de reconocer una
       // entrega ya abierta apenas el corte avanzaba, y permitía duplicarla por error.
-      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.numero_corte===it.numero_corte&&lit.code===it.code&&lit.estado!=='cerrado');
+      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.numero_corte===it.numero_corte&&lit.code===it.code&&!lit.proceso&&lit.estado!=='cerrado');
       if(tieneEntregaAbierta) return;
       const resumen=resumenEntregasFabrica(it,id);
       if(resumen.enTaller>0) candidatos.push({id,it,secId,resumen});
@@ -11168,7 +11195,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   // Lo ya entregado por color/talle en entregas anteriores de este mismo corte — por N° de
   // corte + código, no por fabrica_item_id (cambia con cada etapa), para no perder de vista
   // entregas ya contadas antes de que el corte avanzara de sección.
-  const entregasPrevias=Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code);
+  const entregasPrevias=Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code&&!it.proceso);
   const esPrimeraEntrega=entregasPrevias.length===0; // Solo la primera entrega de un corte dispara el pase automático a Revisión.
   const entregadoPorCombo={};
   entregasPrevias.forEach(it=>{
@@ -11325,6 +11352,26 @@ function listaEntSetPrecio(ctx,id,val){
   facturacionSetPrecio(id,val);
   setTimeout(()=>listaEntRender(ctx),300);
 }
+// Prendas estampadas en Estampado Nina (interno) por mes, según la fecha de entrega del estampado.
+// Usa lo contado; si todavía no se contó, lo esperado del corte.
+function listaEntResumenEstampado(){
+  const porMes={};
+  Object.values(logiItemsData||{}).forEach(it=>{
+    if(it.proceso!=='estampado') return;
+    const ts=listaEntFechaTs(it); if(!ts) return;
+    const d=new Date(ts), k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const cont=listaEntContado(it);
+    const n=cont||Object.values(it.grilla||{}).reduce((s,f)=>s+(parseInt(f.esperado)||0),0);
+    porMes[k]=(porMes[k]||0)+n;
+  });
+  const hoy=new Date();
+  const k0=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const ant=new Date(hoy.getFullYear(),hoy.getMonth()-1,1);
+  const k1=`${ant.getFullYear()}-${String(ant.getMonth()+1).padStart(2,'0')}`;
+  if(!porMes[k0]&&!porMes[k1]) return '';
+  const nom=d=>d.toLocaleDateString('es-AR',{month:'long'});
+  return `<div style="font-size:12px;color:var(--text2);margin:0 0 8px">🎨 Prendas estampadas: <b>${(porMes[k0]||0).toLocaleString('es-AR')}</b> en ${nom(hoy)} · <b>${(porMes[k1]||0).toLocaleString('es-AR')}</b> en ${nom(ant)}</div>`;
+}
 function listaEntHtml(ctx){
   const st=listaEntState[ctx];
   const plata=listaEntVePlata();
@@ -11342,7 +11389,8 @@ function listaEntHtml(ctx){
       style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
   </div>`;
   const filas=listaEntFiltrar(ctx);
-  if(!filas.length) return filtrosHtml+'<div class="empty">No hay entregas con ese filtro.</div>';
+  const resumenEst=listaEntResumenEstampado();
+  if(!filas.length) return resumenEst+filtrosHtml+'<div class="empty">No hay entregas con ese filtro.</div>';
   const LIM=60;
   const visibles=st.verTodas?filas:filas.slice(0,LIM);
   let html='', ultimoDia=null;
@@ -11363,7 +11411,9 @@ function listaEntHtml(ctx){
     if(plata) nums+= precio ? `<span>Precio <b>$${precio.toLocaleString('es-AR')}</b></span>` : `<span style="color:var(--text3)">Sin precio</span>`;
     let facHtml='';
     if(plata){
-      if(it.facturado_cta_cte){
+      if(it.no_facturar){
+        facHtml=`<span class="le-fac le-no">Interno — no se factura</span>`;
+      } else if(it.facturado_cta_cte){
         facHtml=`<span class="le-fac le-ok">✓ Facturado $${(it.facturacion_monto||0).toLocaleString('es-AR')}${it.facturacion_fecha?' · '+it.facturacion_fecha:''}</span>`;
       } else if(col!=='finalizado'){
         facHtml=`<span class="le-fac le-no">${col==='dividir'?'Falta dividir':'Falta control'}</span>`;
@@ -11380,14 +11430,14 @@ function listaEntHtml(ctx){
       ${foto}
       <div class="le-body">
         <div class="le-top"><span class="le-art">${esc(it.name||'(sin nombre)')}</span><span class="le-code">${esc(it.code||'')}</span></div>
-        <div class="le-sub">🧵 ${esc(listaEntDestino(it))}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
+        <div class="le-sub">${it.proceso==='estampado'?'🎨':it.proceso==='terminacion'?'🧺':'🧵'} ${esc(listaEntDestino(it))}${it.proceso_detalle?' ('+esc(it.proceso_detalle)+')':''}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
         <div class="le-nums">${nums}</div>
         <div class="le-bot"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${facHtml}</div>
       </div>
     </div>`;
   });
   if(!st.verTodas&&filas.length>LIM) html+=`<button class="btn-sm" style="margin-top:6px" onclick="listaEntSet('${ctx}','verTodas',true)">Ver las ${filas.length-LIM} más viejas</button>`;
-  return filtrosHtml+html;
+  return resumenEst+filtrosHtml+html;
 }
 function listaEntRender(ctx){
   const el=document.getElementById(ctx==='logistica'?'logi-lista-wrap':'facturacion-lista-wrap');
@@ -11982,7 +12032,7 @@ function facturacionDestino(it){
 function facturacionRenombrarTaller(destinoActual){
   const nuevo=(prompt(`Corregir nombre de taller/proveedor.\n\nActual: "${destinoActual}"\n\nEscribí el nombre correcto:`,destinoActual)||'').trim();
   if(!nuevo||nuevo===destinoActual) return;
-  const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado' && facturacionDestino(it)===destinoActual);
+  const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado' && !it.no_facturar && facturacionDestino(it)===destinoActual);
   if(!items.length){ showToast('No se encontraron cortes de ese taller/proveedor'); return; }
   if(!confirm(`¿Reasignar ${items.length} corte${items.length!==1?'s':''} de "${destinoActual}" a "${nuevo}"?`)) return;
   const updates={};
@@ -12029,6 +12079,7 @@ function facturacionFacturarCorte(itemId){
   const it=(logiItemsData||{})[itemId];
   if(!it){ showToast('No se encontró ese corte'); return; }
   if(it.facturado_cta_cte){ showToast('Ese corte ya está facturado'); return; }
+  if(it.no_facturar){ showToast('Es un proceso interno — no se factura'); return; }
   if(!(it.precio_taller>0)){ showToast('Cargá el precio antes de facturar'); return; }
   const monto=facturacionCantidad(it)*(it.precio_taller||0);
   if(!confirm(`¿Facturar este corte a cuenta corriente por $${monto.toLocaleString('es-AR')}?\n\nDespués de facturado no se puede volver atrás ni editar cantidad/precio de este corte — cualquier corrección se carga como ajuste manual en la cuenta corriente del taller.`)) return;
@@ -12044,7 +12095,7 @@ function facturacionFacturarCorte(itemId){
   renderFacturacionTab();
 }
 function facturacionItemsFiltrados(){
-  const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado');
+  const items=Object.entries(logiItemsData||{}).filter(([,it])=>it.estado==='cerrado'&&!it.no_facturar);
   let out=items.filter(([,it])=>{
     if(facturacionFiltro==='pendiente') return !it.facturado_cta_cte;
     if(facturacionFiltro==='facturado') return !!it.facturado_cta_cte;
@@ -12059,7 +12110,7 @@ function facturacionItemsFiltrados(){
 }
 function facturacionListaDestinos(){
   const set=new Set();
-  Object.values(logiItemsData||{}).forEach(it=>{ if(it.estado==='cerrado') set.add(facturacionDestino(it)); });
+  Object.values(logiItemsData||{}).forEach(it=>{ if(it.estado==='cerrado'&&!it.no_facturar) set.add(facturacionDestino(it)); });
   return Array.from(set).sort();
 }
 // Saldo de cuenta corriente de un taller/proveedor = Debe (cortes facturados + ajustes tipo
@@ -12105,7 +12156,7 @@ function facturacionFaltaCorte(itemId,it){
 // cuenta corriente).
 function facturacionCortesImputables(destino){
   return Object.entries(logiItemsData||{})
-    .filter(([id,it])=>it.estado==='cerrado'&&facturacionDestino(it)===destino&&facturacionCorteConEstado(it)&&facturacionFaltaCorte(id,it)>0.009)
+    .filter(([id,it])=>it.estado==='cerrado'&&!it.no_facturar&&facturacionDestino(it)===destino&&facturacionCorteConEstado(it)&&facturacionFaltaCorte(id,it)>0.009)
     .sort((a,b)=>(logiParseFechaEntregado(a[1].fecha_entregado)||a[1].facturacion_fecha_registro||0)-(logiParseFechaEntregado(b[1].fecha_entregado)||b[1].facturacion_fecha_registro||0));
 }
 // Borrador del formulario de pago — se guarda aparte porque la pestaña se redibuja entera
@@ -12418,7 +12469,7 @@ function facturacionMigrarSiHaceFalta(){
     const updates={};
     let algo=false;
     Object.entries(logiItemsData||{}).forEach(([id,it])=>{
-      if(it.estado==='cerrado' && (it.precio_taller||0)>0 && !it.facturado_cta_cte){
+      if(it.estado==='cerrado' && !it.no_facturar && (it.precio_taller||0)>0 && !it.facturado_cta_cte){
         const monto=facturacionCantidad(it)*(it.precio_taller||0);
         updates[`fabrica_v5/logistica/items/${id}/facturado_cta_cte`]=true;
         updates[`fabrica_v5/logistica/items/${id}/facturacion_monto`]=monto;

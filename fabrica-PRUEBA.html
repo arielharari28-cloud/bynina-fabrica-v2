@@ -267,6 +267,32 @@
   .estampado-color-row input{padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit}
 
   /* ===== Pestaña Logística (conteo/control de calidad) ===== */
+  /* ===== Lista de entregas por fecha (Logística y Facturación) ===== */
+  .lista-vista-toggle{display:inline-flex;gap:4px}
+  .lista-vista-toggle .btn-sm.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .le-filtros{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  .le-chip{font-size:12px;padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text2)}
+  .le-chip.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+  .le-dia{font-size:11.5px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px}
+  .le-row{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:6px;display:flex;gap:10px}
+  .le-row.le-click{cursor:pointer}
+  .le-row img,.le-row .le-noimg{width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;background:var(--surface2)}
+  .le-body{flex:1;min-width:0}
+  .le-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .le-art{font-weight:800;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .le-code{font-size:11.5px;color:var(--text2);flex-shrink:0}
+  .le-sub{font-size:11.5px;color:var(--text2)}
+  .le-nums{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--text2);margin:5px 0}
+  .le-nums b{color:var(--text)}
+  .le-nums .le-fall b{color:var(--danger)}
+  .le-bot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+  .le-est{font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 8px}
+  .le-est-conteo{background:#fbe4e1;color:#b0392f}.le-est-control{background:#fdf1d9;color:#8a6508}
+  .le-est-dividir{background:#ede9fe;color:#5b21b6}.le-est-finalizado{background:#e3f3e8;color:#2e7d4f}
+  .le-fac{font-size:11.5px;font-weight:700;border-radius:8px;padding:5px 10px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text)}
+  .le-fac.le-ok{background:#dcfce7;color:#15803d;border-color:#bbf7d0;cursor:default}
+  .le-fac.le-no{color:var(--text3);border-style:dashed;cursor:default;font-weight:600}
+  .le-precio-in{width:84px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px}
   .logi-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:12px;display:flex;gap:12px;cursor:pointer;overflow:hidden}
   .logi-card img{width:64px;height:64px;object-fit:cover;border-radius:10px;background:var(--surface2);flex-shrink:0}
   .logi-card .logi-noimg{width:64px;height:64px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
@@ -724,6 +750,10 @@
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <div class="lista-vista-toggle" id="logi-vista-toggle">
+            <button class="btn-sm active" data-vista="tablero" onclick="logiSetVista('tablero')">🗂️ Tablero</button>
+            <button class="btn-sm" data-vista="lista" onclick="logiSetVista('lista')">📅 Lista por fecha</button>
+          </div>
           <span style="font-size:12px;color:var(--text2)">Ordenar por:</span>
           <select id="logi-orden-select" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="logiOrdenPor=this.value;logiRenderBoard()">
             <option value="fecha">Fecha de entrega</option>
@@ -737,7 +767,8 @@
           <button class="btn-sm" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
           <button class="btn-sm" onclick="logiOpenProveedorModal()" style="margin-left:auto">➕ Agregar prenda de proveedor</button>
         </div>
-        <div class="logi-layout">
+        <div id="logi-lista-wrap" class="hidden"></div>
+        <div class="logi-layout" id="logi-layout-tablero">
           <div class="logi-main-col">
             <div class="logi-columns-row">
               <div class="logi-col">
@@ -852,6 +883,11 @@
         <p style="font-size:11px;color:var(--text3);margin:0">Cortes finalizados, listos para facturar a cuenta corriente del taller o proveedor. Cantidad = OK + Detalle + Fallado tela (el fallado de taller no se factura). Podés corregir la cantidad a mano hasta que lo factures — después queda congelado.</p>
         <button class="btn-sm" onclick="facturacionExportarExcel()">⬇️ Descargar Excel (backup)</button>
       </div>
+      <div class="lista-vista-toggle" id="facturacion-vista-toggle" style="margin-bottom:12px">
+        <button class="btn-sm active" data-vista="taller" onclick="facturacionSetVista('taller')">🧾 Por taller (cuenta corriente)</button>
+        <button class="btn-sm" data-vista="fecha" onclick="facturacionSetVista('fecha')">📅 Por fecha de entrega</button>
+      </div>
+      <div id="facturacion-lista-wrap" class="hidden"></div>
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap" id="facturacion-filtro">
         <button class="btn-sm active" data-filtro="pendiente" onclick="facturacionSetFiltro('pendiente')">Pendientes de facturar</button>
         <button class="btn-sm" data-filtro="facturado" onclick="facturacionSetFiltro('facturado')">Facturados</button>
@@ -11178,8 +11214,146 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
     renderMisPendientesBadge();
     if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
   }
+  listaEntRender('logistica');
+  listaEntRender('facturacion');
   facturacionMigrarSiHaceFalta();
 });
+
+
+// ===== Lista de entregas por fecha =====
+// Todas las entregas de Logística en una sola línea de tiempo (más nuevas arriba), con el estado
+// en que están (conteo / control / división / finalizado) y si ya se facturaron. Se usa en dos
+// lugares: Logística (vista "Lista por fecha") y Facturación (vista "Por fecha de entrega", para
+// que Meli facture desde ahí). Precio y facturación solo los ven Ariel, Stef y Meli — el depósito
+// ve la misma lista sin plata.
+// Cantidades: mientras está en conteo/control se muestra lo contado; desde que se controló
+// (división en adelante) se muestra "A facturar" (OK + Detalle + Fallado tela, o la cantidad
+// corregida a mano en Facturación) y el "Fallado taller" aparte, que NO se factura.
+// Solo se puede facturar lo finalizado (control cerrado y dividido), igual que en la vista por taller.
+const LISTA_ENT_EST_LABEL={conteo:'🕓 Conteo',control:'🟡 Control',dividir:'🔀 División',finalizado:'✅ Finalizado'};
+const listaEntState={
+  logistica:{filtro:'todas',taller:'',buscar:'',verTodas:false},
+  facturacion:{filtro:'sinfac',taller:'',buscar:'',verTodas:false}
+};
+function listaEntVePlata(){ return ['ariel','stef','meli'].includes(currentUser); }
+function listaEntDestino(it){ return (it.origen==='proveedor'?it.proveedor:it.taller)||it.taller||it.proveedor||'Sin taller'; }
+function listaEntContado(it){ return Object.values(it.grilla||{}).reduce((s,f)=>s+(f.contado||0),0); }
+function listaEntFalladoTaller(it){ return Object.values(it.grilla||{}).reduce((s,f)=>s+(f.fallado||0),0); }
+function listaEntFechaTs(it){ return logiParseFechaEntregado(it.fecha_entregado)||it.fecha_creado||0; }
+function listaEntFiltrar(ctx){
+  const st=listaEntState[ctx];
+  let filas=Object.entries(logiItemsData||{}).map(([id,it])=>({id,it,col:logiEstadoColumna(it)}));
+  if(st.filtro==='sinfac') filas=filas.filter(f=>f.col==='finalizado'&&!f.it.facturado_cta_cte);
+  else if(st.filtro==='proceso') filas=filas.filter(f=>f.col!=='finalizado');
+  else if(st.filtro==='facturado') filas=filas.filter(f=>!!f.it.facturado_cta_cte);
+  if(st.taller) filas=filas.filter(f=>listaEntDestino(f.it)===st.taller);
+  const q=(st.buscar||'').trim().toLowerCase();
+  if(q) filas=filas.filter(f=>[f.it.code,f.it.name,f.it.numero_corte,listaEntDestino(f.it)].some(v=>String(v||'').toLowerCase().includes(q)));
+  filas.sort((a,b)=>{
+    const d=listaEntFechaTs(b.it)-listaEntFechaTs(a.it);
+    return d!==0?d:String(b.id).localeCompare(String(a.id));
+  });
+  return filas;
+}
+function listaEntSet(ctx,campo,valor){
+  listaEntState[ctx][campo]=valor;
+  if(campo!=='verTodas') listaEntState[ctx].verTodas=false;
+  listaEntRender(ctx);
+}
+function listaEntFacturar(ctx,id){
+  facturacionFacturarCorte(id);
+  setTimeout(()=>listaEntRender(ctx),300);
+}
+function listaEntSetPrecio(ctx,id,val){
+  facturacionSetPrecio(id,val);
+  setTimeout(()=>listaEntRender(ctx),300);
+}
+function listaEntHtml(ctx){
+  const st=listaEntState[ctx];
+  const plata=listaEntVePlata();
+  const puedeAbrir = ctx==='logistica';
+  const talleres=[...new Set(Object.values(logiItemsData||{}).map(listaEntDestino))].sort((a,b)=>a.localeCompare(b,'es'));
+  const chips=[['todas','Todas'],['proceso','En proceso']].concat(plata?[['sinfac','Sin facturar'],['facturado','Facturadas']]:[]);
+  const esc=v=>String(v||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const filtrosHtml=`<div class="le-filtros">
+    ${chips.map(([k,l])=>`<span class="le-chip ${st.filtro===k?'on':''}" onclick="listaEntSet('${ctx}','filtro','${k}')">${l}</span>`).join('')}
+    <select class="filtro-corte-select" onchange="listaEntSet('${ctx}','taller',this.value)">
+      <option value="">Taller: todos</option>${talleres.map(t=>`<option value="${esc(t)}" ${st.taller===t?'selected':''}>${esc(t)}</option>`).join('')}
+    </select>
+    <input type="text" placeholder="Buscar código, artículo o N° de corte..." value="${esc(st.buscar)}"
+      onchange="listaEntSet('${ctx}','buscar',this.value)"
+      style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
+  </div>`;
+  const filas=listaEntFiltrar(ctx);
+  if(!filas.length) return filtrosHtml+'<div class="empty">No hay entregas con ese filtro.</div>';
+  const LIM=60;
+  const visibles=st.verTodas?filas:filas.slice(0,LIM);
+  let html='', ultimoDia=null;
+  visibles.forEach(({id,it,col})=>{
+    const dia=it.fecha_entregado||'Sin fecha de entrega';
+    if(dia!==ultimoDia){ html+=`<div class="le-dia">Entregado ${dia}</div>`; ultimoDia=dia; }
+    const controlado = col==='dividir'||col==='finalizado';
+    const precio=it.precio_taller||0;
+    let nums='';
+    if(controlado){
+      const aFac=facturacionCantidad(it), fall=listaEntFalladoTaller(it);
+      nums+=`<span>A facturar <b>${aFac}</b>${it.facturacion_cantidad_manual!=null?' ✏️':''}</span>`;
+      nums+=`<span class="${fall?'le-fall':''}">Fallado taller <b>${fall}</b></span>`;
+    } else {
+      const cont=listaEntContado(it);
+      nums+=`<span>Contado <b>${cont||'—'}</b></span>`;
+    }
+    if(plata) nums+= precio ? `<span>Precio <b>$${precio.toLocaleString('es-AR')}</b></span>` : `<span style="color:var(--text3)">Sin precio</span>`;
+    let facHtml='';
+    if(plata){
+      if(it.facturado_cta_cte){
+        facHtml=`<span class="le-fac le-ok">✓ Facturado $${(it.facturacion_monto||0).toLocaleString('es-AR')}${it.facturacion_fecha?' · '+it.facturacion_fecha:''}</span>`;
+      } else if(col!=='finalizado'){
+        facHtml=`<span class="le-fac le-no">${col==='dividir'?'Falta dividir':'Falta control'}</span>`;
+      } else if(!precio){
+        facHtml=`<span onclick="event.stopPropagation()" style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--text2)">Precio $
+          <input class="le-precio-in" type="number" min="0" placeholder="0" onchange="listaEntSetPrecio('${ctx}','${id}',this.value)"></span>`;
+      } else {
+        const monto=facturacionCantidad(it)*precio;
+        facHtml=`<button class="le-fac" onclick="event.stopPropagation();listaEntFacturar('${ctx}','${id}')">🧾 Facturar $${monto.toLocaleString('es-AR')}</button>`;
+      }
+    }
+    const foto=it.foto?`<img src="${it.foto}" loading="lazy">`:`<div class="le-noimg"></div>`;
+    html+=`<div class="le-row ${puedeAbrir?'le-click':''}" ${puedeAbrir?`onclick="logiOpenDetail('${id}')"`:''}>
+      ${foto}
+      <div class="le-body">
+        <div class="le-top"><span class="le-art">${esc(it.name||'(sin nombre)')}</span><span class="le-code">${esc(it.code||'')}</span></div>
+        <div class="le-sub">🧵 ${esc(listaEntDestino(it))}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
+        <div class="le-nums">${nums}</div>
+        <div class="le-bot"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${facHtml}</div>
+      </div>
+    </div>`;
+  });
+  if(!st.verTodas&&filas.length>LIM) html+=`<button class="btn-sm" style="margin-top:6px" onclick="listaEntSet('${ctx}','verTodas',true)">Ver las ${filas.length-LIM} más viejas</button>`;
+  return filtrosHtml+html;
+}
+function listaEntRender(ctx){
+  const el=document.getElementById(ctx==='logistica'?'logi-lista-wrap':'facturacion-lista-wrap');
+  if(!el||el.classList.contains('hidden')) return;
+  el.innerHTML=listaEntHtml(ctx);
+}
+let logiVista='tablero';
+function logiSetVista(v){
+  logiVista=v;
+  document.querySelectorAll('#logi-vista-toggle button').forEach(b=>b.classList.toggle('active',b.dataset.vista===v));
+  document.getElementById('logi-lista-wrap').classList.toggle('hidden',v!=='lista');
+  document.getElementById('logi-layout-tablero').classList.toggle('hidden',v==='lista');
+  if(v==='lista') listaEntRender('logistica'); else logiRenderBoard();
+}
+let facturacionVista='taller';
+function facturacionSetVista(v){
+  facturacionVista=v;
+  document.querySelectorAll('#facturacion-vista-toggle button').forEach(b=>b.classList.toggle('active',b.dataset.vista===v));
+  document.getElementById('facturacion-lista-wrap').classList.toggle('hidden',v!=='fecha');
+  document.getElementById('facturacion-filtro').classList.toggle('hidden',v==='fecha');
+  document.getElementById('facturacion-board').classList.toggle('hidden',v==='fecha');
+  if(v==='fecha') listaEntRender('facturacion'); else renderFacturacionTab();
+}
 
 function logiInit(){
   if(logiInitDone) return;
@@ -12196,6 +12370,7 @@ function facturacionDiasEntregado(it){
   return Math.max(0,Math.floor((Date.now()-ts)/86400000));
 }
 function renderFacturacionTab(){
+  if(facturacionVista==='fecha') listaEntRender('facturacion');
   const el=document.getElementById('facturacion-board');
   if(!el) return;
   const items=facturacionItemsFiltrados();

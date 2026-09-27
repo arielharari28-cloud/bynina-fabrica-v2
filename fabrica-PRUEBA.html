@@ -5738,8 +5738,6 @@ function buildResumenEnTallerHtml(secId,items){
         <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
           onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
           onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
-        <input class="rt-fecha-input" type="date" title="Fecha que dice el taller" value="${item.fecha_estimada_entrega_taller||''}" onchange="setFechaEntregaTallerCorte('${secId}','${itemId}',this.value)">
-        <span style="font-size:9.5px;color:var(--text3)">↑ dice el taller${autoEnt?` · estimada ${fmtIsoCorta(autoEnt)}`:''}</span>
       </div>
     </div>`;
   }).join('');
@@ -7408,10 +7406,10 @@ function buildItem(secId,itemId,item,sec,idx,total){
   const checkHtml = secId==='s3'
     ? '' // en s3 no hay checkbox, se usa botón Marcar cortado
     : `<div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>`;
-  const fechaCorteHtml = secId!=='s3'&&item.fecha_corte
-    ? `<div style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
-        <span style="font-size:11px;color:var(--text2)">✂️ Cortado: <strong>${item.fecha_corte}</strong></span>
-        ${canFicha?`<button class="btn-sm" onclick="editFechaCorteItem('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
+  const fechaCorteHtml = secId!=='s3'&&(item.fecha_corte||(item.done&&item.numero_corte))
+    ? `<div id="foco-fecha-${secId}-${itemId}" style="display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text2)">✂️ Cortado: ${item.fecha_corte?`<strong>${item.fecha_corte}</strong>`:'<strong style="color:#92400e">sin fecha</strong>'}</span>
+        ${canFicha?`<button class="btn-sm" onclick="editFechaCorteItem('${secId}','${itemId}')">${item.fecha_corte?'✏️ Editar fecha':'+ Cargar fecha'}</button>`:''}
       </div>` : '';
   const numeroCorteHtml = esArmarTizada && canFicha
     ? `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
@@ -7499,7 +7497,7 @@ function buildItem(secId,itemId,item,sec,idx,total){
   // Es solo una confirmación (no pide rollo/texto): el detalle de rollos ya se cargó en el
   // paso de Encimado. Lo puede tildar Emir, o Ariel/Stef si hace falta corregir.
   const canStockTela = currentUser==='emir'||currentUser==='ariel'||currentUser==='stef';
-  const stockBajadoHtml = item.done ? `<div class="cortada-row">
+  const stockBajadoHtml = item.done ? `<div class="cortada-row" id="foco-tela-${secId}-${itemId}">
       <div class="c-check ${item.stock_bajado_tela?'checked':''}" onclick="${canStockTela?`toggleStockBajadoTela('${secId}','${itemId}')`:''}">${item.stock_bajado_tela?'✓':''}</div>
       <span class="c-label ${item.stock_bajado_tela?'done':''}">📦 Bajado de stock tela <span style="font-size:10px;color:var(--text2)">(Emir)</span>${(item.stock_bajado_tela&&item.stock_bajado_tela_ts)?` — ${new Date(item.stock_bajado_tela_ts).toLocaleDateString('es-AR')}`:''}</span>
     </div>` : '';
@@ -7726,13 +7724,17 @@ function otrosDelMismoCorte(secId,itemId,item){
 // N° de corte que estén en esta misma sección, ya que se cortaron todos juntos, físicamente.
 function editFechaCorteItem(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const fecha=prompt('¿Qué fecha se cortó?',item.fecha_corte||'');
+  const fecha=prompt('¿Qué fecha se cortó? (DD/MM/AAAA)',item.fecha_corte||'');
   if(fecha===null) return;
   const fechaFinal=fecha.trim();
+  const tsCorte=fechaFinal?parseFechaArToTs(fechaFinal):null;
+  if(fechaFinal&&!tsCorte){ showToast('Fecha inválida — usá el formato DD/MM/AAAA'); return; }
   const otros=otrosDelMismoCorte(secId,itemId,item);
   const updates={};
+  // fecha_corte_ts también: la pestaña Cortes y Rendimiento leen el timestamp antes que el texto.
   updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_corte`]=fechaFinal||null;
-  otros.forEach(([id])=>{ updates[`fabrica_v5/sections/${secId}/items/${id}/fecha_corte`]=fechaFinal||null; });
+  updates[`fabrica_v5/sections/${secId}/items/${itemId}/fecha_corte_ts`]=tsCorte||null;
+  otros.forEach(([id])=>{ updates[`fabrica_v5/sections/${secId}/items/${id}/fecha_corte`]=fechaFinal||null; updates[`fabrica_v5/sections/${secId}/items/${id}/fecha_corte_ts`]=tsCorte||null; });
   const corteKey=corteKeyFrom(item.numero_corte);
   if(corteKey&&costeosData[corteKey]) updates[`fabrica_v5/costeos/${corteKey}/fecha_corte`]=fechaFinal||null;
   db.ref().update(updates);
@@ -11115,11 +11117,15 @@ function renderPendientes(){
 
 // Al tocar una tarjeta en "Pendientes", saltar directo al tablero y tablero correspondiente,
 // abrir la sección si estaba colapsada, y resaltar el ítem para encontrarlo rápido.
-function irAItem(secId,itemId){
+// foco (opcional): 'tela' | 'fecha' — además de llevar a la tarjeta, marca ese renglón.
+function irAItem(secId,itemId,foco){
   const sec=sectionsData[secId];
   if(!sec) return;
   const board=getBoard(sec);
-  const enTalleres=board==='fabrica'&&esSeccionTalleres(secId,sec);
+  const itemIr=(sec.items||{})[itemId]||{};
+  // sFIN vive en las dos pestañas: sin retirar está en Fábrica, retirado en Talleres.
+  const enTalleres=board==='fabrica'&&(secId==='sFIN'?!!itemIr.retirado_taller:esSeccionTalleres(secId,sec));
+  if(isSecCompacta(secId)) compactExpandidos.add(secId+'/'+itemId);
   const tabId = board==='diseno'?'tab-diseno':(enTalleres?'tab-talleres':'tab-fabrica');
   const btnId = board==='diseno'?'tab-btn-diseno':(enTalleres?'tab-btn-talleres':'tab-btn-fabrica');
   ocultarTabsMenosActiva(tabId);
@@ -11142,9 +11148,11 @@ function irAItem(secId,itemId){
   setTimeout(()=>{
     const el=document.getElementById(`item-${secId}-${itemId}`);
     if(!el){ showToast('No encontré ese ítem (puede que ya se haya movido o eliminado)'); return; }
-    el.scrollIntoView({behavior:'smooth',block:'center'});
+    const f=foco?document.getElementById(`foco-${foco}-${secId}-${itemId}`):null;
+    (f||el).scrollIntoView({behavior:'smooth',block:'center'});
     el.classList.add('item-highlight');
     setTimeout(()=>el.classList.remove('item-highlight'),2200);
+    if(f){ f.style.outline='2px solid #f59e0b'; f.style.borderRadius='6px'; setTimeout(()=>{f.style.outline='';},3000); }
   },50);
 }
 
@@ -11896,7 +11904,7 @@ const CORTES_EST_FINAL=['revision_final','mejora','producto_perfecto'];
 // sección no es de cortes (muestras, canceladas).
 function cortesTabEstado(secId,sec,item){
   const tipo=sec&&sec.tipo;
-  if(secId==='s3') return {key:'porcortar',label:'Por cortar'};
+  if(secId==='s3') return null; // todavía no se cortó: la pestaña Cortes muestra solo cortes realizados
   if(CORTES_EST_FABRICA.includes(secId)) return {key:'fabrica',label:'En fábrica'};
   if(secId==='sFIN'){
     if(item.retirado_taller) return {key:'taller',label:`En taller · ${item.taller_corte||'sin taller'}`};
@@ -12062,17 +12070,17 @@ function renderCortesTab(){
         const cortado=estado.key!=='porcortar';
         const ts=fechaCorteTs(item);
         const fechaHtml=ts?new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
-          :(cortado?chip('Pendiente fecha',avisoBg,avisoCol):'<span style="color:var(--text3)">—</span>');
+          :(cortado?(logiId?chip('Pendiente fecha',avisoBg,avisoCol):`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','fecha')" title="Ir a cargar la fecha">${chip('Pendiente fecha ›',avisoBg,avisoCol)}</span>`):'<span style="color:var(--text3)">—</span>');
         const cant=cortesTabCantidad(item);
         const [bg,col]=EST_COL[estado.key]||EST_COL.otro;
-        const faltaTela=cortado&&item.done&&!item.stock_bajado_tela;
+        const faltaTela=cortado&&!logiId&&item.done&&!item.stock_bajado_tela;
         const onclick=logiId?`cortesTabIr(null,null,'${logiId}')`:`cortesTabIr('${secId}','${itemId}',null)`;
         return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${onclick}">
         <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${esc(item.numero_corte)}</td>
         <td style="padding:6px 8px">${fechaHtml}</td>
         <td style="padding:6px 8px">${esc(item.code||'')}${item.name?` — ${esc(item.name)}`:''}</td>
         <td style="padding:6px 8px;text-align:right;font-weight:600">${cant?cant.toLocaleString('es-AR'):'—'}</td>
-        <td style="padding:6px 8px"><div style="display:flex;gap:4px;flex-wrap:wrap">${chip(estado.label,bg,col)}${faltaTela?chip('Falta bajar tela',avisoBg,avisoCol):''}</div></td>
+        <td style="padding:6px 8px"><div style="display:flex;gap:4px;flex-wrap:wrap">${chip(estado.label,bg,col)}${faltaTela?`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','tela')" title="Ir a tildarlo">${chip('Falta bajar tela ›',avisoBg,avisoCol)}</span>`:''}</div></td>
       </tr>`;
       }).join('')}
     </tbody>

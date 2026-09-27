@@ -871,7 +871,7 @@
     </div>
     <div id="tab-cortes" class="hidden">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text2)">Todos los cortes, con su estado y pendientes.</span>
+        <span style="font-size:12px;color:var(--text2)">Cada artículo cortado, con su cantidad y en qué etapa está.</span>
         <button class="btn-sm active" id="cortes-orden-numero" onclick="cortesTabOrden='numero';renderCortesTab()">🔢 Por N° de corte</button>
         <button class="btn-sm" id="cortes-orden-fecha" onclick="cortesTabOrden='fecha';renderCortesTab()">📅 Por fecha de corte</button>
         <input type="text" id="cortes-search" placeholder="Buscar N° corte o código..." style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;margin-left:auto" oninput="cortesTabSearch=this.value;renderCortesTab()">
@@ -11845,12 +11845,16 @@ function rendSetModo(m){
   renderRendimientoTab();
 }
 
-// --- PESTAÑA "📋 Cortes": todos los cortes (de cualquier sección/etapa), ordenados por N° de
-// corte, con su estado (sección actual) y una columna de pendientes que junta: pasos extra sin
-// tildar, movimientos extra (Plancha/Estampado/Bordado) sin cerrar, entregas de Logística sin
-// terminar de contar/controlar, y el estampado DTF viejo si todavía no pasó por ahí. ---
+// --- PESTAÑA "📋 Cortes": vista de PRODUCCIÓN. Una fila por artículo (cada artículo de un mismo
+// corte puede estar en una etapa distinta), con N° de corte, fecha de corte, cantidad cortada y
+// estado: Por cortar / En fábrica / En taller · nombre / En logística / Finalizado. Solo dos
+// avisos, los dos de Emir: "Pendiente fecha" (corte sin fecha de corte cargada) y "Falta bajar
+// tela" (cortado pero sin tildar el stock de tela). Arriba, resumen del mes elegido.
+// Ojo: cuando un corte se marca "Entregado" sale de Fábrica y vive solo en Logística hasta que se
+// cierra el control (avance_pendiente) — por eso esas filas se arman desde Logística. ---
 let cortesTabSearch='';
 let cortesTabOrden='numero'; // 'numero' | 'fecha'
+let cortesTabMes=''; // 'aaaa-mm'; vacío = mes actual
 // item.fecha_corte es texto libre dd/mm/aaaa (a veces sin cargar); item.fecha_corte_ts es el
 // timestamp real que se guarda solo desde que existe esta función — por eso, si falta el ts,
 // se intenta parsear el texto como respaldo antes de mandarlo al final.
@@ -11863,6 +11867,85 @@ function fechaCorteTs(item){
   const ts=new Date(anio,parseInt(mo)-1,parseInt(d)).getTime();
   return isNaN(ts)?null:ts;
 }
+function cortesTabCantidad(item){
+  const reales=unidadesRealesDeItem(item);
+  if(reales>0) return reales;
+  try{ return calcularGrillaEsperada(item).reduce((s,f)=>s+(parseInt(f.esperado)||0),0); }catch(e){ return 0; }
+}
+const CORTES_EST_FABRICA=['s3b','s4','s5','sLT'];
+const CORTES_EST_FINAL=['revision_final','mejora','producto_perfecto'];
+// Devuelve {key,label} del estado del artículo según la sección en la que está, o null si la
+// sección no es de cortes (muestras, canceladas).
+function cortesTabEstado(secId,sec,item){
+  const tipo=sec&&sec.tipo;
+  if(secId==='s3') return {key:'porcortar',label:'Por cortar'};
+  if(CORTES_EST_FABRICA.includes(secId)) return {key:'fabrica',label:'En fábrica'};
+  if(secId==='sFIN'){
+    if(item.retirado_taller) return {key:'taller',label:`En taller · ${item.taller_corte||'sin taller'}`};
+    return {key:'fabrica',label:'En fábrica'};
+  }
+  if(secId==='s6') return {key:'taller',label:`En taller · ${item.taller_corte||'sin taller'}`};
+  if(secId===SEC_ESTAMPADO_TALLER) return {key:'taller',label:'En taller · Estampado'};
+  if(secId===SEC_TALLER_TERMINACION){
+    const t=[...new Set(Object.values(item.pasos_extra||{}).map(p=>(p.taller||'').trim()).filter(Boolean))];
+    return {key:'taller',label:`En taller · ${t.length?t.join(' + '):'terminación'}`};
+  }
+  if(CORTES_EST_FINAL.includes(tipo)) return {key:'finalizado',label:'Finalizado'};
+  if(tipo&&String(tipo).startsWith('muestra')) return null;
+  return {key:'otro',label:sec&&sec.title||secId};
+}
+function cortesTabFilas(){
+  const filas=[];
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||!item.numero_corte) return;
+      const est=cortesTabEstado(secId,sec,item);
+      if(!est) return;
+      filas.push({item,estado:est,secId,itemId,logiId:null});
+    });
+  });
+  // Artículos entregados que quedaron retenidos en Logística hasta cerrar el control.
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+    const av=it&&it.avance_pendiente;
+    if(!av||av.avanzado||!av.item_snapshot) return;
+    const item=av.item_snapshot;
+    if(!item.numero_corte) return;
+    filas.push({item,estado:{key:'logistica',label:'En logística'},secId:null,itemId:null,logiId:id});
+  });
+  return filas;
+}
+function cortesTabMesKey(ts){ const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function cortesTabResumen(filas,mes){
+  const numeros=new Set(); let cortadas=0;
+  filas.forEach(({item,estado})=>{
+    if(estado.key==='porcortar') return;
+    const ts=fechaCorteTs(item);
+    if(!ts||cortesTabMesKey(ts)!==mes) return;
+    numeros.add(corteKeyFrom(item.numero_corte)||String(item.numero_corte));
+    cortadas+=cortesTabCantidad(item);
+  });
+  // Recibidas: solo la entrega de costura (sin proceso) para no contar dos veces la misma
+  // prenda cuando después pasa por estampado o terminación; sin proveedores externos.
+  let recibidas=0;
+  Object.values(logiItemsData||{}).forEach(it=>{
+    if(!it||it.proceso||it.origen==='proveedor') return;
+    const ts=logiParseFechaEntregado(it.fecha_entregado);
+    if(!ts||cortesTabMesKey(ts)!==mes) return;
+    const filasG=Object.values(it.grilla||{});
+    const contado=filasG.reduce((s,f)=>s+(parseInt(f.contado)||0),0);
+    recibidas+=contado||filasG.reduce((s,f)=>s+(parseInt(f.esperado)||0),0);
+  });
+  return {cortes:numeros.size,cortadas,recibidas};
+}
+function cortesTabIr(secId,itemId,logiId){
+  if(logiId){
+    const tabs=TAB_VISIBILITY[currentUser]||[];
+    if(!tabs.includes('tab-btn-logistica')){ showToast('Está en Logística, pendiente de contar/controlar'); return; }
+    comercAbrirDetalle(logiId);
+    return;
+  }
+  irAItem(secId,itemId);
+}
 function renderCortesTab(){
   const cont=document.getElementById('cortes-board');
   if(!cont) return;
@@ -11870,85 +11953,79 @@ function renderCortesTab(){
   const btnFecha=document.getElementById('cortes-orden-fecha');
   if(btnNum) btnNum.classList.toggle('active',cortesTabOrden==='numero');
   if(btnFecha) btnFecha.classList.toggle('active',cortesTabOrden==='fecha');
+  const esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const todas=cortesTabFilas();
+
+  // --- Resumen del mes ---
+  const hoy=new Date();
+  const mesActual=cortesTabMesKey(hoy.getTime());
+  const mes=cortesTabMes||mesActual;
+  const opcionesMes=[];
+  for(let i=0;i<12;i++){
+    const d=new Date(hoy.getFullYear(),hoy.getMonth()-i,1);
+    const k=cortesTabMesKey(d.getTime());
+    const lbl=d.toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+    opcionesMes.push(`<option value="${k}" ${k===mes?'selected':''}>${lbl.charAt(0).toUpperCase()+lbl.slice(1)}</option>`);
+  }
+  const r=cortesTabResumen(todas,mes);
+  const box=(label,val)=>`<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;flex:1;min-width:130px">
+      <div style="font-size:11px;color:var(--text2)">${label}</div>
+      <div style="font-size:20px;font-weight:700">${val.toLocaleString('es-AR')}</div></div>`;
+  const resumenHtml=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text2)">Resumen de</span>
+      <select class="filtro-corte-select" onchange="cortesTabMes=this.value;renderCortesTab()">${opcionesMes.join('')}</select>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      ${box('Cortes hechos',r.cortes)}${box('Prendas cortadas',r.cortadas)}${box('Recibidas de talleres',r.recibidas)}
+    </div>`;
+
+  // --- Tabla ---
   const q=(cortesTabSearch||'').trim().toLowerCase();
-  const filas=[];
-  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
-    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(!item.numero_corte) return;
-      if(q && !`${item.numero_corte} ${item.code||''} ${item.name||''}`.toLowerCase().includes(q)) return;
-      const pendientes=[];
-      Object.values(item.pasos_extra||{}).filter(p=>!p.hecho).forEach(p=>{
-        pendientes.push(`⏳ ${p.nombre}${p.taller?` (${p.taller})`:''}`);
-      });
-      Object.values(item.movimientos_extra||{}).forEach(m=>{
-        const info=MOV_EXTRA_TIPOS[m.tipo]||{label:m.tipo,emoji:'📦'};
-        if(m.estado==='en_taller') pendientes.push(`${info.emoji} ${info.label}: en taller`);
-        else if(m.estado==='pendiente_control') pendientes.push(`${info.emoji} ${info.label}: pendiente control`);
-      });
-      if(item.estampado_dtf && !item.estampado_taller_entregado && secId!==SEC_ESTAMPADO_TALLER){
-        pendientes.push('🎨 Falta pasar por Estampado');
-      }
-      const entregasCorte=Object.values(logiItemsData||{}).filter(it=>it.numero_corte===item.numero_corte&&it.code===item.code);
-      entregasCorte.forEach(e=>{
-        const col=logiEstadoColumna(e);
-        if(col==='conteo') pendientes.push('📦 Logística: pendiente conteo');
-        else if(col==='control') pendientes.push('📦 Logística: pendiente control');
-        else if(col==='dividir') pendientes.push('📦 Logística: pendiente dividir');
-      });
-      // Checklist adicional: stock de tela, costo cargado, precio en Ninox, entrega a
-      // Avellaneda/Depósito. Los primeros dos viven en el propio corte y en Costeo; los
-      // últimos dos son de la(s) entrega(s) de Logística de este mismo corte+código.
-      const corteKey=corteKeyFrom(item.numero_corte);
-      const stockOk=!!item.stock_bajado_tela;
-      const costoOk=!!(corteKey&&costeosData[corteKey]&&costeosData[corteKey].precio_kg);
-      const ninoxOk=entregasCorte.length>0&&entregasCorte.every(e=>e.cargado_ninox);
-      const avellanedaDepositoOk=entregasCorte.length>0&&entregasCorte.every(e=>
-        (e.division_avellaneda==null||e.recibido_avellaneda)&&(e.division_deposito==null||e.recibido_deposito)
-      );
-      if(!stockOk) pendientes.push('📦 Falta bajar stock de tela');
-      if(!costoOk) pendientes.push('💰 Falta cargar costo');
-      if(entregasCorte.length&&!ninoxOk) pendientes.push('🏷️ Falta cargar precio en Ninox');
-      if(entregasCorte.length&&!avellanedaDepositoOk) pendientes.push('🏬 Falta entregar a Avellaneda/Depósito');
-      filas.push({numero:item.numero_corte,code:item.code||'',name:item.name||'',secTitle:sec.title||'',foto:item.foto||'',pendientes,secId,itemId,fechaCorte:item.fecha_corte||'',fechaTs:fechaCorteTs(item),stockOk,costoOk,ninoxOk,avellanedaDepositoOk,tieneEntregas:entregasCorte.length>0});
-    });
-  });
+  let filas=todas;
+  if(q) filas=filas.filter(({item})=>`${item.numero_corte} ${item.code||''} ${item.name||''}`.toLowerCase().includes(q));
+  const numSort=n=>{ const m=String(n||'').match(/\d+/); return m?parseInt(m[0]):Infinity; };
   if(cortesTabOrden==='fecha'){
     filas.sort((a,b)=>{
-      if(a.fechaTs===null&&b.fechaTs===null) return 0;
-      if(a.fechaTs===null) return 1; // sin fecha, al final
-      if(b.fechaTs===null) return -1;
-      return b.fechaTs-a.fechaTs; // más reciente primero
+      const fa=fechaCorteTs(a.item), fb=fechaCorteTs(b.item);
+      if(fa===null&&fb===null) return 0;
+      if(fa===null) return 1;
+      if(fb===null) return -1;
+      return fb-fa;
     });
   } else {
+    // Más nuevo arriba; los artículos de un mismo corte quedan juntos.
     filas.sort((a,b)=>{
-      const na=parseInt(a.numero),nb=parseInt(b.numero);
-      if(!isNaN(na)&&!isNaN(nb)&&na!==nb) return na-nb;
-      return String(a.numero).localeCompare(String(b.numero));
+      const na=numSort(a.item.numero_corte), nb=numSort(b.item.numero_corte);
+      if(na!==nb) return nb-na;
+      const s=String(a.item.numero_corte).localeCompare(String(b.item.numero_corte));
+      return s!==0?s:String(a.item.code||'').localeCompare(String(b.item.code||''));
     });
   }
-  if(!filas.length){ cont.innerHTML='<div class="loading">No hay cortes cargados</div>'; return; }
-  cont.innerHTML=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+  if(!filas.length){ cont.innerHTML=resumenHtml+'<div class="loading">No hay cortes con ese filtro</div>'; return; }
+  const chip=(txt,bg,col)=>`<span style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${esc(txt)}</span>`;
+  const EST_COL={porcortar:['var(--surface2)','var(--text2)'],fabrica:['var(--surface2)','var(--text)'],taller:['#dbeafe','#1e40af'],logistica:['#ede9fe','#5b21b6'],finalizado:['#dcfce7','#166534'],otro:['var(--surface2)','var(--text2)']};
+  const avisoBg='#fef3c7', avisoCol='#92400e';
+  cont.innerHTML=resumenHtml+`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr style="text-align:left;border-bottom:2px solid var(--border)">
-      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Código / Nombre</th><th style="padding:6px 8px">Fecha de corte</th><th style="padding:6px 8px">Estado (sección)</th>
-      <th style="padding:6px 8px;text-align:center" title="Bajado de stock tela">📦 Tela</th>
-      <th style="padding:6px 8px;text-align:center" title="Cargado costo">💰 Costo</th>
-      <th style="padding:6px 8px;text-align:center" title="Cargado precio venta a Ninox">🏷️ Ninox</th>
-      <th style="padding:6px 8px;text-align:center" title="Entregado a Avellaneda y depósito">🏬 Entrega</th>
-      <th style="padding:6px 8px">Pendientes</th>
+      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Fecha de corte</th><th style="padding:6px 8px">Artículo</th>
+      <th style="padding:6px 8px;text-align:right">Cantidad</th><th style="padding:6px 8px">Estado</th>
     </tr></thead>
     <tbody>
-      ${filas.map(f=>{
-        const chip=(ok,aplica=true)=>aplica?(ok?'<span style="color:#177a3e;font-weight:700">✅</span>':'<span style="color:var(--warn-text);font-weight:700">⏳</span>'):'<span style="color:var(--text3)">—</span>';
-        return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="irAItem('${f.secId}','${f.itemId}')">
-        <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${f.numero}</td>
-        <td style="padding:6px 8px">${f.code}${f.name?` — ${f.name}`:''}</td>
-        <td style="padding:6px 8px">${f.fechaCorte||'—'}</td>
-        <td style="padding:6px 8px">${f.secTitle}</td>
-        <td style="padding:6px 8px;text-align:center">${chip(f.stockOk)}</td>
-        <td style="padding:6px 8px;text-align:center">${chip(f.costoOk)}</td>
-        <td style="padding:6px 8px;text-align:center">${chip(f.ninoxOk,f.tieneEntregas)}</td>
-        <td style="padding:6px 8px;text-align:center">${chip(f.avellanedaDepositoOk,f.tieneEntregas)}</td>
-        <td style="padding:6px 8px;color:${f.pendientes.length?'var(--warn-text)':'#177a3e'}">${f.pendientes.length?f.pendientes.join('<br>'):'✅ Sin pendientes'}</td>
+      ${filas.map(({item,estado,secId,itemId,logiId})=>{
+        const cortado=estado.key!=='porcortar';
+        const ts=fechaCorteTs(item);
+        const fechaHtml=ts?new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
+          :(cortado?chip('Pendiente fecha',avisoBg,avisoCol):'<span style="color:var(--text3)">—</span>');
+        const cant=cortesTabCantidad(item);
+        const [bg,col]=EST_COL[estado.key]||EST_COL.otro;
+        const faltaTela=cortado&&item.done&&!item.stock_bajado_tela;
+        const onclick=logiId?`cortesTabIr(null,null,'${logiId}')`:`cortesTabIr('${secId}','${itemId}',null)`;
+        return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${onclick}">
+        <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${esc(item.numero_corte)}</td>
+        <td style="padding:6px 8px">${fechaHtml}</td>
+        <td style="padding:6px 8px">${esc(item.code||'')}${item.name?` — ${esc(item.name)}`:''}</td>
+        <td style="padding:6px 8px;text-align:right;font-weight:600">${cant?cant.toLocaleString('es-AR'):'—'}</td>
+        <td style="padding:6px 8px"><div style="display:flex;gap:4px;flex-wrap:wrap">${chip(estado.label,bg,col)}${faltaTela?chip('Falta bajar tela',avisoBg,avisoCol):''}</div></td>
       </tr>`;
       }).join('')}
     </tbody>

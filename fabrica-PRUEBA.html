@@ -2891,6 +2891,7 @@ let costeosData = {};
 // Proveedores de tela (mismo patrón que Telas — se comparte y crece con lo que se va cargando)
 let proveedoresList = [];
 // Categoría y temporada del producto (editable, mismo patrón que Marca/Tela)
+let tiemposTallerCat={}; // días hábiles estándar de taller por categoría (ver entregaAutoTaller)
 let categoriasList = ['Remera','Top','Buzo','Pantalón','Vestido','Body','Short','Campera','Blazer/Camisa','Accesorio'];
 let temporadasList = ['Verano 2026','Invierno 2026'];
 // Colores ya usados en muestras (editable, mismo patrón que Marca/Tela)
@@ -3427,6 +3428,10 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     const v=snap.val();
     if(v){ talleresCorteList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
     else db.ref('fabrica_v5/talleres_corte').set(talleresCorteList);
+    renderSections('fabrica');
+  });
+  db.ref('fabrica_v5/tiempos_taller_categoria').on('value',snap=>{
+    tiemposTallerCat=snap.val()||{};
     renderSections('fabrica');
   });
   db.ref('fabrica_v5/categorias').on('value',snap=>{
@@ -5447,7 +5452,8 @@ function confirmarRetiroTaller(secId,itemId){
   const faltan=[!item.taller_ficha_entregada?'Ficha entregada':null,!item.taller_muestra_entregada?'Muestra entregada':null,!item.taller_ninox_salida?'Salida en Ninox':null].filter(Boolean);
   if(faltan.length){ showToast(`Falta completar antes de confirmar el retiro: ${faltan.join(', ')}`); return; }
   if(!confirm(`¿${item.taller_corte||'El taller'} ya pasó a retirar "${item.code}"?`)) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({retirado_taller:true,fecha_retiro_confirmado:Date.now()});
+  const diasStd=diasTallerDeItem(item);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({retirado_taller:true,fecha_retiro_confirmado:Date.now(),...(diasStd?{dias_estandar_taller:diasStd}:{})});
   logActivity('Confirmó que el taller retiró el corte',`${item.code} — ${item.taller_corte||''}`);
   showToast(`✅ ${item.code} — retirado, pasa a Talleres`);
 }
@@ -5504,7 +5510,7 @@ function renderResumenPipelineTalleres(){
     const q=searchQuery.trim().toLowerCase();
     filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q));
   }
-  if(!filas.length){ cont.innerHTML=''; return; }
+  if(!filas.length){ cont.innerHTML=buildTiemposTallerHtml(); return; }
   filas.sort((a,b)=>extractCorteNumber(a.item)-extractCorteNumber(b.item));
   const totalesPorEstado={};
   let totalPrendasGeneral=0;
@@ -5525,6 +5531,7 @@ function renderResumenPipelineTalleres(){
   cont.innerHTML=`<div class="rt-box">
     <div class="rt-title">📋 Resumen general — ${filas.length} cortes sin entregar · ${totalPrendasGeneral} prendas en total</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">${totalesHtml}</div>
+    ${buildTiemposTallerHtml()}
   </div>`;
 }
 // Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte. Como las
@@ -5600,15 +5607,89 @@ function buildResumenTalleresHtml(secId,items){
 function setFechaEntregaTallerCorte(secId,itemId,val){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_estimada_entrega_taller`).set(val||null);
 }
+// ===== Entrega del taller: estimada automática + la que dice el taller (sep 2026) =====
+// - Tiempos estándar por categoría (días hábiles) en fabrica_v5/tiempos_taller_categoria, los
+//   edita solo Ariel desde el resumen de la pestaña Talleres.
+// - Al confirmar el retiro se congela en el corte cuántos días le tocaban (dias_estandar_taller),
+//   así cambiar la tabla después no mueve las estimadas viejas. Si el corte se retiró antes de
+//   esto, se usa la tabla actual.
+// - Entrega estimada (auto) = fecha de retiro + esos días hábiles. No se guarda: se calcula, así
+//   si se corrige la fecha de retiro la estimada se corrige sola.
+// - "Fecha que dice el taller" = fecha_estimada_entrega_taller (el campo manual que ya existía).
+//   Si está cargada, manda para avisos de vencido y Próximas entregas. Las dos quedan guardadas
+//   para medir demoras contra el estándar y contra lo prometido.
+function keyTiempoCat(cat){ return String(cat||'').replace(/[.#$\[\]\/]/g,'_'); }
+function isoFechaLocal(ts){ const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function diasTallerDeItem(item){
+  if(item.dias_estandar_taller!=null) return parseInt(item.dias_estandar_taller)||null;
+  const d=parseInt((tiemposTallerCat||{})[keyTiempoCat(item.categoria)]);
+  return d>0?d:null;
+}
+function entregaAutoTaller(item){
+  const d=diasTallerDeItem(item);
+  if(!d||!item.fecha_retiro_confirmado) return null;
+  return isoFechaLocal(sumarDiasHabiles(item.fecha_retiro_confirmado,d));
+}
+function entregaEfectivaTaller(item){
+  if(item.fecha_estimada_entrega_taller) return {fecha:item.fecha_estimada_entrega_taller,fuente:'taller'};
+  const a=entregaAutoTaller(item);
+  return a?{fecha:a,fuente:'auto'}:null;
+}
+function fmtIsoCorta(iso){ const [y,m,d]=String(iso).split('-'); return `${d}/${m}`; }
+// Bloque que va en la tarjeta del corte, debajo de "Retirado por…".
+function buildEntregaTallerCardHtml(secId,itemId,item,puedeEditar){
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  const auto=entregaAutoTaller(item);
+  const dias=diasTallerDeItem(item);
+  const ef=entregaEfectivaTaller(item);
+  const vencida=ef&&new Date(ef.fecha+'T00:00:00')<hoy;
+  const autoTxt=auto
+    ? `<strong>${fmtIsoCorta(auto)}</strong> <span style="color:var(--text3)">(${item.categoria||''} · ${dias} días hábiles)</span>`
+    : `<span style="color:var(--text3);font-style:italic">${item.categoria?`sin tiempo cargado para ${item.categoria}`:'sin categoría'}</span>`;
+  const tallerVal=item.fecha_estimada_entrega_taller||'';
+  const tallerCampo=puedeEditar
+    ? `<input type="date" value="${tallerVal}" onclick="event.stopPropagation()" onchange="setFechaEntregaTallerCorte('${secId}','${itemId}',this.value)" style="border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:11px;background:var(--surface)">`
+    : (tallerVal?`<strong>${fmtIsoCorta(tallerVal)}</strong>`:'<span style="color:var(--text3);font-style:italic">no dijo</span>');
+  return `<div style="margin:6px 0;padding:8px 10px;border-radius:8px;background:var(--surface2);font-size:12px;${vencida?'border-left:3px solid var(--danger)':''}">
+      <div>📅 Entrega estimada: ${autoTxt}</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap">🧵 Fecha que dice el taller: ${tallerCampo}</div>
+      ${vencida?`<div style="color:var(--danger);font-weight:700;margin-top:4px">⚠️ Vencida (${ef.fuente==='taller'?'lo que dijo el taller':'estimada'}: ${fmtIsoCorta(ef.fecha)}) — todavía no entregó</div>`:''}
+    </div>`;
+}
+let tiemposTallerAbierto=false;
+function toggleTiemposTaller(){ tiemposTallerAbierto=!tiemposTallerAbierto; renderResumenPipelineTalleres(); }
+function setTiempoTallerCategoria(cat,val){
+  const n=parseInt(val);
+  const ref=db.ref(`fabrica_v5/tiempos_taller_categoria/${String(cat).replace(/[.#$\[\]\/]/g,'_')}`);
+  if(!n||n<0) ref.remove(); else ref.set(n);
+  logActivity('Editó tiempo estándar de taller',`${cat}: ${n||'—'} días hábiles`);
+}
+function buildTiemposTallerHtml(){
+  if(currentUser!=='ariel') return '';
+  const btn=`<button class="btn-sm" onclick="toggleTiemposTaller()">⏱️ Tiempos por categoría ${tiemposTallerAbierto?'▲':'▼'}</button>`;
+  if(!tiemposTallerAbierto) return `<div style="margin-top:8px">${btn}</div>`;
+  const filas=(categoriasList||[]).map(cat=>{
+    const key=String(cat).replace(/[.#$\[\]\/]/g,'_');
+    const v=(tiemposTallerCat||{})[key]||'';
+    return `<label style="display:flex;align-items:center;gap:6px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px 8px">
+      <span style="min-width:90px">${cat}</span>
+      <input type="number" min="0" value="${v}" placeholder="—" onchange="setTiempoTallerCategoria('${String(cat).replace(/'/g,"\\'")}',this.value)" style="width:56px;border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:12px">
+      <span style="color:var(--text3)">días</span></label>`;
+  }).join('');
+  return `<div style="margin-top:8px">${btn}
+    <div style="font-size:11px;color:var(--text2);margin:6px 0">Días hábiles desde que el taller retira hasta que entrega. Se aplica a los cortes que se retiren desde ahora (los ya retirados sin tiempo congelado usan esta tabla).</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${filas}</div></div>`;
+}
 // Resumen "Próximas entregas del taller": todos los cortes en confección/plancha/estampado con
 // fecha estimada de entrega cargada, ordenados por esa fecha — para ver de un vistazo qué
 // entra esta semana, cruzando todos los talleres a la vez.
 function buildProximasEntregasTallerHtml(items){
-  const conFecha=items.filter(([,item])=>!!item.fecha_estimada_entrega_taller);
+  const conFecha=items.filter(([,item])=>!!entregaEfectivaTaller(item));
   if(!conFecha.length) return '';
   const hoy=new Date(); hoy.setHours(0,0,0,0);
-  const filas=conFecha.slice().sort((a,b)=>a[1].fecha_estimada_entrega_taller.localeCompare(b[1].fecha_estimada_entrega_taller)).map(([itemId,item])=>{
-    const f=new Date(item.fecha_estimada_entrega_taller+'T00:00:00');
+  const filas=conFecha.slice().sort((a,b)=>entregaEfectivaTaller(a[1]).fecha.localeCompare(entregaEfectivaTaller(b[1]).fecha)).map(([itemId,item])=>{
+    const ef=entregaEfectivaTaller(item);
+    const f=new Date(ef.fecha+'T00:00:00');
     const diasFaltan=Math.round((f-hoy)/86400000);
     const vencida=diasFaltan<0;
     const etiqueta=vencida?`⚠️ no lo entregaron, hace ${Math.abs(diasFaltan)}d`:diasFaltan===0?'hoy':diasFaltan===1?'mañana':`en ${diasFaltan}d`;
@@ -5619,7 +5700,7 @@ function buildProximasEntregasTallerHtml(items){
         <span class="rt-taller" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
       </div>
       <div class="rt-row-bottom">
-        <span class="rt-stats"><span style="${vencida?'color:var(--danger);font-weight:700':'font-weight:700'}">📅 ${f.toLocaleDateString('es-AR')} · ${etiqueta}</span></span>
+        <span class="rt-stats"><span style="${vencida?'color:var(--danger);font-weight:700':'font-weight:700'}">📅 ${f.toLocaleDateString('es-AR')} · ${etiqueta}</span> <span style="font-size:10px;color:var(--text3)">${ef.fuente==='taller'?'(dijo el taller)':'(estimada)'}</span></span>
       </div>
     </div>`;
   }).join('');
@@ -5640,7 +5721,9 @@ function buildResumenEnTallerHtml(secId,items){
     const obsManual=item.observacion_taller||'';
     const obsMostrar=obsManual||obsAuto;
     const esAuto=!obsManual&&obsAuto;
-    const fechaEntrega = item.fecha_estimada_entrega_taller ? new Date(item.fecha_estimada_entrega_taller+'T00:00:00') : null;
+    const efEnt=entregaEfectivaTaller(item);
+    const autoEnt=entregaAutoTaller(item);
+    const fechaEntrega = efEnt ? new Date(efEnt.fecha+'T00:00:00') : null;
     const entregaVencida = fechaEntrega && fechaEntrega < hoy;
     const avisoEntrega = entregaVencida ? `<span style="font-size:10.5px;color:var(--danger);font-weight:700">⚠️ no lo entregaron todavía</span>` : '';
     return `<div class="rt-row" style="${entregaVencida?'border-left:3px solid var(--danger)':''}">
@@ -5655,8 +5738,8 @@ function buildResumenEnTallerHtml(secId,items){
         <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
           onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
           onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
-        <input class="rt-fecha-input" type="date" title="Fecha estimada de entrega del taller" value="${item.fecha_estimada_entrega_taller||''}" onchange="setFechaEntregaTallerCorte('${secId}','${itemId}',this.value)">
-        <span style="font-size:9.5px;color:var(--text3)">↑ entrega estimada</span>
+        <input class="rt-fecha-input" type="date" title="Fecha que dice el taller" value="${item.fecha_estimada_entrega_taller||''}" onchange="setFechaEntregaTallerCorte('${secId}','${itemId}',this.value)">
+        <span style="font-size:9.5px;color:var(--text3)">↑ dice el taller${autoEnt?` · estimada ${fmtIsoCorta(autoEnt)}`:''}</span>
       </div>
     </div>`;
   }).join('');
@@ -6036,7 +6119,7 @@ function compactChipTexto(secId,item){
   if(secId==='s3') return item.sin_confirmar?'🕓 En cola':ordPasoPendiente(item);
   const partes=[];
   if(item.taller_corte) partes.push('🧵 '+item.taller_corte);
-  const fechaEst=(secId==='sFIN'&&item.retirado_taller)?item.fecha_estimada_entrega_taller:(secId==='sFIN'?item.fecha_estimada_entrega:'');
+  const fechaEst=(secId==='sFIN'&&item.retirado_taller)?((entregaEfectivaTaller(item)||{}).fecha||''):(secId==='sFIN'?item.fecha_estimada_entrega:'');
   if(fechaEst){ const [y,m,d]=fechaEst.split('-'); partes.push('📅 '+d+'/'+m); }
   if(!partes.length){ const d=diasEntre(item.fecha_etapa); if(d!=null) partes.push(d+'d en esta etapa'); }
   return partes.join(' · ');
@@ -7352,8 +7435,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
         <span style="font-size:11px;color:var(--text2)">${(secId==='sFIN'&&item.retirado_taller)
           ? `✅ Retirado por ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'el taller '}${item.fecha_retiro_confirmado?`el <strong>${fmtFecha(item.fecha_retiro_confirmado)}</strong>`:''}`
           : `📦 Asignado a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong> — pendiente de retiro`}</span>
-        ${canFicha?`<button class="btn-sm" onclick="editFechaSalidaTaller('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
-      </div>` : '';
+        ${canFicha?`<button class="btn-sm" onclick="${item.retirado_taller?`editFechaRetiroTaller('${secId}','${itemId}')`:`editFechaSalidaTaller('${secId}','${itemId}')`}">✏️ Editar fecha</button>`:''}
+      </div>${item.retirado_taller?buildEntregaTallerCardHtml(secId,itemId,item,(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir')):''}` : '';
   // Mientras el taller todavía no pasó a buscarlo, se puede confirmar el retiro acá mismo —
   // ese click es lo que lo pasa de "Pendiente retiro" (Fábrica) a "En taller" (Talleres).
   const confirmarRetiroHtml = (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir'))
@@ -8861,6 +8944,18 @@ function editFechaSalioPlancha(secId,itemId){
   showToast('💾 Guardado');
 }
 
+// Con el corte ya retirado, "Editar fecha" corrige la fecha de RETIRO (la que se muestra y de la
+// que sale la entrega estimada) — antes editaba la fecha de asignación aunque mostrara la de retiro.
+function editFechaRetiroTaller(secId,itemId){
+  const item=sectionsData[secId].items[itemId];
+  const fecha=prompt('¿Qué fecha retiró el taller el corte?',fmtFecha(item.fecha_retiro_confirmado));
+  if(fecha===null) return;
+  const ts=parseFechaArToTs(fecha.trim());
+  if(!ts){ showToast('Fecha inválida — usá el formato DD/MM/AAAA'); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_retiro_confirmado`).set(ts);
+  logActivity('Editó fecha de retiro del taller',`${item.code||item.name||''}: ${fecha.trim()}`);
+  showToast('✓ Fecha guardada');
+}
 function editFechaSalidaTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const fecha=prompt('¿Qué fecha quedó asignado al taller?',fmtFecha(item.fecha_salida_taller));

@@ -5484,8 +5484,13 @@ const ESTADO_PIPELINE_COLOR={
   'Pendiente recibir avío — corte en taller':'#991b1b',
 };
 function renderResumenPipelineTalleres(){
+  // Solo los recuadros por etapa (cortes · prendas). La lista de filas que había debajo se sacó
+  // (sep 2026): el detalle, la observación y la fecha estimada se ven en las tarjetas de cada
+  // sección. Tocar un recuadro lleva a la primera tarjeta de esa etapa.
   const cont=document.getElementById('resumen-pipeline-talleres');
   if(!cont) return;
+  const contTarjetas=document.getElementById('sections-container-talleres');
+  if(contTarjetas) contTarjetas.classList.remove('hidden');
   let filas=[];
   PIPELINE_TALLERES_SECS.forEach(secId=>{
     const sec=sectionsData[secId];
@@ -5499,111 +5504,27 @@ function renderResumenPipelineTalleres(){
     const q=searchQuery.trim().toLowerCase();
     filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q));
   }
-  const contTarjetas=document.getElementById('sections-container-talleres');
-  if(!filas.length){
-    cont.innerHTML='';
-    if(contTarjetas) contTarjetas.classList.remove('hidden');
-    return;
-  }
-  if(contTarjetas) contTarjetas.classList.toggle('hidden',talleresSoloResumen);
-  const talleresEnResumen=[...new Set(filas.map(f=>f.item.taller_corte||'Sin taller'))].sort((a,b)=>a.localeCompare(b,'es'));
-  if(resumenPipelineFiltroTaller&&!talleresEnResumen.includes(resumenPipelineFiltroTaller)) resumenPipelineFiltroTaller='';
-  // Totales por etapa y general — se calculan sobre TODO lo que hay (antes de aplicar el filtro
-  // de estado), así el panorama completo siempre se ve entero aunque estés filtrando por uno solo.
+  if(!filas.length){ cont.innerHTML=''; return; }
+  filas.sort((a,b)=>extractCorteNumber(a.item)-extractCorteNumber(b.item));
   const totalesPorEstado={};
   let totalPrendasGeneral=0;
   filas.forEach(f=>{
-    totalesPorEstado[f.estado]=totalesPorEstado[f.estado]||{cortes:0,prendas:0};
+    if(!totalesPorEstado[f.estado]) totalesPorEstado[f.estado]={cortes:0,prendas:0,primero:f};
     totalesPorEstado[f.estado].cortes+=1;
     totalesPorEstado[f.estado].prendas+=(f.cantidad||0);
     totalPrendasGeneral+=(f.cantidad||0);
   });
-  const totalCortesGeneral=filas.length;
-  let filasFiltradas = resumenPipelineFiltroEstado ? filas.filter(f=>f.estado===resumenPipelineFiltroEstado) : filas;
-  if(resumenPipelineFiltroTaller) filasFiltradas=filasFiltradas.filter(f=>(f.item.taller_corte||'Sin taller')===resumenPipelineFiltroTaller);
-  filasFiltradas=filasFiltradas.slice().sort((a,b)=>{
-    if(resumenPipelineOrden==='taller'){
-      const ta=(a.item.taller_corte||'zzz sin taller'), tb=(b.item.taller_corte||'zzz sin taller');
-      const cmp=ta.localeCompare(tb);
-      return cmp!==0?cmp:extractCorteNumber(a.item)-extractCorteNumber(b.item);
-    }
-    return extractCorteNumber(a.item)-extractCorteNumber(b.item);
-  });
-  const filasHtml=filasFiltradas.map(({secId,itemId,item,estado,cantidad})=>{
-    const color=ESTADO_PIPELINE_COLOR[estado]||COLORS[(sectionsData[secId]||{}).color]?.secBg||'#374151';
-    const diasTotal=diasEntre(item.fecha_creado||item.fecha_ingreso);
-    // En taller: los días cuentan desde que el taller lo retiró (igual que en la tarjeta), no
-    // desde que entró a "Pendiente retiro".
-    const enTallerRetirado=secId==='sFIN'&&!!item.retirado_taller;
-    const diasEtapa=diasEntre(enTallerRetirado?(item.fecha_retiro_confirmado||item.fecha_etapa):item.fecha_etapa);
-    const etapaUrgente=diasEtapa!=null&&diasEtapa>=7;
-    const hoyR=new Date(); hoyR.setHours(0,0,0,0);
-    // Edición rápida (observación + fecha estimada) solo para lo que está en taller o por retirarse.
-    let editHtml='';
-    if(secId==='sFIN'){
-      const campoFecha=enTallerRetirado?'fecha_estimada_entrega_taller':'fecha_estimada_entrega';
-      const fnFecha=enTallerRetirado?'setFechaEntregaTallerCorte':'setFechaEntregaEstimadaCorte';
-      const fechaVal=item[campoFecha]||'';
-      const vencida=fechaVal&&new Date(fechaVal+'T00:00:00')<hoyR;
-      const obsManual=item.observacion_taller||'';
-      const obsAuto=autoObservacionCorte(item);
-      const obsMostrar=obsManual||obsAuto;
-      const esAuto=!obsManual&&!!obsAuto;
-      editHtml=`<div class="rt-row-bottom" style="margin-top:4px" onclick="event.stopPropagation()">
-        <input class="rt-obs-input${esAuto?' rt-obs-auto':''}" placeholder="Observación..." value="${(obsMostrar||'').replace(/"/g,'&quot;')}"
-          onfocus="if(this.classList.contains('rt-obs-auto')){this.value='';this.classList.remove('rt-obs-auto')}"
-          onchange="setObservacionCorte('${secId}','${itemId}',this.value)">
-        <span style="font-size:10.5px;color:${vencida?'var(--danger)':'var(--text2)'};font-weight:${vencida?'700':'400'}">${vencida?'⚠️ ':''}${enTallerRetirado?'Entrega':'Retiro'} est.:</span>
-        <input class="rt-fecha-input" type="date" value="${fechaVal}" onchange="${fnFecha}('${secId}','${itemId}',this.value)">
-      </div>`;
-    }
-    const diasHtml=(diasTotal!=null||diasEtapa!=null)?`<span class="rt-stats">
-      ${diasTotal!=null?`Total: <b>${diasTotal}d</b>`:''}
-      ${diasEtapa!=null?`&nbsp;·&nbsp;En esta etapa: <b class="${etapaUrgente?'urgente':''}">${diasEtapa}d</b>`:''}
-    </span>`:'';
-    return `<div class="rt-row" style="cursor:pointer" onclick="scrollToPipelineItem('${secId}','${itemId}')">
-      <div style="display:flex;gap:8px;align-items:flex-start">
-      ${item.foto?`<img src="${item.foto}" loading="lazy" style="width:44px;height:44px;border-radius:6px;object-fit:cover;flex-shrink:0;background:var(--surface)">`:`<div style="width:44px;height:44px;border-radius:6px;background:var(--surface);flex-shrink:0"></div>`}
-      <div style="flex:1;min-width:0">
-      <div class="rt-row-top">
-        <span class="rt-corte-num">${item.numero_corte||'s/n°'}</span>
-        <span class="rt-articulo" title="${(item.code?item.code+' — ':'')+(item.name||'')}">${item.code?item.code+' — ':''}${item.name||'(sin nombre)'}</span>
-        <span style="font-size:14px;font-weight:700;color:var(--text);flex-shrink:0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${item.taller_corte||'Sin taller asignado'}">🧵 ${item.taller_corte||'Sin taller'}</span>
-      </div>
-      <div class="rt-row-bottom">
-        <span class="rt-stats">Prendas: ${cantidad?`<b>${cantidad}</b>`:'—'}</span>
-        ${diasHtml}
-        <span style="margin-left:auto;font-size:10.5px;font-weight:700;color:#fff;background:${color};border-radius:6px;padding:2px 8px">${estado}</span>
-      </div>
-      ${editHtml}
-      </div>
-      </div>
-    </div>`;
-  }).join('');
   const totalesHtml=Object.keys(totalesPorEstado).map(estado=>{
     const t=totalesPorEstado[estado];
     const color=ESTADO_PIPELINE_COLOR[estado]||'#374151';
-    const activo=resumenPipelineFiltroEstado===estado;
-    return `<button onclick="setResumenPipelineFiltroEstado('${activo?'':estado.replace(/'/g,"\\'")}')" style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1.5px solid ${color};background:${activo?color:'transparent'};color:${activo?'#fff':color};border-radius:8px;padding:5px 9px;cursor:pointer;font-family:inherit;text-align:left">
+    return `<button onclick="scrollToPipelineItem('${t.primero.secId}','${t.primero.itemId}')" title="Ir a esta etapa" style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1.5px solid ${color};background:var(--surface);color:${color};border-radius:8px;padding:6px 10px;cursor:pointer">
       <span style="font-size:10px;font-weight:700;white-space:nowrap">${estado}</span>
       <span style="font-size:11px">${t.cortes} corte${t.cortes!==1?'s':''} · ${t.prendas} prenda${t.prendas!==1?'s':''}</span>
     </button>`;
   }).join('');
   cont.innerHTML=`<div class="rt-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-      <div class="rt-title" style="margin-bottom:0">📋 Resumen general — ${totalCortesGeneral} cortes sin entregar · ${totalPrendasGeneral} prendas en total</div>
-      <div style="display:flex;gap:6px">
-        <button class="btn-sm ${resumenPipelineOrden==='corte'?'active':''}" onclick="setResumenPipelineOrden('corte')">🔢 Por N° de corte</button>
-        <button class="btn-sm ${resumenPipelineOrden==='taller'?'active':''}" onclick="setResumenPipelineOrden('taller')">🧵 Por taller</button>
-        <select class="filtro-corte-select" onchange="setResumenPipelineFiltroTaller(this.value)">
-          <option value="">Taller: todos</option>${talleresEnResumen.map(t=>`<option value="${t.replace(/"/g,'&quot;')}" ${resumenPipelineFiltroTaller===t?'selected':''}>${t}</option>`).join('')}
-        </select>
-        <button class="btn-sm" style="font-weight:700" onclick="setTalleresSoloResumen(${talleresSoloResumen?'false':'true'})">${talleresSoloResumen?'🗂️ Ver tarjetas':'📋 Solo resumen'}</button>
-      </div>
-    </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${totalesHtml}</div>
-    ${resumenPipelineFiltroEstado?`<div style="margin-bottom:8px"><button class="btn-sm" onclick="setResumenPipelineFiltroEstado('')">✕ Ver todos los estados (${totalCortesGeneral})</button></div>`:''}
-    ${filasFiltradas.length?filasHtml:'<div class="rt-empty">Ningún corte en este estado.</div>'}
+    <div class="rt-title">📋 Resumen general — ${filas.length} cortes sin entregar · ${totalPrendasGeneral} prendas en total</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${totalesHtml}</div>
   </div>`;
 }
 // Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte. Como las
@@ -11855,6 +11776,8 @@ function rendSetModo(m){
 let cortesTabSearch='';
 let cortesTabOrden='numero'; // 'numero' | 'fecha'
 let cortesTabMes=''; // 'aaaa-mm'; vacío = mes actual
+let cortesTabDetalle=''; // '' | 'cortadas' | 'recibidas' — qué lista se despliega debajo del resumen
+function cortesTabToggleDetalle(k){ cortesTabDetalle=cortesTabDetalle===k?'':k; renderCortesTab(); }
 // item.fecha_corte es texto libre dd/mm/aaaa (a veces sin cargar); item.fecha_corte_ts es el
 // timestamp real que se guarda solo desde que existe esta función — por eso, si falta el ts,
 // se intenta parsear el texto como respaldo antes de mandarlo al final.
@@ -11917,25 +11840,33 @@ function cortesTabFilas(){
 function cortesTabMesKey(ts){ const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 function cortesTabResumen(filas,mes){
   const numeros=new Set(); let cortadas=0;
-  filas.forEach(({item,estado})=>{
+  const detCortadas=[], detRecibidas=[];
+  filas.forEach(f=>{
+    const {item,estado}=f;
     if(estado.key==='porcortar') return;
     const ts=fechaCorteTs(item);
     if(!ts||cortesTabMesKey(ts)!==mes) return;
     numeros.add(corteKeyFrom(item.numero_corte)||String(item.numero_corte));
-    cortadas+=cortesTabCantidad(item);
+    const cant=cortesTabCantidad(item);
+    cortadas+=cant;
+    detCortadas.push({...f,ts,cant});
   });
   // Recibidas: solo la entrega de costura (sin proceso) para no contar dos veces la misma
   // prenda cuando después pasa por estampado o terminación; sin proveedores externos.
   let recibidas=0;
-  Object.values(logiItemsData||{}).forEach(it=>{
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
     if(!it||it.proceso||it.origen==='proveedor') return;
     const ts=logiParseFechaEntregado(it.fecha_entregado);
     if(!ts||cortesTabMesKey(ts)!==mes) return;
     const filasG=Object.values(it.grilla||{});
     const contado=filasG.reduce((s,f)=>s+(parseInt(f.contado)||0),0);
-    recibidas+=contado||filasG.reduce((s,f)=>s+(parseInt(f.esperado)||0),0);
+    const cant=contado||filasG.reduce((s,f)=>s+(parseInt(f.esperado)||0),0);
+    recibidas+=cant;
+    detRecibidas.push({id,it,ts,cant,contado:!!contado});
   });
-  return {cortes:numeros.size,cortadas,recibidas};
+  detCortadas.sort((a,b)=>b.ts-a.ts);
+  detRecibidas.sort((a,b)=>b.ts-a.ts);
+  return {cortes:numeros.size,cortadas,recibidas,detCortadas,detRecibidas};
 }
 function cortesTabIr(secId,itemId,logiId){
   if(logiId){
@@ -11968,16 +11899,37 @@ function renderCortesTab(){
     opcionesMes.push(`<option value="${k}" ${k===mes?'selected':''}>${lbl.charAt(0).toUpperCase()+lbl.slice(1)}</option>`);
   }
   const r=cortesTabResumen(todas,mes);
-  const box=(label,val)=>`<div style="background:var(--surface2);border-radius:10px;padding:10px 14px;flex:1;min-width:130px">
-      <div style="font-size:11px;color:var(--text2)">${label}</div>
+  const box=(label,val,k)=>{
+    const on=cortesTabDetalle===k;
+    return `<div onclick="cortesTabToggleDetalle('${k}')" title="Ver cuáles son" style="cursor:pointer;background:var(--surface2);border:1.5px solid ${on?'var(--accent)':'transparent'};border-radius:10px;padding:10px 14px;flex:1;min-width:130px">
+      <div style="font-size:11px;color:var(--text2)">${label} <span style="font-size:10px">${on?'▲':'▼'}</span></div>
       <div style="font-size:20px;font-weight:700">${val.toLocaleString('es-AR')}</div></div>`;
+  };
+  const fmtD=ts=>new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+  const th=t=>`<th style="padding:5px 8px;text-align:left;font-size:11px;color:var(--text2)">${t}</th>`;
+  const td=(t,x='')=>`<td style="padding:5px 8px;${x}">${t}</td>`;
+  let detalleHtml='';
+  if(cortesTabDetalle==='cortadas'){
+    detalleHtml=r.detCortadas.length?`<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="border-bottom:1px solid var(--border)">${th('Fecha')}${th('N° corte')}${th('Artículo')}${th('<span style="float:right">Prendas</span>')}</tr>
+      ${r.detCortadas.map(f=>`<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${f.logiId?`cortesTabIr(null,null,'${f.logiId}')`:`cortesTabIr('${f.secId}','${f.itemId}',null)`}">
+        ${td(fmtD(f.ts))}${td(esc(f.item.numero_corte),'font-weight:700;color:var(--accent)')}${td(esc(f.item.code||'')+(f.item.name?' — '+esc(f.item.name):''))}${td(f.cant?f.cant.toLocaleString('es-AR'):'—','text-align:right;font-weight:600')}</tr>`).join('')}
+    </table>`:'<div class="rt-empty">No hay cortes en este mes.</div>';
+  } else if(cortesTabDetalle==='recibidas'){
+    detalleHtml=r.detRecibidas.length?`<table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="border-bottom:1px solid var(--border)">${th('Entregado')}${th('Taller')}${th('N° corte')}${th('Artículo')}${th('<span style="float:right">Prendas</span>')}</tr>
+      ${r.detRecibidas.map(f=>`<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="cortesTabIr(null,null,'${f.id}')">
+        ${td(fmtD(f.ts))}${td(esc(f.it.taller||'—'))}${td(esc(f.it.numero_corte||'—'),'font-weight:700;color:var(--accent)')}${td(esc(f.it.code||'')+(f.it.name?' — '+esc(f.it.name):''))}${td(f.cant.toLocaleString('es-AR')+(f.contado?'':' <span style="font-size:10px;color:var(--text3)" title="Todavía no se contó: es lo esperado">(esp.)</span>'),'text-align:right;font-weight:600')}</tr>`).join('')}
+    </table>`:'<div class="rt-empty">No hay entregas en este mes.</div>';
+  }
+  if(detalleHtml) detalleHtml=`<div style="border:1px solid var(--border);border-radius:10px;padding:6px;margin-bottom:14px;max-height:360px;overflow:auto">${detalleHtml}</div>`;
   const resumenHtml=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text2)">Resumen de</span>
       <select class="filtro-corte-select" onchange="cortesTabMes=this.value;renderCortesTab()">${opcionesMes.join('')}</select>
     </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-      ${box('Cortes hechos',r.cortes)}${box('Prendas cortadas',r.cortadas)}${box('Recibidas de talleres',r.recibidas)}
-    </div>`;
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:${detalleHtml?'8':'14'}px">
+      ${box('Cortes hechos',r.cortes,'cortadas')}${box('Prendas cortadas',r.cortadas,'cortadas')}${box('Recibidas de talleres',r.recibidas,'recibidas')}
+    </div>${detalleHtml}`;
 
   // --- Tabla ---
   const q=(cortesTabSearch||'').trim().toLowerCase();
@@ -12790,6 +12742,11 @@ function webColorSlug(color){
 let webSearch='';
 let costeoSearch='';
 let costeoOrdenPor='fecha'; // 'fecha' | 'corte'
+// Filas compactas: código, nombre y tres chips (medidas completas / colores subidos / medidas en
+// la web). Tocando la fila se despliega para completar. Las abiertas se recuerdan en webAbiertos
+// para que no se cierren solas cuando llega un cambio de Firebase mientras se carga algo.
+const webAbiertos=new Set();
+function webToggleFila(id){ if(webAbiertos.has(id)) webAbiertos.delete(id); else webAbiertos.add(id); renderWebTab(); }
 function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
@@ -12806,6 +12763,19 @@ function renderWebTab(){
     const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
     if(!colores.length) return '';
     const completas=medidasCompletas(it);
+    const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
+    const medidasWeb=!!it.medidas_subidas_web;
+    const abierta=webAbiertos.has(id);
+    const wChip=(ok,txt)=>`<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#b91c1c'}">${ok?'✓':'✗'} ${txt}</span>`;
+    const cabecera=`<div onclick="webToggleFila('${id}')" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer">
+        <span style="font-weight:700;font-size:13px">${(it.code||'(sin código)').replace(/</g,'&lt;')}</span>
+        <span style="font-size:13px;color:var(--text2);flex:1;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(it.name||'').replace(/</g,'&lt;')}</span>
+        ${wChip(completas,'Medidas')}
+        ${wChip(coloresSubidos===colores.length,`Colores ${coloresSubidos}/${colores.length}`)}
+        ${wChip(medidasWeb,'Medidas en web')}
+        <span style="font-size:11px;color:var(--text3)">${abierta?'▲':'▼'}</span>
+      </div>`;
+    if(!abierta) return `<div class="logi-card" style="display:block;padding:10px 12px;margin-bottom:6px">${cabecera}</div>`;
     const rows=colores.map(color=>{
       const slug=webColorSlug(color);
       const subido=!!(it.web_colores&&it.web_colores[slug]);
@@ -12831,9 +12801,9 @@ function renderWebTab(){
       ? `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">${recepcionInfoParts.join(' · ')}</div>`
       : '';
     return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px;${completas?'':'border:2px solid #ef4444'}">
-      ${avisoMedidas}
-      <div class="logi-code">${it.code||'(sin código)'} ${it.numero_corte?`· N° corte: ${it.numero_corte}`:''}</div>
-      <div class="logi-name" style="margin-bottom:6px">${it.name||''}</div>
+      ${cabecera}
+      <div style="margin-top:10px">${avisoMedidas}</div>
+      ${it.numero_corte?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px">N° corte: ${it.numero_corte}</div>`:''}
       ${recepcionInfoHtml}
       ${buildMedidasHtml(id,it,true,true)}
       ${rows}

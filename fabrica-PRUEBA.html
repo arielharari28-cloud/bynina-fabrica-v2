@@ -167,6 +167,40 @@
   .deuda-taller-group.open .deuda-taller-detalle{display:block}
   .deuda-taller-item{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:11px;color:var(--text2)}
   /* --- Resumen de talleres (tabla compacta por corte) --- */
+  /* --- Talleres: vista unificada --- */
+  .ut-cards{display:flex;gap:6px;flex-wrap:wrap}
+  .ut-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:1.5px solid var(--border);border-radius:10px;padding:7px 11px;cursor:pointer;font-size:11.5px;font-family:inherit;text-align:left}
+  .ut-orden{border:1px solid var(--border2);background:var(--surface);color:var(--text);border-radius:999px;padding:5px 11px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .ut-orden.on{background:var(--text);color:#fff;border-color:var(--text);font-weight:700}
+  .ut-table{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:visible;margin-top:10px}
+  .ut-row{display:grid;grid-template-columns:70px minmax(0,1fr) 70px 150px 64px 150px 215px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12.5px}
+  .ut-row:hover{background:var(--surface2)}
+  .ut-row.ut-open{background:var(--surface2)}
+  .ut-head{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);cursor:default;padding:10px 14px}
+  .ut-head:hover{background:transparent}
+  .ut-group{display:flex;align-items:center;gap:8px;padding:10px 14px 6px;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px}
+  .ut-group span:last-child{color:var(--text2)}
+  .ut-exp{padding:4px 8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:default}
+  .ut-row .c-corte{font-weight:700}
+  .ut-row .c-art{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ut-row .c-prendas,.ut-row .c-dias{text-align:right;font-variant-numeric:tabular-nums}
+  .ut-row .c-taller{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ut-row .c-estado{display:flex;justify-content:flex-end}
+  .ut-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap}
+  .ut-estado{padding:5px 11px;font-size:11.5px}
+  .ut-muted{color:var(--text3)}
+  .ut-m{display:none}
+  @media (max-width:760px){
+    .ut-head{display:none}
+    .ut-row{display:flex;flex-wrap:wrap;gap:4px 10px;padding:10px 12px}
+    .ut-row .c-corte{order:1}
+    .ut-row .c-estado{order:2;margin-left:auto}
+    .ut-row .c-art{order:3;flex-basis:100%;white-space:normal;font-weight:600}
+    .ut-row .c-prendas,.ut-row .c-taller,.ut-row .c-dias{order:4;font-size:11.5px;color:var(--text2);text-align:left}
+    .ut-row .c-avio{order:5;flex-basis:100%}
+    .ut-row .c-avio .ut-muted{display:none}
+    .ut-m{display:inline}
+  }
   .rt-box{margin:2px 18px 14px}
   .rt-title{font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--text2);margin-bottom:6px}
   .rt-row{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 9px;margin-bottom:5px}
@@ -5489,10 +5523,53 @@ const ESTADO_PIPELINE_COLOR={
   'En taller (confección/plancha/estampado)':'#5b21b6',
   'Pendiente recibir avío — corte en taller':'#991b1b',
 };
+// ===== Talleres — VISTA UNIFICADA (sep 2026) =====
+// Reemplaza los acordeones por etapa: una sola lista con el estado como etiqueta a la derecha.
+// El estado es DÓNDE está el corte; "falta avío" va aparte como marca, así un corte puede estar
+// "En taller · confección" y además esperando avío (lo que antes era la sección s6).
+// Las tarjetas de arriba filtran. Tocar una fila despliega la tarjeta completa de siempre
+// (con todos sus botones), así los cambios de etapa siguen pasando por la lógica existente.
+const UT_ESTADOS=[
+  {id:'por_sacar',  label:'Por sacar a taller',       fg:'#166534',bg:'#dcfce7',dot:'#16a34a'},
+  {id:'retiro',     label:'Pendiente retiro',         fg:'#9a3412',bg:'#ffedd5',dot:'#ea580c'},
+  {id:'confeccion', label:'En taller · confección',   fg:'#4c1d95',bg:'#ede9fe',dot:'#6d28d9'},
+  {id:'terminacion',label:'En terminación',           fg:'#854d0e',bg:'#fef9c3',dot:'#ca8a04'},
+  {id:'plancha',    label:'Estampado · Plancha Nina', fg:'#1e3a8a',bg:'#dbeafe',dot:'#2563eb'},
+];
+const UT_AVIO={
+  sin_pedir:{label:'Avío sin pedir',fg:'#991b1b',bg:'#fee2e2',dot:'#dc2626'},
+  pedido:   {label:'Falta avío',    fg:'#92400e',bg:'#fef3c7',dot:'#d97706'},
+};
+let utFiltro='todos';
+let utOrden='etapa';
+try{ utOrden=localStorage.getItem('talleres_ut_orden')||'etapa'; }catch(e){}
+const utExpandidos=new Set();
+function utEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function utEstadoDe(secId,item){
+  if(['s4','s5','sLT'].includes(secId)) return 'por_sacar';
+  if(secId==='sFIN') return item.retirado_taller?'confeccion':'retiro';
+  if(secId==='s6') return 'confeccion';
+  if(secId===SEC_TALLER_TERMINACION) return 'terminacion';
+  if(secId===SEC_ESTAMPADO_TALLER) return 'plancha';
+  return 'confeccion';
+}
+function utAvioDe(secId,item){
+  const pend=Object.values(item.avios||{}).filter(a=>a&&!a.recibido);
+  if(secId==='s4') return {tipo:'sin_pedir',pend};
+  if(pend.length) return {tipo:pend.some(a=>!a.fecha_pedido)?'sin_pedir':'pedido',pend};
+  if(secId==='s5'||secId==='s6') return {tipo:'pedido',pend};
+  return null;
+}
+function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
+function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
+function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }
+function setUtOrden(o){ utOrden=o; try{ localStorage.setItem('talleres_ut_orden',o); }catch(e){} renderSections('talleres'); }
+function toggleUtFila(secId,itemId){
+  const k=secId+'/'+itemId;
+  if(utExpandidos.has(k)) utExpandidos.delete(k); else utExpandidos.add(k);
+  renderSections('talleres');
+}
 function renderResumenPipelineTalleres(){
-  // Solo los recuadros por etapa (cortes · prendas). La lista de filas que había debajo se sacó
-  // (sep 2026): el detalle, la observación y la fecha estimada se ven en las tarjetas de cada
-  // sección. Tocar un recuadro lleva a la primera tarjeta de esa etapa.
   const cont=document.getElementById('resumen-pipeline-talleres');
   if(!cont) return;
   const contTarjetas=document.getElementById('sections-container-talleres');
@@ -5503,35 +5580,78 @@ function renderResumenPipelineTalleres(){
     if(!sec) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       const {totalEsperado}=resumenEntregasFabrica(item,itemId);
-      filas.push({secId,itemId,item,estado:estadoPipelineItem(secId,item),cantidad:totalEsperado});
+      const estado=utEstadoDe(secId,item);
+      const ts=(secId==='sFIN'&&item.retirado_taller&&item.fecha_retiro_confirmado)?item.fecha_retiro_confirmado:item.fecha_etapa;
+      filas.push({secId,itemId,item,sec,estado,avio:utAvioDe(secId,item),cantidad:totalEsperado||0,dias:diasEntre(ts)});
     });
   });
+  if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
   if(searchQuery){
     const q=searchQuery.trim().toLowerCase();
-    filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q));
+    filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q)||(f.item.taller_corte||'').toLowerCase().includes(q));
   }
-  if(!filas.length){ cont.innerHTML=buildTiemposTallerHtml(); return; }
-  filas.sort((a,b)=>extractCorteNumber(a.item)-extractCorteNumber(b.item));
-  const totalesPorEstado={};
-  let totalPrendasGeneral=0;
-  filas.forEach(f=>{
-    if(!totalesPorEstado[f.estado]) totalesPorEstado[f.estado]={cortes:0,prendas:0,primero:f};
-    totalesPorEstado[f.estado].cortes+=1;
-    totalesPorEstado[f.estado].prendas+=(f.cantidad||0);
-    totalPrendasGeneral+=(f.cantidad||0);
-  });
-  const totalesHtml=Object.keys(totalesPorEstado).map(estado=>{
-    const t=totalesPorEstado[estado];
-    const color=ESTADO_PIPELINE_COLOR[estado]||'#374151';
-    return `<button onclick="scrollToPipelineItem('${t.primero.secId}','${t.primero.itemId}')" title="Ir a esta etapa" style="display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1.5px solid ${color};background:var(--surface);color:${color};border-radius:8px;padding:6px 10px;cursor:pointer">
-      <span style="font-size:10px;font-weight:700;white-space:nowrap">${estado}</span>
-      <span style="font-size:11px">${t.cortes} corte${t.cortes!==1?'s':''} · ${t.prendas} prenda${t.prendas!==1?'s':''}</span>
+  const suma=l=>l.reduce((s,f)=>s+f.cantidad,0);
+  const cardDefs=[{id:'todos',label:'Todos',fg:'var(--text)',bg:'var(--surface2)',dot:'#6b6560'}]
+    .concat(UT_ESTADOS)
+    .concat([{id:'avio',label:'Falta avío',fg:UT_AVIO.sin_pedir.fg,bg:UT_AVIO.sin_pedir.bg,dot:UT_AVIO.sin_pedir.dot}]);
+  const cardsHtml=cardDefs.map(c=>{
+    const l=c.id==='todos'?filas:c.id==='avio'?filas.filter(f=>f.avio):filas.filter(f=>f.estado===c.id);
+    if(!l.length&&c.id!=='todos'&&utFiltro!==c.id) return '';
+    const sel=utFiltro===c.id;
+    return `<button class="ut-card" aria-pressed="${sel}" onclick="setUtFiltro('${c.id}')" style="color:${c.fg};border-color:${sel?c.dot:'var(--border)'};background:${sel?c.bg:'var(--surface)'}">
+      <span style="display:flex;align-items:center;gap:6px">${utDot(c.dot)}<b>${c.label}</b></span>
+      <span style="color:var(--text2)">${l.length} corte${l.length!==1?'s':''} · ${suma(l)} prendas</span>
     </button>`;
   }).join('');
+  let vis=filas.filter(f=>utFiltro==='todos'?true:utFiltro==='avio'?!!f.avio:f.estado===utFiltro);
+  const idxE=id=>UT_ESTADOS.findIndex(e=>e.id===id);
+  vis.sort((a,b)=>{
+    if(utOrden==='etapa'){ const d=idxE(a.estado)-idxE(b.estado); if(d) return d; }
+    const d2=(b.dias==null?-1:b.dias)-(a.dias==null?-1:a.dias);
+    return d2||extractCorteNumber(a.item)-extractCorteNumber(b.item);
+  });
+  const grupos={};
+  vis.forEach(f=>{ grupos[f.estado]=grupos[f.estado]||{n:0,p:0}; grupos[f.estado].n++; grupos[f.estado].p+=f.cantidad; });
+  let prev=null;
+  const filasHtml=vis.map((f,idx)=>{
+    const e=utEstadoInfo(f.estado);
+    let head='';
+    if(utOrden==='etapa'&&f.estado!==prev){
+      head=`<div class="ut-group">${utDot(e.dot)}<b>${e.label}</b><span>${grupos[f.estado].n} corte${grupos[f.estado].n!==1?'s':''} · ${grupos[f.estado].p} prendas</span></div>`;
+    }
+    prev=f.estado;
+    const abierto=utExpandidos.has(f.secId+'/'+f.itemId);
+    const it=f.item;
+    const art=(it.code?it.code+' — ':'')+(it.name||'(sin nombre)');
+    const late=f.dias!=null&&f.dias>=7;
+    let avioHtml='<span class="ut-muted">—</span>';
+    if(f.avio){
+      const a=UT_AVIO[f.avio.tipo];
+      const tip=f.avio.pend.length?f.avio.pend.map(x=>x.nombre+(x.fecha_pedido?' (pedido '+x.fecha_pedido+')':' (sin pedir)')).join(', '):a.label;
+      avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}</span>`;
+    }
+    return head+`<div class="ut-row${abierto?' ut-open':''}" onclick="toggleUtFila('${f.secId}','${f.itemId}')">
+      <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}</div>
+      <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
+      <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
+      <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}</div>
+      <div class="c-dias" style="${late?'color:#9a3412;font-weight:700':''}">${f.dias!=null?f.dias+' d':'—'}</div>
+      <div class="c-avio">${avioHtml}</div>
+      <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
+    </div>${abierto?`<div class="ut-exp">${buildItem(f.secId,f.itemId,it,f.sec,idx,vis.length)}</div>`:''}`;
+  }).join('');
+  const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
   cont.innerHTML=`<div class="rt-box">
-    <div class="rt-title">📋 Resumen general — ${filas.length} cortes sin entregar · ${totalPrendasGeneral} prendas en total</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${totalesHtml}</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div class="rt-title" style="margin:0">📋 ${filas.length} cortes sin entregar · ${suma(filas)} prendas en total</div>
+      <div style="display:flex;gap:6px;align-items:center"><span style="font-size:11px;color:var(--text2)">Ordenar</span>${ordenBtn('etapa','Por etapa')}${ordenBtn('dias','Más días primero')}</div>
+    </div>
+    <div class="ut-cards">${cardsHtml}</div>
     ${buildTiemposTallerHtml()}
+    <div class="ut-table">
+      <div class="ut-row ut-head"><div class="c-corte">Corte</div><div class="c-art">Artículo</div><div class="c-prendas">Prendas</div><div class="c-taller">Taller</div><div class="c-dias">Días en estado</div><div class="c-avio">Avío</div><div class="c-estado">Estado</div></div>
+      ${filasHtml||'<div class="empty-state">No hay cortes con ese filtro</div>'}
+    </div>
   </div>`;
 }
 // Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte. Como las
@@ -6163,7 +6283,10 @@ function renderSections(board){
   // en Fábrica, con la fecha coordinada) y un corte que el taller ya retiró y está en confección/
   // plancha/estampado (vive en Talleres). El split real es por ítem (`item.retirado_taller`), más
   // abajo en el loop de cada sección.
-  if(board==='talleres') entries=entries.filter(([secId,sec])=>esSeccionTalleres(secId,sec));
+  // Las etapas de taller (s6, sFIN retirado, estampado, terminación) ya no van como acordeones:
+  // se ven en la lista unificada de arriba (renderResumenPipelineTalleres). Acá quedan solo
+  // Revisión final / Mejora / Producto perfecto.
+  if(board==='talleres') entries=entries.filter(([secId,sec])=>esSeccionTalleres(secId,sec)&&!TALLERES_TAB_SECS.includes(secId));
   else if(board==='fabrica') entries=entries.filter(([secId,sec])=>!esSeccionTalleres(secId,sec)||secId==='sFIN');
   // Ari Morón (cortador): vista acotada — solo "Cortes próximos a sacar" (y ahí, solo lo
   // confirmado y con orden de corte ya cargada) y "Muestras — pendiente corte" en Diseño.

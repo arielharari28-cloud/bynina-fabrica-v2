@@ -173,7 +173,7 @@
   .ut-orden{border:1px solid var(--border2);background:var(--surface);color:var(--text);border-radius:999px;padding:5px 11px;font-size:11.5px;cursor:pointer;font-family:inherit}
   .ut-orden.on{background:var(--text);color:#fff;border-color:var(--text);font-weight:700}
   .ut-table{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:visible;margin-top:10px}
-  .ut-row{display:grid;grid-template-columns:70px minmax(0,1fr) 70px 150px 64px 150px 215px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12.5px}
+  .ut-row{display:grid;grid-template-columns:44px 60px minmax(0,1fr) 64px 96px 140px 150px 130px 200px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12.5px}
   .ut-row:hover{background:var(--surface2)}
   .ut-row.ut-open{background:var(--surface2)}
   .ut-head{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--text2);cursor:default;padding:10px 14px}
@@ -189,15 +189,24 @@
   .ut-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap}
   .ut-estado{padding:5px 11px;font-size:11.5px}
   .ut-muted{color:var(--text3)}
+  .ut-foto{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--surface2);display:block}
+  .ut-row .c-precio{text-align:right}
+  .ut-in{border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px;background:var(--surface);font-family:inherit;color:var(--text)}
+  .ut-in.falta{border-color:var(--danger)}
+  .ut-ent{display:flex;flex-direction:column;gap:3px;font-size:11.5px}
+  .ut-ent label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+  .ut-venc{color:var(--danger);font-weight:700}
   .ut-m{display:none}
   @media (max-width:760px){
     .ut-head{display:none}
     .ut-row{display:flex;flex-wrap:wrap;gap:4px 10px;padding:10px 12px}
+    .ut-row .c-foto{order:0}
     .ut-row .c-corte{order:1}
     .ut-row .c-estado{order:2;margin-left:auto}
     .ut-row .c-art{order:3;flex-basis:100%;white-space:normal;font-weight:600}
-    .ut-row .c-prendas,.ut-row .c-taller,.ut-row .c-dias{order:4;font-size:11.5px;color:var(--text2);text-align:left}
-    .ut-row .c-avio{order:5;flex-basis:100%}
+    .ut-row .c-prendas,.ut-row .c-taller,.ut-row .c-precio{order:4;font-size:11.5px;color:var(--text2);text-align:left}
+    .ut-row .c-dias{order:5;flex-basis:100%}
+    .ut-row .c-avio{order:6;flex-basis:100%}
     .ut-row .c-avio .ut-muted{display:none}
     .ut-m{display:inline}
   }
@@ -5560,6 +5569,7 @@ function utAvioDe(secId,item){
   if(secId==='s5'||secId==='s6') return {tipo:'pedido',pend};
   return null;
 }
+function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||currentUser==='emir'; }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
 function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }
@@ -5637,12 +5647,35 @@ function renderResumenPipelineTalleres(){
       const tip=f.avio.pend.length?f.avio.pend.map(x=>x.nombre+(x.fecha_pedido?' (pedido '+x.fecha_pedido+')':' (sin pedir)')).join(', '):a.label;
       avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}</span>`;
     }
+    const puede=utPuedeEditarTaller();
+    const stop='onclick="event.stopPropagation()"';
+    let precioHtml='';
+    if(puede){
+      const tiene=!!it.precio_taller;
+      precioHtml=`<span style="${tiene?'':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tiene?'':'Falta precio'}</span>$ <input class="ut-in${tiene?'':' falta'}" ${stop} type="number" min="0" value="${it.precio_taller||''}" placeholder="/u" style="width:62px" onchange="setPrecioTallerCorte('${f.secId}','${f.itemId}',this.value)">`;
+    }
+    let entregaHtml;
+    if(f.estado==='por_sacar'||f.estado==='retiro'){
+      entregaHtml=`<span style="${late?'color:#9a3412;font-weight:700':''}">${f.dias!=null?f.dias+' d en esta etapa':'—'}</span>`;
+    } else {
+      const hoyE=new Date(); hoyE.setHours(0,0,0,0);
+      const venc=iso=>iso&&new Date(iso+'T00:00:00')<hoyE;
+      const auto=entregaAutoTaller(it);
+      const tal=it.fecha_estimada_entrega_taller||'';
+      const autoTxt=auto?`<span class="${venc(auto)?'ut-venc':''}">${fmtIsoCorta(auto)}</span>`:`<span class="ut-muted" title="${it.categoria?'Sin tiempo cargado para '+utEsc(it.categoria):'Sin categoría'}">—</span>`;
+      const talCampo=puede
+        ?`<input class="ut-in${venc(tal)?' falta':''}" ${stop} type="date" value="${tal}" onchange="setFechaEntregaTallerCorte('${f.secId}','${f.itemId}',this.value)">`
+        :(tal?`<span class="${venc(tal)?'ut-venc':''}">${fmtIsoCorta(tal)}</span>`:'<span class="ut-muted">sin cargar</span>');
+      entregaHtml=`<div class="ut-ent"><span>Estimada ${autoTxt}</span><label ${stop}>Taller ${talCampo}</label></div>`;
+    }
     return head+`<div class="ut-row${abierto?' ut-open':''}" onclick="toggleUtFila('${f.secId}','${f.itemId}')">
+      <div class="c-foto">${it.foto?`<img class="ut-foto" src="${utEsc(it.foto)}" loading="lazy" alt="">`:'<div class="ut-foto"></div>'}</div>
       <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}</div>
       <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
       <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
+      <div class="c-precio">${precioHtml}</div>
       <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}${avisoRetiro}</div>
-      <div class="c-dias" style="${late?'color:#9a3412;font-weight:700':''}">${f.dias!=null?f.dias+' d':'—'}</div>
+      <div class="c-dias">${entregaHtml}</div>
       <div class="c-avio">${avioHtml}</div>
       <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
     </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='retiro'?buildResumenTalleresHtml(f.secId,[[f.itemId,it]]):''}${buildItem(f.secId,f.itemId,it,f.sec,idx,vis.length)}</div>`:''}`;
@@ -5656,7 +5689,7 @@ function renderResumenPipelineTalleres(){
     <div class="ut-cards">${cardsHtml}</div>
     ${buildTiemposTallerHtml()}
     <div class="ut-table">
-      <div class="ut-row ut-head"><div class="c-corte">Corte</div><div class="c-art">Artículo</div><div class="c-prendas">Prendas</div><div class="c-taller">Taller</div><div class="c-dias">Días en estado</div><div class="c-avio">Avío</div><div class="c-estado">Estado</div></div>
+      <div class="ut-row ut-head"><div class="c-foto">Foto</div><div class="c-corte">Corte</div><div class="c-art">Artículo</div><div class="c-prendas">Prendas</div><div class="c-precio">${utPuedeEditarTaller()?'Precio':''}</div><div class="c-taller">Taller</div><div class="c-dias">Entrega</div><div class="c-avio">Avío</div><div class="c-estado">Estado</div></div>
       ${filasHtml||'<div class="empty-state">No hay cortes con ese filtro</div>'}
     </div>
   </div>`;

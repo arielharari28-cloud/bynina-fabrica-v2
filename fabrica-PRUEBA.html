@@ -5550,6 +5550,9 @@ const UT_AVIO={
   pedido:   {label:'Falta avío',    fg:'#92400e',bg:'#fef3c7',dot:'#d97706'},
 };
 let utFiltro='todos';
+let utTaller=''; // '' = todos los talleres
+function utTallerDe(item){ return (item.taller_corte||'').trim()||'Sin taller'; }
+function setUtTaller(v){ utTaller=v; renderSections('talleres'); }
 let utOrden='etapa';
 try{ utOrden=localStorage.getItem('talleres_ut_orden')||'etapa'; }catch(e){}
 const utExpandidos=new Set();
@@ -5596,6 +5599,10 @@ function renderResumenPipelineTalleres(){
     });
   });
   if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
+  // Talleres presentes (antes de filtrar por taller, así el selector siempre muestra todos)
+  const talleresLista=[...new Set(filas.map(f=>utTallerDe(f.item)))].sort((a,b)=>a==='Sin taller'?1:b==='Sin taller'?-1:a.localeCompare(b));
+  if(utTaller&&!talleresLista.includes(utTaller)) utTaller='';
+  if(utTaller) filas=filas.filter(f=>utTallerDe(f.item)===utTaller);
   if(searchQuery){
     const q=searchQuery.trim().toLowerCase();
     filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q)||(f.item.taller_corte||'').toLowerCase().includes(q));
@@ -5617,19 +5624,27 @@ function renderResumenPipelineTalleres(){
   const idxE=id=>UT_ESTADOS.findIndex(e=>e.id===id);
   vis.sort((a,b)=>{
     if(utOrden==='etapa'){ const d=idxE(a.estado)-idxE(b.estado); if(d) return d; }
+    if(utOrden==='taller'){
+      const ta=utTallerDe(a.item), tb=utTallerDe(b.item);
+      if(ta!==tb) return ta==='Sin taller'?1:tb==='Sin taller'?-1:ta.localeCompare(tb);
+      const d=idxE(a.estado)-idxE(b.estado); if(d) return d;
+    }
     const d2=(b.dias==null?-1:b.dias)-(a.dias==null?-1:a.dias);
     return d2||extractCorteNumber(a.item)-extractCorteNumber(b.item);
   });
   const grupos={};
-  vis.forEach(f=>{ grupos[f.estado]=grupos[f.estado]||{n:0,p:0}; grupos[f.estado].n++; grupos[f.estado].p+=f.cantidad; });
+  const grupoKey=f=>utOrden==='taller'?utTallerDe(f.item):f.estado;
+  vis.forEach(f=>{ const k=grupoKey(f); grupos[k]=grupos[k]||{n:0,p:0}; grupos[k].n++; grupos[k].p+=f.cantidad; });
   let prev=null;
   const filasHtml=vis.map((f,idx)=>{
     const e=utEstadoInfo(f.estado);
+    const k=grupoKey(f);
     let head='';
-    if(utOrden==='etapa'&&f.estado!==prev){
-      head=`<div class="ut-group">${utDot(e.dot)}<b>${e.label}</b><span>${grupos[f.estado].n} corte${grupos[f.estado].n!==1?'s':''} · ${grupos[f.estado].p} prendas</span></div>`;
+    if((utOrden==='etapa'||utOrden==='taller')&&k!==prev){
+      const titulo=utOrden==='taller'?`${utDot('#6b6560')}<b>🧵 ${utEsc(k)}</b>`:`${utDot(e.dot)}<b>${e.label}</b>`;
+      head=`<div class="ut-group">${titulo}<span>${grupos[k].n} corte${grupos[k].n!==1?'s':''} · ${grupos[k].p} prendas</span></div>`;
     }
-    prev=f.estado;
+    prev=k;
     const abierto=utExpandidos.has(f.secId+'/'+f.itemId);
     const it=f.item;
     const art=(it.code?it.code+' — ':'')+(it.name||'(sin nombre)');
@@ -5683,8 +5698,13 @@ function renderResumenPipelineTalleres(){
   const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
   cont.innerHTML=`<div class="rt-box">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <div class="rt-title" style="margin:0">📋 ${filas.length} cortes sin entregar · ${suma(filas)} prendas en total</div>
-      <div style="display:flex;gap:6px;align-items:center"><span style="font-size:11px;color:var(--text2)">Ordenar</span>${ordenBtn('etapa','Por etapa')}${ordenBtn('dias','Más días primero')}</div>
+      <div class="rt-title" style="margin:0">📋 ${utTaller?utEsc(utTaller)+' — ':''}${filas.length} cortes sin entregar · ${suma(filas)} prendas en total</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">Taller
+        <select class="ut-in" onchange="setUtTaller(this.value)" style="${utTaller?'border-color:var(--text);font-weight:700':''}">
+          <option value="">Todos</option>
+          ${talleresLista.map(t=>`<option value="${utEsc(t)}" ${t===utTaller?'selected':''}>${utEsc(t)}</option>`).join('')}
+        </select></label>
+      <span style="font-size:11px;color:var(--text2);margin-left:6px">Ordenar</span>${ordenBtn('etapa','Por etapa')}${ordenBtn('taller','Por taller')}${ordenBtn('dias','Más días primero')}</div>
     </div>
     <div class="ut-cards">${cardsHtml}</div>
     ${buildTiemposTallerHtml()}

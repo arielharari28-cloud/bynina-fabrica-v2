@@ -13172,7 +13172,10 @@ function setCostoConfirmado(itemId,val){
 // código) — así el checkbox de Costeo puede tildar el mismo flag que vive en Logística.
 function logiItemDeArticuloCosteo(numeroCorte,code){
   if(!numeroCorte||!code) return null;
-  return Object.entries(logiItemsData||{}).find(([,lit])=>lit.numero_corte===numeroCorte&&lit.code===code)||null;
+  const ents=Object.entries(logiItemsData||{}).filter(([,lit])=>lit.numero_corte===numeroCorte&&lit.code===code);
+  // Si el corte pasó por estampado, la entrega de costura (sigue_a_estampado) no es la final:
+  // el costo se confirma sobre la entrega que aparece en Comercializar/Web.
+  return ents.find(([,lit])=>!lit.sigue_a_estampado)||ents[0]||null;
 }
 // Checkbox reutilizable — usado en Costeo, Logística y Comercializar. Si no hay ítem de
 // Logística vinculado todavía (ej. artículo cargado a mano en Costeo, sin llegar a Logística

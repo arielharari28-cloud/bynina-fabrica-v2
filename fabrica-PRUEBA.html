@@ -5624,6 +5624,13 @@ function renderResumenPipelineTalleres(){
     const it=f.item;
     const art=(it.code?it.code+' — ':'')+(it.name||'(sin nombre)');
     const late=f.dias!=null&&f.dias>=7;
+    let avisoRetiro='';
+    if(f.estado==='retiro'){
+      const hoyR=new Date(); hoyR.setHours(0,0,0,0);
+      if(!it.fecha_estimada_entrega) avisoRetiro='<div style="font-size:10.5px;color:var(--danger);font-weight:700">❓ sin coordinar retiro</div>';
+      else if(new Date(it.fecha_estimada_entrega+'T00:00:00')<hoyR) avisoRetiro='<div style="font-size:10.5px;color:var(--danger);font-weight:700">⚠️ no lo retiraron todavía</div>';
+      else { const [,mR,dR]=it.fecha_estimada_entrega.split('-'); avisoRetiro=`<div style="font-size:10.5px;color:var(--text2)">📅 retira ${dR}/${mR}</div>`; }
+    }
     let avioHtml='<span class="ut-muted">—</span>';
     if(f.avio){
       const a=UT_AVIO[f.avio.tipo];
@@ -5634,11 +5641,11 @@ function renderResumenPipelineTalleres(){
       <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}</div>
       <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
       <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
-      <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}</div>
+      <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}${avisoRetiro}</div>
       <div class="c-dias" style="${late?'color:#9a3412;font-weight:700':''}">${f.dias!=null?f.dias+' d':'—'}</div>
       <div class="c-avio">${avioHtml}</div>
       <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
-    </div>${abierto?`<div class="ut-exp">${buildItem(f.secId,f.itemId,it,f.sec,idx,vis.length)}</div>`:''}`;
+    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='retiro'?buildResumenTalleresHtml(f.secId,[[f.itemId,it]]):''}${buildItem(f.secId,f.itemId,it,f.sec,idx,vis.length)}</div>`:''}`;
   }).join('');
   const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
   cont.innerHTML=`<div class="rt-box">
@@ -6287,7 +6294,10 @@ function renderSections(board){
   // se ven en la lista unificada de arriba (renderResumenPipelineTalleres). Acá quedan solo
   // Revisión final / Mejora / Producto perfecto.
   if(board==='talleres') entries=entries.filter(([secId,sec])=>esSeccionTalleres(secId,sec)&&!TALLERES_TAB_SECS.includes(secId));
-  else if(board==='fabrica') entries=entries.filter(([secId,sec])=>!esSeccionTalleres(secId,sec)||secId==='sFIN');
+  // (sep 2026) Los cortes que esperan salir a taller (s4/s5/sLT) y los pendientes de retiro (sFIN
+  // sin retirar) ya no se muestran en Fábrica: están en la lista unificada de Talleres, así cada
+  // corte vive en un solo lugar. Fábrica queda con las colas de trabajo (tizada, próximos a sacar).
+  else if(board==='fabrica') entries=entries.filter(([secId,sec])=>!esSeccionTalleres(secId,sec)&&!['s4','s5','sLT','sFIN'].includes(secId));
   // Ari Morón (cortador): vista acotada — solo "Cortes próximos a sacar" (y ahí, solo lo
   // confirmado y con orden de corte ya cargada) y "Muestras — pendiente corte" en Diseño.
   if(currentUser==='arimoron'){
@@ -11247,7 +11257,9 @@ function irAItem(secId,itemId,foco){
   const board=getBoard(sec);
   const itemIr=(sec.items||{})[itemId]||{};
   // sFIN vive en las dos pestañas: sin retirar está en Fábrica, retirado en Talleres.
-  const enTalleres=board==='fabrica'&&(secId==='sFIN'?!!itemIr.retirado_taller:esSeccionTalleres(secId,sec));
+  const enPipeline=board==='fabrica'&&PIPELINE_TALLERES_SECS.includes(secId);
+  const enTalleres=enPipeline||(board==='fabrica'&&esSeccionTalleres(secId,sec));
+  if(enPipeline){ utFiltro='todos'; utExpandidos.add(secId+'/'+itemId); }
   if(isSecCompacta(secId)) compactExpandidos.add(secId+'/'+itemId);
   const tabId = board==='diseno'?'tab-diseno':(enTalleres?'tab-talleres':'tab-fabrica');
   const btnId = board==='diseno'?'tab-btn-diseno':(enTalleres?'tab-btn-talleres':'tab-btn-fabrica');

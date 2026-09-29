@@ -4786,8 +4786,28 @@ function marcarEntregadoEstampadoTaller(secId,itemId){
   if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
   const fechaFinal=pedirFechaEntrega('¿Qué fecha terminó el estampado?');
   if(fechaFinal===null) return;
+  const grillaControlada=grillaQuePasoControlCostura(item);
   crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,'revision_final',{estampado_taller_entregado:true,fecha_entregado_revision:Date.now()},'Revisión Final',
-    {taller:'Estampado Nina (interno)', proceso:'estampado', no_facturar:true});
+    {taller:'Estampado Nina (interno)', proceso:'estampado', no_facturar:true, ...(grillaControlada?{grilla:grillaControlada}:{})});
+}
+// Lo que se manda a estampar es lo que pasó el control de costura (OK + Detalle), no lo que
+// se cortó: lo fallado (taller o tela) no se estampa. Suma todas las entregas de costura de
+// ese corte ya controladas (sigue_a_estampado). Si no hay ninguna, usa la grilla del corte.
+function grillaQuePasoControlCostura(item){
+  if(!item||!item.numero_corte) return null;
+  const nc=String(item.numero_corte), code=String(item.code||'');
+  const ents=Object.values(logiItemsData||{}).filter(e=>e&&e.sigue_a_estampado&&e.estado==='cerrado'&&String(e.numero_corte||'')===nc&&String(e.code||'')===code);
+  if(!ents.length) return null;
+  const acc={};
+  ents.forEach(e=>Object.values(e.grilla||{}).forEach(f=>{
+    const k=(f.color||'')+'|'+(f.talle||'');
+    if(!acc[k]) acc[k]={color:f.color||'',talle:f.talle||'',esperado:0,ok:0,detalle:0,fallado:0};
+    acc[k].esperado+=(f.ok||0)+(f.detalle||0);
+  }));
+  const filas=Object.values(acc).filter(f=>f.esperado>0);
+  if(!filas.length) return null;
+  const obj={}; filas.forEach((f,i)=>{ obj['f'+i]=f; });
+  return obj;
 }
 
 // --- REVISIÓN FINAL (llegó el corte del taller) ---
@@ -13041,7 +13061,7 @@ function webToggleFila(id){ if(webAbiertos.has(id)) webAbiertos.delete(id); else
 function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
-  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado');
+  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
   // Orden: lo más recién ingresado primero (no por N° de corte) — así lo nuevo aparece arriba.
   items.sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
   if(webSearch.trim()){
@@ -13115,7 +13135,7 @@ function comercTodoOk(e){
   return e.costoHecho&&e.preciosCount===3&&e.recAvellaneda!==false&&e.recDeposito!==false&&e.webOk!==false&&e.medidasOk;
 }
 function comercItemsFiltrados(){
-  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado');
+  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
   // De más recién finalizado a más viejo (fecha en que se cerró/dividió el corte).
   items.sort((a,b)=>(b[1].fecha_cerrado||b[1].fecha_creado||0)-(a[1].fecha_cerrado||a[1].fecha_creado||0));
   if(comercSearch.trim()){
@@ -13232,7 +13252,7 @@ function renderComercializarTab(){
   if(resumenEl) resumenEl.textContent=`${listos} de ${items.length} completamente listos para comercializar`;
 }
 function webItemsFiltrados(){
-  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado');
+  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
   items.sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
   if(webSearch.trim()){
     const q=webSearch.trim().toLowerCase();
@@ -13497,7 +13517,9 @@ function logiCardHtml(id,it,cerrado){
        </select>`
     : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
   let badgeHtml;
-  if(cerrado){
+  if(cerrado&&it.sigue_a_estampado){
+    badgeHtml = '<span class="logi-badge" style="background:#dbeafe;color:#1e3a8a">🎨 Controlado · sigue a estampado</span>';
+  } else if(cerrado){
     badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
   } else if(logiEstadoColumna(it)==='dividir'){
     badgeHtml = '<span class="logi-badge" style="background:#ede9fe;color:#5b21b6">🔀 Pendiente dividir</span>';
@@ -13936,7 +13958,7 @@ function logiRenderDetail(id){
 
   if(cerrado){
     const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');
-    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">✅ Conteo cerrado</div>` +
+    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">${it.sigue_a_estampado?`✅ Controlado — facturable a ${it.taller||'el taller'} · 🎨 sigue a Estampado (se divide con la entrega de estampado)`:'✅ Conteo cerrado'}</div>` +
       (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
     const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>`
@@ -13950,7 +13972,7 @@ function logiRenderDetail(id){
       : '';
     html += avisoControl + yaMarcado + `<div class="logi-summary-bar">
       <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
-      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">Cerrar control → Pendiente dividir</button></div>
+      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">${logiSigueAEstampado(it)?'Cerrar control → Facturar y sigue a Estampado':'Cerrar control → Pendiente dividir'}</button></div>
     </div>`;
   }
   document.getElementById('logi-final-summary').innerHTML = html;
@@ -14044,13 +14066,44 @@ function logiConfirmarNota(){
   logiNotaPendiente = null;
 }
 
+// ===== Entrega de costura de un corte que todavía tiene que ir a estampar (sep 2026) =====
+// El control de esa entrega sirve para facturarle al taller de costura (OK/Detalle/Fallado),
+// pero la mercadería NO está terminada: sigue a Estampado Nina. Por eso al cerrar el control
+// queda "cerrada" (así Facturación la toma) pero marcada sigue_a_estampado: no pasa por
+// Pendiente dividir, no aparece en Web/Comercializar. La división se hace sobre la entrega
+// de estampado, que después se abre con lo que pasó el control (OK + Detalle).
+function logiCorteFabricaDe(it){
+  if(!it||!it.numero_corte) return null;
+  const nc=String(it.numero_corte), code=String(it.code||'');
+  for(const [secId,sec] of Object.entries(sectionsData||{})){
+    for(const [itemId,item] of Object.entries((sec&&sec.items)||{})){
+      if(item&&String(item.numero_corte||'')===nc&&String(item.code||'')===code) return {secId,itemId,item};
+    }
+  }
+  return null;
+}
+function logiSigueAEstampado(it){
+  if(!it) return false;
+  if(it.avance_pendiente&&it.avance_pendiente.destino_tipo==='en_estampado_taller'&&!it.avance_pendiente.avanzado) return true;
+  if(it.proceso||it.no_facturar) return false; // reconteo de estampado / entrega de terminación
+  const f=logiCorteFabricaDe(it);
+  return !!(f&&f.item.estampado_dtf&&!f.item.estampado_taller_entregado);
+}
 function logiCerrarConteo(itemId){
-  if(!confirm('¿Cerrar el control de este corte? Pasa a "Pendiente dividir" — Ariel tiene que marcarlo dividido para que quede Finalizado.')) return;
   const it=logiItemsData[itemId];
-  db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('pendiente_dividir');
-  db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_control_cerrado`).set(Date.now());
-  db.ref(`fabrica_v5/logistica/items/${itemId}/control_cerrado_por`).set(currentUser);
-  showToast('🔀 Control cerrado — pasa a Pendiente dividir');
+  if(logiSigueAEstampado(it)){
+    if(!confirm(`¿Cerrar el control de la entrega de ${it.taller||'costura'}? Queda lista para facturarle a ${it.taller||'el taller'} y el corte sigue a Estampado Nina — NO pasa a dividir (se divide después, con la entrega de estampado).`)) return;
+    const upd={estado:'cerrado',sigue_a_estampado:true,fecha_control_cerrado:Date.now(),control_cerrado_por:currentUser,fecha_cerrado:Date.now(),cerrado_por:currentUser};
+    db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upd);
+    logActivity('Control cerrado — facturable, sigue a estampado',`${it.code||''} — Corte ${it.numero_corte||'?'}`);
+    showToast(`🎨 Control cerrado — facturable a ${it.taller||'el taller'}, sigue a Estampado`);
+  } else {
+    if(!confirm('¿Cerrar el control de este corte? Pasa a "Pendiente dividir" — Ariel tiene que marcarlo dividido para que quede Finalizado.')) return;
+    db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('pendiente_dividir');
+    db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_control_cerrado`).set(Date.now());
+    db.ref(`fabrica_v5/logistica/items/${itemId}/control_cerrado_por`).set(currentUser);
+    showToast('🔀 Control cerrado — pasa a Pendiente dividir');
+  }
   // Si esta entrega venía de un taller (confección→estampado, o estampado→revisión) y estaba
   // bloqueada esperando que se cuente y controle, cerrar el control es lo que la destraba: el
   // corte reaparece solo en Fábrica, en la sección de destino — sin que nadie tenga que tocar
@@ -14170,6 +14223,7 @@ function logiGuardarPendienteControlar(itemId){
 function logiReabrirConteo(itemId){
   if(!confirm('¿Reabrir este conteo para seguir cargando lo que falta?')) return;
   db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('abierto');
+  db.ref(`fabrica_v5/logistica/items/${itemId}/sigue_a_estampado`).set(null);
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_reabierto`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/reabierto_por`).set(currentUser);
   logActivity('Reabrió un conteo de Logística',itemId);

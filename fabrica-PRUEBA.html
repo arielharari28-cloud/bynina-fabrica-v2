@@ -14209,20 +14209,27 @@ function logiConfirmarNota(){
 // de estampado, que después se abre con lo que pasó el control (OK + Detalle).
 function logiCorteFabricaDe(it){
   if(!it||!it.numero_corte) return null;
-  const nc=String(it.numero_corte), code=String(it.code||'');
+  const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
+  const nc=norm(it.numero_corte), code=norm(it.code);
+  let porNumero=null;
   for(const [secId,sec] of Object.entries(sectionsData||{})){
     for(const [itemId,item] of Object.entries((sec&&sec.items)||{})){
-      if(item&&String(item.numero_corte||'')===nc&&String(item.code||'')===code) return {secId,itemId,item};
+      if(!item||norm(item.numero_corte)!==nc) continue;
+      if(norm(item.code)===code) return {secId,itemId,item};
+      // Mismo N° de corte en la sección de estampado aunque el código no coincida exacto.
+      if(secId===SEC_ESTAMPADO_TALLER&&!porNumero) porNumero={secId,itemId,item};
     }
   }
-  return null;
+  return porNumero;
 }
 function logiSigueAEstampado(it){
   if(!it) return false;
   if(it.avance_pendiente&&it.avance_pendiente.destino_tipo==='en_estampado_taller'&&!it.avance_pendiente.avanzado) return true;
   if(it.proceso||it.no_facturar) return false; // reconteo de estampado / entrega de terminación
   const f=logiCorteFabricaDe(it);
-  return !!(f&&f.item.estampado_dtf&&!f.item.estampado_taller_entregado);
+  if(!f||f.item.estampado_taller_entregado) return false;
+  // Si ya está en la sección de estampado va a estampar, aunque haya llegado movido a mano.
+  return f.secId===SEC_ESTAMPADO_TALLER||!!f.item.estampado_dtf;
 }
 function logiCerrarConteo(itemId){
   const it=logiItemsData[itemId];

@@ -197,6 +197,18 @@
   .ut-ent label{display:flex;align-items:center;gap:4px;white-space:nowrap}
   .ut-venc{color:var(--danger);font-weight:700}
   .ut-m{display:none}
+  .ds-row{grid-template-columns:44px minmax(0,1.3fr) 64px 86px minmax(0,1.5fr) 190px}
+  .ds-row .c-dias,.ds-row .c-obj{text-align:right;font-variant-numeric:tabular-nums;font-size:12px}
+  .ds-sub{font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ds-falta{font-size:12px;line-height:1.35}
+  .ds-resp{font-size:10.5px;color:var(--text2);margin-top:2px}
+  .ds-art{overflow:hidden}
+  .ds-art .ds-tit{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+  @media (max-width:760px){
+    .ds-row .c-art{order:3;flex-basis:100%}
+    .ds-row .c-dias,.ds-row .c-obj{order:4;text-align:left;color:var(--text2)}
+    .ds-row .c-falta{order:5;flex-basis:100%}
+  }
   @media (max-width:760px){
     .ut-head{display:none}
     .ut-row{display:flex;flex-wrap:wrap;gap:4px 10px;padding:10px 12px}
@@ -6242,6 +6254,111 @@ function renderAlertBanner(){
   el.innerHTML=html;
 }
 
+// ===== Diseño — VISTA UNIFICADA (sep 2026) =====
+// Una fila por muestra, con la etapa (= sección donde está) como etiqueta a la derecha, qué
+// falta y quién, días en la etapa y objetivo de recibir. Las tarjetas de arriba filtran por
+// etapa. Tocar una fila despliega la tarjeta completa de siempre (buildItem), así los cambios
+// de etapa siguen pasando por los botones existentes. Secciones nuevas aparecen solas como etapa.
+let dsVista='lista';
+try{ dsVista=localStorage.getItem('diseno_vista')||'lista'; }catch(e){}
+let dsFiltro='todos', dsModelista='', dsOrden='etapa', dsVerCanceladas=false;
+try{ dsOrden=localStorage.getItem('diseno_orden')||'etapa'; }catch(e){}
+const dsExpandidos=new Set();
+function setDsVista(v){ dsVista=v; try{ localStorage.setItem('diseno_vista',v); }catch(e){} renderSections('diseno'); }
+function setDsFiltro(f){ dsFiltro=(dsFiltro===f&&f!=='todos')?'todos':f; renderSections('diseno'); }
+function setDsModelista(v){ dsModelista=v; renderSections('diseno'); }
+function setDsOrden(o){ dsOrden=o; try{ localStorage.setItem('diseno_orden',o); }catch(e){} renderSections('diseno'); }
+function toggleDsCanceladas(){ dsVerCanceladas=!dsVerCanceladas; renderSections('diseno'); }
+function toggleDsFila(secId,itemId){ const k=secId+'/'+itemId; if(dsExpandidos.has(k)) dsExpandidos.delete(k); else dsExpandidos.add(k); renderSections('diseno'); }
+function dsEtapaLabel(sec){
+  const t=String(sec.title||'').replace(/^Muestras\s*[—-]\s*/i,'').trim();
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+function dsModelistaDe(item){ return (item.modelista||'').trim()||'Sin asignar'; }
+function renderListaDiseno(c,entries){
+  const secs=entries.filter(([id])=>id!==SEC_CANCEL);
+  let filas=[];
+  secs.forEach(([secId,sec],secIdx)=>{
+    getSortedItems(sec).forEach(([itemId,item])=>{
+      filas.push({secId,itemId,item,sec,secIdx,dias:diasEntre(item.fecha_etapa||item.fecha_ingreso)});
+    });
+  });
+  if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
+  if(searchQuery){
+    const q=searchQuery.trim().toLowerCase();
+    filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q));
+  }
+  const modelistas=[...new Set(filas.map(f=>dsModelistaDe(f.item)))].sort((a,b)=>a==='Sin asignar'?1:b==='Sin asignar'?-1:a.localeCompare(b));
+  if(dsModelista&&!modelistas.includes(dsModelista)) dsModelista='';
+  if(dsModelista) filas=filas.filter(f=>dsModelistaDe(f.item)===dsModelista);
+  if(dsFiltro!=='todos'&&!secs.some(([id])=>id===dsFiltro)) dsFiltro='todos';
+  const colorDe=sec=>COLORS[sec.color]||COLORS.accent;
+  const cards=[`<button class="ut-card" aria-pressed="${dsFiltro==='todos'}" onclick="setDsFiltro('todos')" style="border-color:${dsFiltro==='todos'?'var(--text)':'var(--border)'};background:${dsFiltro==='todos'?'var(--surface2)':'var(--surface)'}"><span style="display:flex;align-items:center;gap:6px">${utDot('#6b6560')}<b>Todas</b></span><span style="color:var(--text2)">${filas.length} muestra${filas.length!==1?'s':''}</span></button>`]
+    .concat(secs.map(([secId,sec])=>{
+      const n=filas.filter(f=>f.secId===secId).length;
+      if(!n&&dsFiltro!==secId) return '';
+      const col=colorDe(sec), sel=dsFiltro===secId;
+      return `<button class="ut-card" aria-pressed="${sel}" onclick="setDsFiltro('${secId}')" style="border-color:${sel?col.secBg:'var(--border)'};background:${sel?'var(--surface2)':'var(--surface)'}"><span style="display:flex;align-items:center;gap:6px">${utDot(col.secBg)}<b>${utEsc(dsEtapaLabel(sec))}</b></span><span style="color:var(--text2)">${n}</span></button>`;
+    })).join('');
+  let vis=dsFiltro==='todos'?filas:filas.filter(f=>f.secId===dsFiltro);
+  vis=vis.slice().sort((a,b)=>{
+    if(dsOrden==='etapa'){ const d=a.secIdx-b.secIdx; if(d) return d; }
+    return (b.dias==null?-1:b.dias)-(a.dias==null?-1:a.dias);
+  });
+  const hoy=new Date(); hoy.setHours(0,0,0,0);
+  let prev=null;
+  const filasHtml=vis.map((f,idx)=>{
+    const it=f.item, col=colorDe(f.sec);
+    let head='';
+    if(dsOrden==='etapa'&&f.secId!==prev){
+      const n=vis.filter(x=>x.secId===f.secId).length;
+      head=`<div class="ut-group">${utDot(col.secBg)}<b>${utEsc(dsEtapaLabel(f.sec))}</b><span>${n} muestra${n!==1?'s':''}</span></div>`;
+    }
+    prev=f.secId;
+    const abierto=dsExpandidos.has(f.secId+'/'+f.itemId);
+    const tit=(it.code?it.code+' · ':'')+(it.name||'(sin nombre)');
+    const sub=[it.marca||'',it.modelista?('✂️ '+it.modelista):''].filter(Boolean).join(' · ');
+    const falta=getProximaAccion(f.sec,it,f.secId)||'';
+    const resp=(typeof getResponsable==='function')?getResponsable(f.sec,it,f.secId):null;
+    const late=f.dias!=null&&f.dias>=7;
+    const obj=it.fecha_objetivo_recibir?new Date(it.fecha_objetivo_recibir+'T00:00:00'):null;
+    const objHtml=obj?`<span class="${obj<hoy?'ut-venc':''}" title="Objetivo recibir">${String(obj.getDate()).padStart(2,'0')}/${String(obj.getMonth()+1).padStart(2,'0')}${obj<hoy?' ⚠️':''}</span>`:'<span class="ut-muted">—</span>';
+    return head+`<div class="ut-row ds-row${abierto?' ut-open':''}" onclick="toggleDsFila('${f.secId}','${f.itemId}')">
+      <div class="c-foto">${it.foto?`<img class="ut-foto" src="${utEsc(it.foto)}" loading="lazy" alt="">`:'<div class="ut-foto"></div>'}</div>
+      <div class="c-art ds-art"><div class="ds-tit" title="${utEsc(tit)}">${utEsc(tit)}</div>${sub?`<div class="ds-sub">${utEsc(sub)}</div>`:''}</div>
+      <div class="c-dias"><span style="${late?'color:var(--danger);font-weight:700':''}">${f.dias!=null?f.dias+' d':'—'}</span><span class="ut-m"> en la etapa</span></div>
+      <div class="c-obj"><span class="ut-m">Objetivo </span>${objHtml}</div>
+      <div class="c-falta"><div class="ds-falta">${falta?utEsc(falta):'<span class="ut-muted">—</span>'}</div>${resp?`<div class="ds-resp">👤 ${utEsc(resp)}</div>`:''}</div>
+      <div class="c-estado"><span class="ut-pill ut-estado" style="background:${col.secBg};color:${col.secText};border-color:${col.secBg}">${utEsc(dsEtapaLabel(f.sec))}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
+    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${buildItem(f.secId,f.itemId,it,f.sec,idx,vis.length)}</div>`:''}`;
+  }).join('');
+  const nCanc=Object.keys((sectionsData[SEC_CANCEL]||{}).items||{}).length;
+  const ordenBtn=(o,t)=>`<button class="ut-orden${dsOrden===o?' on':''}" onclick="setDsOrden('${o}')">${t}</button>`;
+  const box=document.createElement('div');
+  box.innerHTML=`<div class="rt-box" style="margin-left:0;margin-right:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div class="rt-title" style="margin:0">🧪 ${filas.length} muestra${filas.length!==1?'s':''} en proceso</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">Modelista
+          <select class="ut-in" onchange="setDsModelista(this.value)" style="${dsModelista?'border-color:var(--text);font-weight:700':''}">
+            <option value="">Todas</option>${modelistas.map(m=>`<option value="${utEsc(m)}" ${m===dsModelista?'selected':''}>${utEsc(m)}</option>`).join('')}
+          </select></label>
+        <span style="font-size:11px;color:var(--text2);margin-left:6px">Ordenar</span>${ordenBtn('etapa','Por etapa')}${ordenBtn('dias','Más días primero')}
+      </div>
+    </div>
+    <div class="ut-cards">${cards}</div>
+    <div class="ut-table">
+      <div class="ut-row ds-row ut-head"><div class="c-foto">Foto</div><div class="c-art">Artículo</div><div class="c-dias">Días</div><div class="c-obj">Objetivo</div><div class="c-falta">Qué falta</div><div class="c-estado">Etapa</div></div>
+      ${filasHtml||'<div class="empty-state">No hay muestras con ese filtro</div>'}
+    </div>
+    <div style="display:flex;gap:6px;justify-content:space-between;flex-wrap:wrap;margin-top:10px">
+      <button class="ut-orden${dsVerCanceladas?' on':''}" onclick="toggleDsCanceladas()">${dsVerCanceladas?'Ocultar':'Ver'} canceladas (${nCanc})</button>
+      <button class="ut-orden" onclick="setDsVista('secciones')">Vista por secciones</button>
+    </div>
+  </div>`;
+  c.appendChild(box);
+}
+
 function renderStats(){
   let total=0,done=0,bloq=0,listas=0,enTaller=0;
   Object.entries(sectionsData).forEach(([secId,sec])=>{
@@ -6356,6 +6473,21 @@ function renderSections(board){
   if(_usuarioReal==='noelia' && board==='diseno') currentUser='stef';
   const boardParaDatos = board==='talleres' ? 'fabrica' : board;
   let entries=Object.entries(sectionsData).filter(([,sec])=>getBoard(sec)===boardParaDatos).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  // Diseño (sep 2026): lista única con la etapa como etiqueta (igual que Talleres). Las
+  // canceladas quedan afuera, con su botón aparte; "Vista por secciones" vuelve a los acordeones.
+  if(board==='diseno'){
+    const usaLista=_usuarioReal!=='arimoron'&&dsVista==='lista';
+    const sb=document.getElementById('stats-bar'); if(sb) sb.style.display=usaLista?'none':'';
+    if(usaLista){
+      renderListaDiseno(c,entries);
+      entries=dsVerCanceladas?entries.filter(([id])=>id===SEC_CANCEL):[];
+    } else if(_usuarioReal!=='arimoron'){
+      const vb=document.createElement('div');
+      vb.style.cssText='display:flex;justify-content:flex-end;margin-bottom:8px';
+      vb.innerHTML=`<button class="ut-orden" onclick="setDsVista('lista')">📋 Volver a la lista</button>`;
+      c.appendChild(vb);
+    }
+  }
   // "Talleres" es un recorte del tablero Fábrica: mismas secciones y datos, solo que separadas
   // en otra pestaña para no scrollear tanto — y por eso se excluyen de la pestaña Fábrica normal.
   // "Cortes en talleres" (sFIN) es la única excepción: convive en LAS DOS pestañas, porque agrupa

@@ -4748,6 +4748,9 @@ function crearEntregaLogisticaConAvance(secId,itemId,item,fechaFinal,destinoTipo
     estado:'pendiente_conteo', categoria:item.categoria||'',
     grilla:grillaObj,
     avance_pendiente:{destino_tipo:destinoTipo,destino_label:destinoLabel,item_snapshot:itemSnapshot},
+    // El precio cargado en la lista de Talleres viaja a la entrega, salvo que la entrega sea de
+    // otro taller (terminación) o no se facture (estampado interno).
+    ...((item.precio_taller && !(extra&&extra.no_facturar) && (!(extra&&extra.taller)||extra.taller===item.taller_corte))?{precio_taller:item.precio_taller}:{}),
     ...(extra||{})
   };
   db.ref('fabrica_v5/logistica/items').push(logisticaItem);
@@ -5694,6 +5697,15 @@ function renderResumenPipelineTalleres(){
       const tip=f.avio.pend.length?f.avio.pend.map(x=>x.nombre+(x.fecha_pedido?' (pedido '+x.fecha_pedido+')':' (sin pedir)')).join(', '):a.label;
       avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}</span>`;
     }
+    // Días en la etapa actual (confección cuenta desde el retiro; estampado desde que entró a estampa).
+    let diasTallerHtml='';
+    if((f.estado==='confeccion'||f.estado==='terminacion'||f.estado==='plancha')&&f.dias!=null){
+      const hoyD=new Date(); hoyD.setHours(0,0,0,0);
+      const ref=it.fecha_estimada_entrega_taller||entregaAutoTaller(it);
+      const pasado=ref&&new Date(ref+'T00:00:00')<hoyD;
+      const txt=f.estado==='plancha'?'en estampado':f.estado==='terminacion'?'en terminación':'en taller';
+      diasTallerHtml=`<div style="font-size:10.5px;${pasado?'color:var(--danger);font-weight:700':'color:var(--text2)'}">⏱ ${f.dias} d ${txt}</div>`;
+    }
     const puede=utPuedeEditarTaller();
     const stop='onclick="event.stopPropagation()"';
     let precioHtml='';
@@ -5721,7 +5733,7 @@ function renderResumenPipelineTalleres(){
       <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
       <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
       <div class="c-precio">${precioHtml}</div>
-      <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}${avisoRetiro}</div>
+      <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}${avisoRetiro}${diasTallerHtml}</div>
       <div class="c-dias">${entregaHtml}</div>
       <div class="c-avio">${avioHtml}</div>
       <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
@@ -14254,7 +14266,7 @@ function logiCerrarConteo(itemId){
   if(avance&&avance.item_snapshot){
     const destSecId=getSectionIdByTipo(avance.destino_tipo);
     if(destSecId){
-      db.ref(`fabrica_v5/sections/${destSecId}/items`).push(avance.item_snapshot);
+      db.ref(`fabrica_v5/sections/${destSecId}/items`).push({...avance.item_snapshot,fecha_etapa:Date.now()});
       db.ref(`fabrica_v5/logistica/items/${itemId}/avance_pendiente/avanzado`).set(true);
       logActivity('Control cerrado en Logística — vuelve solo a Fábrica',`${it.code||''} → ${avance.destino_label||avance.destino_tipo}`);
       showToast(`✅ ${it.code||''} pasó a ${avance.destino_label||'Fábrica'}`);

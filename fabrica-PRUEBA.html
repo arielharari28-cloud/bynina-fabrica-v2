@@ -6361,17 +6361,33 @@ function getSortedItems(sec){
   });
 }
 
-// Cortes próximos a sacar (confirmados): ordenados por la misma fecha que se ve en la fila
-// ("Vence hoy" / "Hasta el ..."). Empate → mismo N° de corte juntos → orden manual. Sin fecha, al final.
+// Cortes próximos a sacar (confirmados): manda el orden manual que se guarda en "Ordenar"
+// (antes se ordenaba primero por fecha de vencimiento y el orden manual solo desempataba, así
+// que "Guardar orden" no se notaba). Los artículos del mismo N° de corte van juntos, en la
+// posición del corte. Lo que todavía no tiene orden manual (recién confirmado) va al final,
+// por fecha de vencimiento. La fecha se sigue mostrando en cada fila como aviso.
 function ordenarS3PorFecha(list,sec){
   const lim=([,it])=>{
     const fl=fechaLimiteTarea(sec,it,'s3');
     return (fl&&fl.limite)||logiParseFechaEntregado(it.fecha_objetivo_corte)||Infinity;
   };
+  const grupoDe=([id,it])=>(it.numero_corte&&corteKeyFrom(it.numero_corte))||('_'+id);
+  const rangoGrupo={}, limGrupo={};
+  list.forEach(e=>{
+    const k=grupoDe(e), o=e[1].orden;
+    if(o!=null&&(rangoGrupo[k]==null||o<rangoGrupo[k])) rangoGrupo[k]=o;
+    const l=lim(e); if(limGrupo[k]==null||l<limGrupo[k]) limGrupo[k]=l;
+  });
   return list.slice().sort((a,b)=>{
-    const d=lim(a)-lim(b); if(d) return d;
-    const c=extractCorteNumber(a[1])-extractCorteNumber(b[1]); if(c) return c;
-    return (a[1].orden??1e9)-(b[1].orden??1e9);
+    const ka=grupoDe(a), kb=grupoDe(b);
+    if(ka!==kb){
+      const ra=rangoGrupo[ka]??Infinity, rb=rangoGrupo[kb]??Infinity;
+      if(ra!==rb) return ra-rb;
+      const d=limGrupo[ka]-limGrupo[kb]; if(d) return d;
+      const c=extractCorteNumber(a[1])-extractCorteNumber(b[1]); if(c) return c;
+      return ka<kb?-1:1;
+    }
+    return (a[1].orden??1e9)-(b[1].orden??1e9) || String(a[0]).localeCompare(String(b[0]));
   });
 }
 function getBoard(sec){

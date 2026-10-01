@@ -326,6 +326,17 @@
   .lista-vista-toggle{display:inline-flex;gap:4px}
   .lista-vista-toggle .btn-sm.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .le-filtros{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  .le-chip b{font-weight:800;margin-left:3px}
+  .le-chip-alerta{border-color:#f59e0b;color:#b45309;background:#fffbeb}
+  .le-atraso{color:var(--danger)}
+  .le-row.le-prio-alta{border-left:4px solid var(--danger)}
+  .le-prio{font-size:10.5px;font-weight:800;color:#b91c1c;background:#fee2e2;border-radius:8px;padding:2px 7px;margin-left:6px;white-space:nowrap}
+  .le-prio.le-prio-media{color:#b45309;background:#fef3c7}
+  .le-precio-edit{cursor:pointer;border-bottom:1px dashed var(--text3)}
+  .le-precio-edit:hover{color:var(--accent)}
+  .le-sol{font-size:11.5px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:5px 8px;margin:2px 0 6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .le-sol button{font-size:11px;font-weight:700;border-radius:6px;padding:3px 8px;cursor:pointer;border:1px solid var(--border);background:var(--surface)}
+  .le-sol .le-sol-ok{background:#dcfce7;border-color:#bbf7d0;color:#15803d}
   .le-chip{font-size:12px;padding:5px 11px;border-radius:20px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text2)}
   .le-chip.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
   .le-dia{font-size:11.5px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:14px 0 6px}
@@ -804,68 +815,20 @@
     </div>
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <div class="lista-vista-toggle" id="logi-vista-toggle">
-            <button class="btn-sm active" data-vista="tablero" onclick="logiSetVista('tablero')">🗂️ Tablero</button>
-            <button class="btn-sm" data-vista="lista" onclick="logiSetVista('lista')">📅 Lista por fecha</button>
-          </div>
-          <span style="font-size:12px;color:var(--text2)">Ordenar por:</span>
-          <select id="logi-orden-select" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="logiOrdenPor=this.value;logiRenderBoard()">
-            <option value="fecha">Fecha de entrega</option>
-            <option value="corte">N° de corte</option>
-            <option value="taller">Taller</option>
-            <option value="proveedor">Proveedor</option>
-          </select>
-          <select id="logi-provtaller-filter" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" onchange="logiFiltroProvTaller=this.value;logiRenderBoard()">
-            <option value="">Todos los proveedores/talleres</option>
-          </select>
+        <div id="logi-acciones" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <button class="btn-sm" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
-          <button class="btn-sm" onclick="logiOpenProveedorModal()" style="margin-left:auto">➕ Agregar prenda de proveedor</button>
+          <button class="btn-sm" onclick="logiOpenProveedorModal()">➕ Agregar prenda de proveedor</button>
         </div>
-        <div id="logi-lista-wrap" class="hidden"></div>
-        <div class="logi-layout" id="logi-layout-tablero">
-          <div class="logi-main-col">
-            <div class="logi-columns-row">
-              <div class="logi-col">
-                <div class="logi-section-title logi-col-title" onclick="logiToggleColapso('conteo')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
-                  <span id="logi-caret-conteo">▾</span> 🕓 Pendiente de conteo
-                </div>
-                <div id="logi-conteo-list"></div>
-              </div>
-              <div class="logi-col">
-                <div class="logi-section-title logi-col-title" onclick="logiToggleColapso('control')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
-                  <span id="logi-caret-control">▾</span> 🟡 Pendiente de control
-                </div>
-                <div id="logi-control-list"></div>
-              </div>
-              <div class="logi-col">
-                <div class="logi-section-title logi-col-title" onclick="logiToggleColapso('dividir')" style="cursor:pointer;display:flex;align-items:center;gap:6px">
-                  <span id="logi-caret-dividir">▾</span> 🔀 Pendiente dividir (local / depósito-mayorista)
-                </div>
-                <div id="logi-dividir-list"></div>
-              </div>
-            </div>
-            <div class="logi-section-title" onclick="logiToggleColapso('finalizado')" style="cursor:pointer;display:flex;align-items:center;gap:6px;margin-top:24px">
-              <span id="logi-caret-finalizado">▾</span> ✅ Finalizados
-            </div>
-            <input type="text" id="logi-finalizados-buscar" placeholder="Buscar en Finalizados por código o N° de corte..." style="width:100%;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;margin-bottom:8px" oninput="logiFinalizadosBuscar=this.value;logiRenderBoard()">
-            <div id="logi-done-list"></div>
-            <button class="btn-sm" id="logi-finalizados-vermas" onclick="logiFinalizadosVerTodos=true;logiRenderBoard()" style="display:none;margin-top:6px">Ver más finalizados</button>
+        <div id="logi-lista-wrap"></div>
+        <div class="logi-stats-plegable">
+          <div class="logi-section-title" onclick="logiToggleStats()" style="cursor:pointer;display:flex;align-items:center;gap:6px;margin-top:22px">
+            <span id="logi-caret-stats">▸</span> 👥 Prendas por persona
           </div>
-          <div class="logi-sidebar-col">
-            <div class="logi-side-box">
-              <div class="logi-side-box-title">📋 Resumen de pendientes</div>
-              <div id="logi-resumen-lateral"></div>
-            </div>
-            <div class="logi-side-box">
-              <div class="logi-side-box-title">👥 Prendas por persona</div>
-              <div id="logi-stats-persona"></div>
-            </div>
-          </div>
+          <div id="logi-stats-persona" style="display:none;max-width:420px"></div>
         </div>
       </div>
       <div id="logi-detail-screen" class="hidden">
-        <button class="logi-back-btn" onclick="logiCloseDetail()">← Volver al tablero</button>
+        <button class="logi-back-btn" onclick="logiCloseDetail()">← Volver a la lista</button>
         <div class="logi-detail-header">
           <div id="logi-detail-photo"></div>
           <div>
@@ -10510,7 +10473,7 @@ const TAB_VISIBILITY={
   noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
   // Meli (administración): solo la pestaña de Facturación, nada más — ni siquiera ve el resto
   // de Logística, para no exponerle datos operativos que no necesita.
-  meli:['tab-btn-facturacion'],
+  meli:['tab-btn-logistica','tab-btn-facturacion'],
 };
 function applyTabVisibility(user){
   const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT;
@@ -11705,28 +11668,91 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
 // Solo se puede facturar lo finalizado (control cerrado y dividido), igual que en la vista por taller.
 const LISTA_ENT_EST_LABEL={conteo:'🕓 Conteo',control:'🟡 Control',dividir:'🔀 División',finalizado:'✅ Finalizado'};
 const listaEntState={
-  logistica:{filtro:'todas',taller:'',buscar:'',verTodas:false},
+  logistica:{filtro:'pendientes',taller:'',buscar:'',verTodas:false},
   facturacion:{filtro:'sinfac',taller:'',buscar:'',verTodas:false}
 };
-function listaEntVePlata(){ return ['ariel','stef','meli'].includes(currentUser); }
+// Precio y facturación: los ven Ariel, Emir y Meli (Stef no). Facturar: Ariel y Meli.
+function listaEntVePlata(){ return ['ariel','emir','meli'].includes(currentUser); }
+function listaEntPuedeFacturar(){ return ['ariel','meli'].includes(currentUser); }
+const LISTA_ENT_ETAPAS_PEND=['pendientes','conteo','control','dividir','proceso','precio'];
 function listaEntDestino(it){ return (it.origen==='proveedor'?it.proveedor:it.taller)||it.taller||it.proveedor||'Sin taller'; }
 function listaEntContado(it){ return Object.values(it.grilla||{}).reduce((s,f)=>s+(f.contado||0),0); }
 function listaEntFalladoTaller(it){ return Object.values(it.grilla||{}).reduce((s,f)=>s+(f.fallado||0),0); }
 function listaEntFechaTs(it){ return logiParseFechaEntregado(it.fecha_entregado)||it.fecha_creado||0; }
-function listaEntFiltrar(ctx){
+// Filas antes de aplicar el filtro de etapa (solo taller + buscador) — sirve para los contadores.
+function listaEntBase(ctx){
   const st=listaEntState[ctx];
   let filas=Object.entries(logiItemsData||{}).map(([id,it])=>({id,it,col:logiEstadoColumna(it)}));
-  if(st.filtro==='sinfac') filas=filas.filter(f=>f.col==='finalizado'&&!f.it.facturado_cta_cte);
-  else if(st.filtro==='proceso') filas=filas.filter(f=>f.col!=='finalizado');
-  else if(st.filtro==='facturado') filas=filas.filter(f=>!!f.it.facturado_cta_cte);
   if(st.taller) filas=filas.filter(f=>listaEntDestino(f.it)===st.taller);
   const q=(st.buscar||'').trim().toLowerCase();
   if(q) filas=filas.filter(f=>[f.it.code,f.it.name,f.it.numero_corte,listaEntDestino(f.it)].some(v=>String(v||'').toLowerCase().includes(q)));
+  return filas;
+}
+function listaEntPasaFiltro(f,filtro){
+  if(filtro==='sinfac') return f.col==='finalizado'&&!f.it.facturado_cta_cte&&!f.it.no_facturar;
+  if(filtro==='facturado') return !!f.it.facturado_cta_cte;
+  if(filtro==='proceso'||filtro==='pendientes') return f.col!=='finalizado';
+  if(['conteo','control','dividir','finalizado'].includes(filtro)) return f.col===filtro;
+  if(filtro==='precio') return !!f.it.precio_solicitud;
+  return true;
+}
+function listaEntFiltrar(ctx){
+  const st=listaEntState[ctx];
+  const filas=listaEntBase(ctx).filter(f=>listaEntPasaFiltro(f,st.filtro));
+  // Lo pendiente: prioridad alta primero y después lo que llegó hace más tiempo (lo más
+  // atrasado arriba). Finalizadas/todas: lo más nuevo arriba, como siempre.
+  const pend=LISTA_ENT_ETAPAS_PEND.includes(st.filtro);
   filas.sort((a,b)=>{
+    if(pend){
+      const pa=LOGI_PRIORIDAD_RANK[a.it.prioridad]??2, pb=LOGI_PRIORIDAD_RANK[b.it.prioridad]??2;
+      if(pa!==pb) return pa-pb;
+      const d=listaEntFechaTs(a.it)-listaEntFechaTs(b.it);
+      return d!==0?d:String(a.id).localeCompare(String(b.id));
+    }
     const d=listaEntFechaTs(b.it)-listaEntFechaTs(a.it);
     return d!==0?d:String(b.id).localeCompare(String(a.id));
   });
   return filas;
+}
+// ===== Precio del taller desde la lista =====
+// Ariel lo cambia directo. Emir y Meli: si el corte todavía no tiene precio lo cargan directo;
+// para cambiar uno que ya existe piden permiso — queda el pedido en la fila hasta que Ariel
+// lo apruebe o rechace. Un corte ya facturado no se toca desde acá.
+function listaEntEditarPrecio(ctx,id){
+  const it=(logiItemsData||{})[id];
+  if(!it) return;
+  if(it.facturado_cta_cte){ showToast('Ya está facturado: el precio no se puede cambiar desde acá'); return; }
+  const actual=it.precio_taller||0;
+  const directo = currentUser==='ariel' || !actual;
+  const v=prompt(directo ? `Precio del taller por prenda${actual?` (hoy $${actual.toLocaleString('es-AR')})`:''}:` : `¿A cuánto pedís cambiar el precio? (hoy $${actual.toLocaleString('es-AR')})`, actual||'');
+  if(v===null) return;
+  const n=parseFloat(String(v).replace(/\./g,'').replace(',','.'));
+  if(isNaN(n)||n<0){ showToast('Ingresá un número válido'); return; }
+  if(directo){
+    logiSetPrecioTaller(id,n);
+    if(it.precio_solicitud) db.ref(`fabrica_v5/logistica/items/${id}/precio_solicitud`).remove();
+    showToast('✓ Precio guardado');
+    return;
+  }
+  if(n===actual){ showToast('Es el mismo precio que ya tiene'); return; }
+  const motivo=(prompt('Motivo (opcional):','')||'').trim();
+  db.ref(`fabrica_v5/logistica/items/${id}/precio_solicitud`).set({valor:n,motivo,por:currentUser,ts:Date.now()});
+  logActivity('Pidió cambiar precio de taller',`${it.code||id}: de $${actual} a $${n}${motivo?` (${motivo})`:''}`);
+  showToast('📝 Pedido enviado — falta que Ariel lo apruebe');
+}
+function listaEntAprobarPrecio(ctx,id){
+  const it=(logiItemsData||{})[id], sol=it&&it.precio_solicitud;
+  if(!sol) return;
+  if(it.facturado_cta_cte){ db.ref(`fabrica_v5/logistica/items/${id}/precio_solicitud`).remove(); showToast('Ya estaba facturado: se descartó el pedido'); return; }
+  db.ref(`fabrica_v5/logistica/items/${id}`).update({precio_taller:sol.valor, precio_solicitud:null});
+  logActivity('Aprobó cambio de precio de taller',`${it.code||id}: $${sol.valor} (pedido por ${USER_DISPLAY[sol.por]||sol.por})`);
+  showToast('✓ Precio aprobado');
+}
+function listaEntRechazarPrecio(ctx,id){
+  const it=(logiItemsData||{})[id];
+  db.ref(`fabrica_v5/logistica/items/${id}/precio_solicitud`).remove();
+  logActivity('Rechazó cambio de precio de taller',it?.code||id);
+  showToast('✕ Pedido rechazado');
 }
 function listaEntSet(ctx,campo,valor){
   listaEntState[ctx][campo]=valor;
@@ -11764,14 +11790,25 @@ function listaEntResumenEstampado(){
 function listaEntHtml(ctx){
   const st=listaEntState[ctx];
   const plata=listaEntVePlata();
-  const puedeAbrir = ctx==='logistica';
+  const puedeAbrir = ctx==='logistica' && currentUser!=='meli';
+  const facturar = listaEntPuedeFacturar();
   const talleres=[...new Set(Object.values(logiItemsData||{}).map(listaEntDestino))].sort((a,b)=>a.localeCompare(b,'es'));
-  const chips=[['todas','Todas'],['proceso','En proceso']].concat(plata?[['sinfac','Sin facturar'],['facturado','Facturadas']]:[]);
+  const base=listaEntBase(ctx);
+  const cuenta=k=>base.filter(f=>listaEntPasaFiltro(f,k)).length;
+  let chips;
+  if(ctx==='logistica'){
+    chips=[['pendientes','Pendientes',true],['conteo','🕓 Conteo',true],['control','🟡 Control',true],['dividir','🔀 División',true],['finalizado','✅ Finalizadas',false],['todas','Todas',false]];
+    if(facturar) chips=chips.concat([['sinfac','Sin facturar',true],['facturado','Facturadas',false]]);
+    const pedidos=cuenta('precio');
+    if(currentUser==='ariel'&&(pedidos||st.filtro==='precio')) chips.unshift(['precio','⏳ Pedidos de precio',true]);
+  } else {
+    chips=[['todas','Todas',false],['proceso','En proceso',false]].concat(facturar?[['sinfac','Sin facturar',false],['facturado','Facturadas',false]]:[]);
+  }
   const esc=v=>String(v||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
   const filtrosHtml=`<div class="le-filtros">
-    ${chips.map(([k,l])=>`<span class="le-chip ${st.filtro===k?'on':''}" onclick="listaEntSet('${ctx}','filtro','${k}')">${l}</span>`).join('')}
+    ${chips.map(([k,l,n])=>`<span class="le-chip ${st.filtro===k?'on':''} ${k==='precio'?'le-chip-alerta':''}" onclick="listaEntSet('${ctx}','filtro','${k}')">${l}${n?` <b>${cuenta(k)}</b>`:''}</span>`).join('')}
     <select class="filtro-corte-select" onchange="listaEntSet('${ctx}','taller',this.value)">
-      <option value="">Taller: todos</option>${talleres.map(t=>`<option value="${esc(t)}" ${st.taller===t?'selected':''}>${esc(t)}</option>`).join('')}
+      <option value="">Taller o proveedor: todos</option>${talleres.map(t=>`<option value="${esc(t)}" ${st.taller===t?'selected':''}>${esc(t)}</option>`).join('')}
     </select>
     <input type="text" placeholder="Buscar código, artículo o N° de corte..." value="${esc(st.buscar)}"
       onchange="listaEntSet('${ctx}','buscar',this.value)"
@@ -11783,9 +11820,21 @@ function listaEntHtml(ctx){
   const LIM=60;
   const visibles=st.verTodas?filas:filas.slice(0,LIM);
   let html='', ultimoDia=null;
+  const verAtraso=LISTA_ENT_ETAPAS_PEND.includes(st.filtro);
+  const hoy0=new Date(); hoy0.setHours(0,0,0,0);
   visibles.forEach(({id,it,col})=>{
     const dia=it.fecha_entregado||(it.fecha_creado?new Date(it.fecha_creado).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}):'sin fecha');
-    if(dia!==ultimoDia){ html+=`<div class="le-dia">Entregado ${dia}</div>`; ultimoDia=dia; }
+    if(dia!==ultimoDia){
+      let hace='';
+      const ts=listaEntFechaTs(it);
+      if(verAtraso&&ts){
+        const d0=new Date(ts); d0.setHours(0,0,0,0);
+        const n=Math.round((hoy0-d0)/86400000);
+        hace = n<=0?' · hoy':n===1?' · hace 1 día':` · hace ${n} días`;
+        if(n>=5) hace=`<span class="le-atraso">${hace}</span>`;
+      }
+      html+=`<div class="le-dia">Entregado ${dia}${hace}</div>`; ultimoDia=dia;
+    }
     const controlado = col==='dividir'||col==='finalizado';
     const precio=it.precio_taller||0;
     let nums='';
@@ -11797,9 +11846,22 @@ function listaEntHtml(ctx){
       const cont=listaEntContado(it);
       nums+=`<span>Contado <b>${cont||'—'}</b></span>`;
     }
-    if(plata) nums+= precio ? `<span>Precio <b>$${precio.toLocaleString('es-AR')}</b></span>` : `<span style="color:var(--text3)">Sin precio</span>`;
-    let facHtml='';
     if(plata){
+      const editable=!it.facturado_cta_cte&&!it.no_facturar;
+      const lbl = precio ? `Precio <b>$${precio.toLocaleString('es-AR')}</b>` : 'Sin precio';
+      nums+= editable
+        ? `<span class="le-precio-edit" onclick="event.stopPropagation();listaEntEditarPrecio('${ctx}','${id}')" title="${(currentUser==='ariel'||!precio)?'Editar precio':'Pedir cambio de precio'}">${lbl} ✎</span>`
+        : `<span ${precio?'':'style="color:var(--text3)"'}>${lbl}</span>`;
+    }
+    let solHtml='';
+    const sol=plata&&it.precio_solicitud;
+    if(sol){
+      const quien=USER_DISPLAY[sol.por]||sol.por;
+      solHtml=`<div class="le-sol" onclick="event.stopPropagation()">⏳ ${esc(quien)} pide cambiar el precio a <b>$${Number(sol.valor).toLocaleString('es-AR')}</b>${sol.motivo?` — ${esc(sol.motivo)}`:''}
+        ${currentUser==='ariel'?`<button class="le-sol-ok" onclick="listaEntAprobarPrecio('${ctx}','${id}')">✓ Aprobar</button><button class="le-sol-no" onclick="listaEntRechazarPrecio('${ctx}','${id}')">✕</button>`:'<span style="color:var(--text3)">(esperando a Ariel)</span>'}</div>`;
+    }
+    let facHtml='';
+    if(facturar){
       if(it.no_facturar){
         facHtml=`<span class="le-fac le-no">Interno — no se factura</span>`;
       } else if(it.facturado_cta_cte){
@@ -11807,20 +11869,22 @@ function listaEntHtml(ctx){
       } else if(col!=='finalizado'){
         facHtml=`<span class="le-fac le-no">${col==='dividir'?'Falta dividir':'Falta control'}</span>`;
       } else if(!precio){
-        facHtml=`<span onclick="event.stopPropagation()" style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--text2)">Precio $
-          <input class="le-precio-in" type="number" min="0" placeholder="0" onchange="listaEntSetPrecio('${ctx}','${id}',this.value)"></span>`;
+        facHtml=`<span class="le-fac le-no">Falta precio</span>`;
+      } else if(it.precio_solicitud){
+        facHtml=`<span class="le-fac le-no">Precio en revisión</span>`;
       } else {
         const monto=facturacionCantidad(it)*precio;
         facHtml=`<button class="le-fac" onclick="event.stopPropagation();listaEntFacturar('${ctx}','${id}')">🧾 Facturar $${monto.toLocaleString('es-AR')}</button>`;
       }
     }
     const foto=it.foto?`<img src="${it.foto}" loading="lazy">`:`<div class="le-noimg"></div>`;
-    html+=`<div class="le-row ${puedeAbrir?'le-click':''}" ${puedeAbrir?`onclick="logiOpenDetail('${id}')"`:''}>
+    html+=`<div class="le-row ${puedeAbrir?'le-click':''} ${it.prioridad==='alta'?'le-prio-alta':''}" ${puedeAbrir?`onclick="logiOpenDetail('${id}')"`:''}>
       ${foto}
       <div class="le-body">
-        <div class="le-top"><span class="le-art">${esc(it.name||'(sin nombre)')}</span><span class="le-code">${esc(it.code||'')}</span></div>
+        <div class="le-top"><span class="le-art">${esc(it.name||'(sin nombre)')}</span><span class="le-code">${esc(it.code||'')}</span>${it.prioridad==='alta'?'<span class="le-prio">Prioridad alta</span>':it.prioridad==='media'?'<span class="le-prio le-prio-media">Prioridad media</span>':''}</div>
         <div class="le-sub">${it.proceso==='estampado'?'🎨':it.proceso==='terminacion'?'🧺':'🧵'} ${esc(listaEntDestino(it))}${it.proceso_detalle?' ('+esc(it.proceso_detalle)+')':''}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
         <div class="le-nums">${nums}</div>
+        ${solHtml}
         <div class="le-bot"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${facHtml}</div>
       </div>
     </div>`;
@@ -11833,14 +11897,8 @@ function listaEntRender(ctx){
   if(!el||el.classList.contains('hidden')) return;
   el.innerHTML=listaEntHtml(ctx);
 }
-let logiVista='tablero';
-function logiSetVista(v){
-  logiVista=v;
-  document.querySelectorAll('#logi-vista-toggle button').forEach(b=>b.classList.toggle('active',b.dataset.vista===v));
-  document.getElementById('logi-lista-wrap').classList.toggle('hidden',v!=='lista');
-  document.getElementById('logi-layout-tablero').classList.toggle('hidden',v==='lista');
-  if(v==='lista') listaEntRender('logistica'); else logiRenderBoard();
-}
+let logiVista='lista';
+function logiSetVista(v){ logiRenderBoard(); }
 let facturacionVista='taller';
 function facturacionSetVista(v){
   facturacionVista=v;
@@ -11852,7 +11910,11 @@ function facturacionSetVista(v){
 }
 
 function logiInit(){
-  if(logiInitDone) return;
+  // Meli solo mira la lista (precios y facturar): sin cargar entregas ni abrir el detalle.
+  const acc=document.getElementById('logi-acciones');
+  if(acc) acc.style.display = currentUser==='meli' ? 'none' : 'flex';
+  logiAplicarStats();
+  if(logiInitDone){ logiRenderBoard(); return; }
   logiInitDone = true;
   logiRenderBoard();
   if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
@@ -11982,59 +12044,23 @@ function logiAplicarColapso(){
   });
 }
 
-let logiFinalizadosBuscar='', logiFinalizadosVerTodos=false;
-let logiFiltroProvTaller='';
+// Logística ya no tiene tablero de columnas: todo se ve en la lista por fecha (con filtros
+// por etapa). Esta función se sigue llamando desde varios lados, así que ahora pinta la lista.
 function logiRenderBoard(){
-  // Filtro por proveedor/taller: el combo se repuebla con los valores que existen hoy en los
-  // datos, conservando la selección actual.
-  const provTalleres = [...new Set(Object.values(logiItemsData).map(it=>it.origen==='proveedor'?it.proveedor:it.taller).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
-  const filtroSel = document.getElementById('logi-provtaller-filter');
-  if(filtroSel){
-    filtroSel.innerHTML = '<option value="">Todos los proveedores/talleres</option>' + provTalleres.map(p=>`<option value="${p}" ${p===logiFiltroProvTaller?'selected':''}>${p}</option>`).join('');
-  }
-  let entradas = Object.entries(logiItemsData);
-  if(logiFiltroProvTaller){
-    entradas = entradas.filter(([id,it])=> (it.origen==='proveedor'?it.proveedor:it.taller)===logiFiltroProvTaller);
-  }
-
-  const conteo=[], control=[], dividir=[], done=[];
-  entradas.forEach(([id,it])=>{
-    const col=logiEstadoColumna(it);
-    if(col==='finalizado') done.push([id,it]);
-    else if(col==='dividir') dividir.push([id,it]);
-    else if(col==='control') control.push([id,it]);
-    else conteo.push([id,it]);
-  });
-
-  document.getElementById('logi-conteo-list').innerHTML = conteo.length ? logiOrdenarLista(conteo).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de conteo 🎉</div>';
-  document.getElementById('logi-control-list').innerHTML = control.length ? logiOrdenarLista(control).map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de controlar 🎉</div>';
-  const dividirOrdenados = dividir.slice().sort((a,b)=>logiNumeroCorteSort(a[1])-logiNumeroCorteSort(b[1]));
-  document.getElementById('logi-dividir-list').innerHTML = dividirOrdenados.length ? dividirOrdenados.map(([id,it])=>logiCardHtml(id,it,false)).join('') : '<div class="empty">No hay cortes pendientes de dividir 🎉</div>';
-  // Finalizados: ordenado por fecha en que se cerró (más reciente arriba). Si a un corte le
-  // falta fecha_cerrado (cortes cerrados antes de que existiera este campo), usamos la fecha
-  // de entrega como respaldo, y si empatan, el ID de Firebase (que sí es siempre cronológico
-  // por orden de creación) para que el orden no quede "como caiga".
-  const doneOrdenados = done.slice().sort((a,b)=>{
-    const ta=a[1].fecha_cerrado||logiParseFechaEntregado(a[1].fecha_entregado)||0;
-    const tb=b[1].fecha_cerrado||logiParseFechaEntregado(b[1].fecha_entregado)||0;
-    if(tb!==ta) return tb-ta;
-    return String(b[0]).localeCompare(String(a[0]));
-  });
-  // Solo se mostraban los primeros 10 sin ninguna forma de ver el resto — un corte recién
-  // dividido podía quedar "escondido" si había 10+ finalizados con número de corte menor.
-  // Ahora: buscador propio (ignora el límite) + botón "Ver más" para el resto.
-  let doneVisibles = doneOrdenados;
-  const buscarFin = (logiFinalizadosBuscar||'').trim().toLowerCase();
-  if(buscarFin){
-    doneVisibles = doneOrdenados.filter(([,it])=>String(it.code||'').toLowerCase().includes(buscarFin)||String(it.numero_corte||'').toLowerCase().includes(buscarFin));
-  }
-  const doneShow = (buscarFin||logiFinalizadosVerTodos) ? doneVisibles : doneVisibles.slice(0,10);
-  document.getElementById('logi-done-list').innerHTML = doneShow.length ? doneShow.map(([id,it])=>logiCardHtml(id,it,true)).join('') : (buscarFin ? '<div class="empty">No encontré ningún finalizado con eso.</div>' : '<div class="empty">Todavía no se cerró ningún conteo</div>');
-  const btnVerMas=document.getElementById('logi-finalizados-vermas');
-  if(btnVerMas) btnVerMas.style.display = (!buscarFin && !logiFinalizadosVerTodos && doneVisibles.length>10) ? '' : 'none';
-  logiRenderResumenLateral(conteo, control);
+  listaEntRender('logistica');
   logiRenderStatsPorPersona();
-  logiAplicarColapso();
+}
+let logiStatsAbierto=false;
+try{ logiStatsAbierto=localStorage.getItem('logiStatsAbierto')==='1'; }catch(e){}
+function logiAplicarStats(){
+  const el=document.getElementById('logi-stats-persona'), c=document.getElementById('logi-caret-stats');
+  if(el) el.style.display=logiStatsAbierto?'':'none';
+  if(c) c.textContent=logiStatsAbierto?'▾':'▸';
+}
+function logiToggleStats(){
+  logiStatsAbierto=!logiStatsAbierto;
+  try{ localStorage.setItem('logiStatsAbierto',logiStatsAbierto?'1':'0'); }catch(e){}
+  logiAplicarStats();
 }
 
 // Resumen chico a un costado: un renglón por corte pendiente (conteo o control), con

@@ -14836,7 +14836,8 @@ function costeoTotales(entry){
   const kgTotal=sumKgArticulos>0?sumKgArticulos:kgTotalRollos;
   const precioKg=numAr2(entry.precio_kg);
   const costoTela=precioKg?kgTotal*precioKg:0;
-  const costoAvios=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
+  // Avíos: cantidad = consumo POR PRENDA (ej. 0,72 m) y precio = por unidad (metro, botón…).
+  const aviosPorPrenda=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
   // Igual que con el kilaje: si ya repartiste piezas por artículo, "Otros gastos" (taller,
   // estampado, etc) se calcula artículo por artículo — cada uno con su propio $/prenda si lo
   // cargaste, o el valor compartido del corte si no. Si ningún artículo tiene piezas propias
@@ -14869,6 +14870,7 @@ function costeoTotales(entry){
       return s+numAr2(entry[c.key])*piezas;
     },0);
   }
+  const costoAvios=aviosPorPrenda*(piezas||0);
   const costoTotal=costoTela+costoAvios+costoOtros;
   const costoPrenda=piezas?costoTotal/piezas:0;
   return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
@@ -15069,16 +15071,16 @@ function costeoArtCalc(e,i,mapa){
   }
   const precioKg=numAr2(e.precio_kg);
   const costoTela=kg*precioKg;
-  // Avíos: los asignados a este artículo; los sin asignar se reparten por prendas entre todos.
+  // Avíos: cantidad = consumo por prenda, precio = por unidad (metro, botón…).
+  // Cada artículo lleva los suyos; los que no tienen artículo asignado los llevan todos.
   const avios=[];
   (e.avios||[]).forEach((av,idx)=>{
     if(!av) return;
-    const sub=numAr2(av.cantidad)*numAr2(av.precio);
     const propio=arts.length===1||(av.articulo&&av.articulo===code);
     const compartido=!propio&&!av.articulo;
     if(!propio&&!compartido) return;
-    const monto=propio?sub:(piezasTot?sub*piezas/piezasTot:0);
-    avios.push({idx,av,monto,compartido,sub});
+    const unit=numAr2(av.cantidad)*numAr2(av.precio);
+    avios.push({idx,av,unit,monto:unit*piezas,compartido});
   });
   const costoAvios=avios.reduce((s,x)=>s+x.monto,0);
   // Taller y otros gastos, por prenda.
@@ -15270,8 +15272,9 @@ function renderCosteoDetail(){
       const av=x.av;
       const asignar=(arts.length>1&&canEditAvios)?`<select onclick="event.stopPropagation()" onchange="setCosteoAvioArticulo('${key}',${x.idx},this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:1px 4px;margin-left:4px">
           <option value="">compartido</option>${arts.map(o=>`<option value="${costeoEsc(o.code||o.name)}" ${(av.articulo||'')===(o.code||o.name)?'selected':''}>${costeoEsc(o.code||o.name)}</option>`).join('')}</select>`:(x.compartido?tag('compartido'):'');
-      const precioIn=canEditAvios?inp(av.precio,`setCosteoAvioCampo('${key}',${x.idx},'precio',this.value)`,70):costeoPesos(numAr2(av.precio));
-      return fila(`${costeoEsc(av.nombre||'Avío')} · cant ${costeoEsc(av.cantidad||'—')}${asignar}`,`$ ${precioIn}`,r.piezas?costeoPesos(x.monto/r.piezas)+' /u':costeoPesos(x.monto));
+      const precioIn=canEditAvios?inp(av.precio,`setCosteoAvioCampo('${key}',${x.idx},'precio',this.value)`,80):costeoPesos(numAr2(av.precio));
+      const consIn=canEditAvios?inp(av.cantidad,`setCosteoAvioCampo('${key}',${x.idx},'cantidad',this.value)`,60):costeoEsc(av.cantidad||'—');
+      return fila(`${costeoEsc(av.nombre||'Avío')}${asignar}`,`${consIn} x prenda × $ ${precioIn} c/u`,costeoPesos(x.unit)+' /u');
     }).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 0">Sin avíos</div>';
     const otrosHtml=r.otros.map(o=>{
       const valor=o.propio?a[o.c.key]:(o.auto?o.unit.toFixed(2):(o.unit||''));

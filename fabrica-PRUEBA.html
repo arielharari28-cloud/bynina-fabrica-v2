@@ -12374,6 +12374,97 @@ function cortesTabIr(secId,itemId,logiId){
   }
   irAItem(secId,itemId);
 }
+// Ficha de consumo de tela de un corte (se abre al tocar una fila de la pestaña Cortes).
+// Solo lectura. Los rollos salen de Costeo (ya cortado: ahí está el sobrante cargado a mano);
+// si el corte todavía no llegó a Costeo, del grupo de corte compartido o del propio ítem.
+function cortesTabVerCorte(secId,itemId,logiId){
+  let item=null;
+  if(logiId){ const av=(logiItemsData[logiId]||{}).avance_pendiente; item=av&&av.item_snapshot; }
+  else item=((sectionsData[secId]||{}).items||{})[itemId];
+  if(!item) return;
+  const esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const fmt=n=>n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const key=corteKeyFrom(item.numero_corte);
+  const e=key?costeosData[key]:null, g=key?gruposCorteData[key]:null;
+  const filasCorte=cortesTabFilas().filter(f=>corteKeyFrom(f.item.numero_corte)===key);
+  const vacio=v=>v===undefined||v===null||v==='';
+  const tela=(e&&e.tela)||item.tela||item.tela_nombre||'';
+  const proveedor=(e&&e.proveedor)||item.proveedor||item.tela_proveedor||'';
+  const marca=item.marca||filasCorte.map(f=>f.item.marca).find(Boolean)||(marcasList&&marcasList[0])||'By Nina';
+  const largo=numAr2(e&&!vacio(e.largo_capa)?e.largo_capa:getLargoCapaEfectivo(item));
+  const pesoM=numAr2(e&&!vacio(e.peso_metro)?e.peso_metro:getPesoMetroEfectivo(item));
+  const rollos=Object.values((e&&e.rollos)||(g&&g.rollos)||item.rollos||{}).filter(r=>r&&(r.color||r.kgmts||r.capas));
+  // Artículos del corte con su cantidad y etapa
+  const prendas=filasCorte.reduce((s,f)=>s+cortesTabCantidad(f.item),0);
+  const EST_COL={fabrica:['var(--surface2)','var(--text)'],taller:['#dbeafe','#1e40af'],logistica:['#ede9fe','#5b21b6'],finalizado:['#dcfce7','#166534'],otro:['var(--surface2)','var(--text2)']};
+  const chip=(t,k)=>{const[bg,col]=EST_COL[k]||EST_COL.otro;return `<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${esc(t)}</span>`};
+  const kgArt={};((e&&e.articulos)||[]).forEach(a=>{const k=a.code||a.name;if(k&&numAr2(a.kg))kgArt[k]=numAr2(a.kg)});
+  const artRows=filasCorte.map(f=>{const c=cortesTabCantidad(f.item),kg=kgArt[f.item.code||f.item.name];
+    return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 6px">${esc(f.item.code||'')}${f.item.name?' — '+esc(f.item.name):''}</td>
+      <td style="padding:5px 6px;text-align:right;font-weight:600">${c?c.toLocaleString('es-AR'):'—'}</td>
+      ${Object.keys(kgArt).length?`<td style="padding:5px 6px;text-align:right">${kg?fmt(kg)+' kg':'—'}</td><td style="padding:5px 6px;text-align:right">${kg&&c?(kg/c).toLocaleString('es-AR',{minimumFractionDigits:3,maximumFractionDigits:3})+' kg':'—'}</td>`:''}
+      <td style="padding:5px 6px">${chip(f.estado.label,f.estado.key)}</td></tr>`}).join('');
+  // Rollos: cargado, capas, observación, calculado, sobrante y a distribuir
+  let tCarg=0,tCapas=0,tCalc=0,tSob=0;
+  const rolloRows=rollos.map(r=>{
+    const carg=numAr2(r.kgmts),capas=numAr2(r.capas),sob=numAr2(r.sobrante);
+    const calc=(largo&&pesoM&&capas)?capas*largo*pesoM:null;
+    tCarg+=carg;tCapas+=capas;tSob+=sob;if(calc)tCalc+=calc;
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:5px 6px;font-weight:600">${esc(r.color||'—')}</td>
+      <td style="padding:5px 6px;text-align:right">${carg?fmt(carg):'—'}</td>
+      <td style="padding:5px 6px;text-align:right">${capas||'—'}</td>
+      <td style="padding:5px 6px;color:var(--text2)">${r.nota?esc(r.nota):'—'}</td>
+      <td style="padding:5px 6px;text-align:right;color:var(--text3)">${calc!=null?fmt(calc):'—'}</td>
+      <td style="padding:5px 6px;text-align:right">${vacio(r.sobrante)?'<span style="color:var(--text3)">sin cargar</span>':fmt(sob)}</td>
+      <td style="padding:5px 6px;text-align:right;font-weight:700">${carg?fmt(Math.max(0,carg-sob)):'—'}</td></tr>`}).join('');
+  const kgDist=e?costeoTotales(e).kgTotal:Math.max(0,tCarg-tSob);
+  const sinSobrante=rollos.some(r=>vacio(r.sobrante));
+  const th=(t,r)=>`<th style="padding:5px 6px;font-size:11px;color:var(--text2);text-align:${r?'right':'left'};white-space:nowrap">${t}</th>`;
+  const dato=(l,v)=>`<div style="background:var(--surface2);border-radius:8px;padding:6px 10px;min-width:110px;flex:1"><div style="font-size:11px;color:var(--text2)">${l}</div><div style="font-weight:700;font-size:14px">${v}</div></div>`;
+  const ts=fechaCorteTs(item);
+  const tabs=TAB_VISIBILITY[currentUser]||[];
+  const puedeCosteo=e&&tabs.includes('tab-btn-costeo');
+  const html=`<div class="modal modal-wide" style="max-width:860px">
+    <div class="modal-header"><span class="modal-title">✂️ Corte ${esc(item.numero_corte)}</span><button class="modal-close" onclick="cortesTabCerrarCorte()">×</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        ${dato('Marca',esc(marca))}${dato('Corte',esc(item.numero_corte)+(ts?' · '+new Date(ts).toLocaleDateString('es-AR'):''))}
+        ${dato('Tela',esc(tela||'Sin especificar')+(proveedor?`<div style="font-size:11px;font-weight:400;color:var(--text2)">${esc(proveedor)}</div>`:''))}
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Artículos del corte</div>
+      <div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="border-bottom:2px solid var(--border)">${th('Artículo')}${th('Prendas',1)}${Object.keys(kgArt).length?th('Kg',1)+th('Kg/prenda',1):''}${th('Estado')}</tr>
+        ${artRows||'<tr><td style="padding:5px 6px;color:var(--text3)">Sin artículos</td></tr>'}
+      </table></div>
+      <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📦 Rollos (kg)</div>
+      ${rollos.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr style="border-bottom:2px solid var(--border)">${th('Color')}${th('Cargado',1)}${th('Capas',1)}${th('Observación')}${th('Calculado',1)}${th('Sobrante',1)}${th('A distribuir',1)}</tr>
+        ${rolloRows}
+        <tr style="font-weight:700"><td style="padding:5px 6px">Total</td><td style="padding:5px 6px;text-align:right">${fmt(tCarg)}</td><td style="padding:5px 6px;text-align:right">${tCapas}</td><td></td>
+          <td style="padding:5px 6px;text-align:right;color:var(--text3)">${tCalc?fmt(tCalc):'—'}</td><td style="padding:5px 6px;text-align:right">${fmt(tSob)}</td><td style="padding:5px 6px;text-align:right">${fmt(Math.max(0,tCarg-tSob))}</td></tr>
+      </table></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px">Calculado = capas × largo capa (${largo||'—'}) × peso x m (${pesoM||'—'}), solo de referencia. A distribuir = cargado − sobrante.</div>`
+      :'<div style="font-size:12px;color:var(--text3)">Todavía no hay rollos cargados en este corte.</div>'}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${dato('Tela a distribuir',fmt(kgDist)+' kg')}${dato('Prendas',prendas?prendas.toLocaleString('es-AR'):'—')}
+        ${dato('Consumo por prenda',kgDist&&prendas?(kgDist/prendas).toLocaleString('es-AR',{minimumFractionDigits:3,maximumFractionDigits:3})+' kg':'—')}
+      </div>
+      ${e&&costeoTotales(e).kgDeArticulos?'<div style="font-size:11px;color:var(--text3);margin-top:4px">La tela a distribuir sale de los kilos repartidos por artículo en Costeo.</div>':''}
+      ${sinSobrante&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:6px">⚠️ Hay rollos sin sobrante cargado: el consumo puede estar inflado hasta que se cargue en Costeo.</div>':''}
+    </div>
+    <div class="modal-footer">
+      ${!logiId&&!['finalizado'].includes((filasCorte.find(f=>f.itemId===itemId)||{}).estado?.key)?`<button class="btn-secondary" onclick="cortesTabCerrarCorte();cortesTabIr('${secId}','${itemId}',null)">Ver dónde está</button>`:''}
+      ${logiId?`<button class="btn-secondary" onclick="cortesTabCerrarCorte();cortesTabIr(null,null,'${logiId}')">Ver en Logística</button>`:''}
+      ${puedeCosteo?`<button class="btn-secondary" onclick="cortesTabCerrarCorte();document.getElementById('tab-btn-costeo').click();openCosteoDetail('${key}')">Abrir en Costeo</button>`:''}
+      <button class="btn-primary" onclick="cortesTabCerrarCorte()">Cerrar</button>
+    </div></div>`;
+  cortesTabCerrarCorte();
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='modal-cortes-ficha';ov.innerHTML=html;
+  ov.onclick=ev=>{if(ev.target===ov)cortesTabCerrarCorte()};
+  document.body.appendChild(ov);
+}
+function cortesTabCerrarCorte(){const m=document.getElementById('modal-cortes-ficha');if(m)m.remove()}
 function renderCortesTab(){
   const cont=document.getElementById('cortes-board');
   if(!cont) return;
@@ -12468,7 +12559,7 @@ function renderCortesTab(){
         const cant=cortesTabCantidad(item);
         const [bg,col]=EST_COL[estado.key]||EST_COL.otro;
         const faltaTela=cortado&&!logiId&&item.done&&!item.stock_bajado_tela;
-        const onclick=logiId?`cortesTabIr(null,null,'${logiId}')`:`cortesTabIr('${secId}','${itemId}',null)`;
+        const onclick=logiId?`cortesTabVerCorte(null,null,'${logiId}')`:`cortesTabVerCorte('${secId}','${itemId}',null)`;
         return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${onclick}">
         <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${esc(item.numero_corte)}</td>
         <td style="padding:6px 8px">${fechaHtml}</td>

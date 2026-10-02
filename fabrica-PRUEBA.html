@@ -889,10 +889,11 @@
     </div>
     <div id="tab-cortes" class="hidden">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text2)">Cada artículo cortado, con su cantidad y en qué etapa está.</span>
-        <button class="btn-sm active" id="cortes-orden-numero" onclick="cortesTabOrden='numero';renderCortesTab()">🔢 Por N° de corte</button>
-        <button class="btn-sm" id="cortes-orden-fecha" onclick="cortesTabOrden='fecha';renderCortesTab()">📅 Por fecha de corte</button>
-        <input type="text" id="cortes-search" placeholder="Buscar N° corte o código..." style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;margin-left:auto" oninput="cortesTabSearch=this.value;renderCortesTab()">
+        <input type="text" id="cortes-search" placeholder="Buscar N° de corte, código o artículo…" style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px" oninput="cortesTabSearch=this.value;renderCortesTab()">
+        <span style="font-size:12px;color:var(--text2)">Ordenar</span>
+        <select id="cortes-orden" class="filtro-corte-select" onchange="cortesTabOrden=this.value;renderCortesTab()">
+          <option value="numero">N° de corte</option><option value="fecha">Más nuevo primero</option>
+        </select>
       </div>
       <div id="cortes-board"><div class="loading">Cargando...</div></div>
     </div>
@@ -12279,9 +12280,9 @@ function cortesTabToggleDetalle(k){ cortesTabDetalle=cortesTabDetalle===k?'':k; 
 // timestamp real que se guarda solo desde que existe esta función — por eso, si falta el ts,
 // se intenta parsear el texto como respaldo antes de mandarlo al final.
 function fechaCorteTs(item){
-  if(item.fecha_corte_ts) return item.fecha_corte_ts;
+  // Prioridad: la fecha escrita al marcar el corte (es la real); el momento del clic solo si no hay texto.
   const m=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/.exec(item.fecha_corte||'');
-  if(!m) return null;
+  if(!m) return item.fecha_corte_ts||null;
   const [,d,mo,y]=m;
   const anio=y.length===2?2000+parseInt(y):parseInt(y);
   const ts=new Date(anio,parseInt(mo)-1,parseInt(d)).getTime();
@@ -12472,6 +12473,7 @@ function renderCortesTab(){
   const btnFecha=document.getElementById('cortes-orden-fecha');
   if(btnNum) btnNum.classList.toggle('active',cortesTabOrden==='numero');
   if(btnFecha) btnFecha.classList.toggle('active',cortesTabOrden==='fecha');
+  const selOrden=document.getElementById('cortes-orden'); if(selOrden) selOrden.value=cortesTabOrden;
   const esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
   const todas=cortesTabFilas();
 
@@ -12519,58 +12521,60 @@ function renderCortesTab(){
       ${box('Cortes hechos',r.cortes,'cortadas')}${box('Prendas cortadas',r.cortadas,'cortadas')}${box('Recibidas de talleres',r.recibidas,'recibidas')}
     </div>${detalleHtml}`;
 
-  // --- Tabla ---
+  // --- Tabla: una fila por artículo, agrupada por corte con renglón gris (misma estética que Costeo) ---
   const q=(cortesTabSearch||'').trim().toLowerCase();
   let filas=todas;
   if(q) filas=filas.filter(({item})=>`${item.numero_corte} ${item.code||''} ${item.name||''}`.toLowerCase().includes(q));
-  const numSort=n=>{ const m=String(n||'').match(/\d+/); return m?parseInt(m[0]):Infinity; };
-  if(cortesTabOrden==='fecha'){
-    filas.sort((a,b)=>{
-      const fa=fechaCorteTs(a.item), fb=fechaCorteTs(b.item);
-      if(fa===null&&fb===null) return 0;
-      if(fa===null) return 1;
-      if(fb===null) return -1;
-      return fb-fa;
-    });
-  } else {
-    // Más nuevo arriba; los artículos de un mismo corte quedan juntos.
-    filas.sort((a,b)=>{
-      const na=numSort(a.item.numero_corte), nb=numSort(b.item.numero_corte);
-      if(na!==nb) return nb-na;
-      const s=String(a.item.numero_corte).localeCompare(String(b.item.numero_corte));
-      return s!==0?s:String(a.item.code||'').localeCompare(String(b.item.code||''));
-    });
-  }
-  if(!filas.length){ cont.innerHTML=resumenHtml+'<div class="loading">No hay cortes con ese filtro</div>'; return; }
+  if(!filas.length){ cont.innerHTML=resumenHtml+'<div class="empty-state">No hay cortes con ese filtro</div>'; return; }
+  const numSort=n=>{ const m=String(n||'').match(/\d+/); return m?parseInt(m[0]):-1; };
+  const grupos={};
+  filas.forEach(f=>{ const k=corteKeyFrom(f.item.numero_corte)||String(f.item.numero_corte); (grupos[k]=grupos[k]||{key:k,numero:f.item.numero_corte,filas:[]}).filas.push(f); });
+  const lista=Object.values(grupos);
+  lista.forEach(g=>{ g.ts=Math.max(...g.filas.map(f=>fechaCorteTs(f.item)||0))||null; g.filas.sort((a,b)=>String(a.item.code||'').localeCompare(String(b.item.code||''))); });
+  lista.sort((a,b)=>{
+    const sinNumA=numSort(a.numero)<0, sinNumB=numSort(b.numero)<0;
+    if(sinNumA!==sinNumB) return sinNumA?-1:1; // los pendientes de tizada (sin N°) arriba
+    if(cortesTabOrden==='fecha'){ if(a.ts!==b.ts) return (b.ts||0)-(a.ts||0); }
+    return numSort(b.numero)-numSort(a.numero)||String(b.numero).localeCompare(String(a.numero));
+  });
   const chip=(txt,bg,col)=>`<span style="display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${esc(txt)}</span>`;
   const EST_COL={porcortar:['var(--surface2)','var(--text2)'],fabrica:['var(--surface2)','var(--text)'],taller:['#dbeafe','#1e40af'],logistica:['#ede9fe','#5b21b6'],finalizado:['#dcfce7','#166534'],otro:['var(--surface2)','var(--text2)']};
   const avisoBg='#fef3c7', avisoCol='#92400e';
-  cont.innerHTML=resumenHtml+`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr style="text-align:left;border-bottom:2px solid var(--border)">
-      <th style="padding:6px 8px">N° corte</th><th style="padding:6px 8px">Fecha de corte</th><th style="padding:6px 8px">Artículo</th>
-      <th style="padding:6px 8px;text-align:right">Cantidad</th><th style="padding:6px 8px">Estado</th>
-    </tr></thead>
-    <tbody>
-      ${filas.map(({item,estado,secId,itemId,logiId})=>{
-        const cortado=estado.key!=='porcortar';
-        const ts=fechaCorteTs(item);
-        const fechaHtml=ts?new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})
-          :(cortado?(logiId?chip('Pendiente fecha',avisoBg,avisoCol):`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','fecha')" title="Ir a cargar la fecha">${chip('Pendiente fecha ›',avisoBg,avisoCol)}</span>`):'<span style="color:var(--text3)">—</span>');
-        const cant=cortesTabCantidad(item);
-        const [bg,col]=EST_COL[estado.key]||EST_COL.otro;
-        const faltaTela=cortado&&!logiId&&item.done&&!item.stock_bajado_tela;
-        const onclick=logiId?`cortesTabVerCorte(null,null,'${logiId}')`:`cortesTabVerCorte('${secId}','${itemId}',null)`;
-        return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${onclick}">
-        <td style="padding:6px 8px;font-weight:700;color:var(--accent)">${esc(item.numero_corte)}</td>
-        <td style="padding:6px 8px">${fechaHtml}</td>
-        <td style="padding:6px 8px">${esc(item.code||'')}${item.name?` — ${esc(item.name)}`:''}</td>
-        <td style="padding:6px 8px;text-align:right;font-weight:600">${cant?cant.toLocaleString('es-AR'):'—'}</td>
-        <td style="padding:6px 8px"><div style="display:flex;gap:4px;flex-wrap:wrap">${chip(estado.label,bg,col)}${faltaTela?`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','tela')" title="Ir a tildarlo">${chip('Falta bajar tela ›',avisoBg,avisoCol)}</span>`:''}</div></td>
+  const thC=(t,x='')=>`<th style="padding:8px;font-size:11px;color:var(--text2);text-align:left;font-weight:600;white-space:nowrap;${x}">${t}</th>`;
+  const kgDeCorte=k=>{ const e=costeosData[k], g=gruposCorteData[k]; const rollos=(e&&e.rollos)||(g&&g.rollos)||{}; let c=0,s=0; Object.values(rollos).forEach(r=>{ if(r){ c+=numAr2(r.kgmts); s+=numAr2(r.sobrante); } }); return Math.max(0,c-s); };
+  const filasHtml=lista.map(g=>{
+    const it0=g.filas[0].item;
+    const tela=(costeosData[g.key]&&costeosData[g.key].tela)||it0.tela||it0.tela_nombre||'';
+    const kg=kgDeCorte(g.key);
+    const prendas=g.filas.reduce((s,f)=>s+cortesTabCantidad(f.item),0);
+    const n=g.filas.length;
+    const grp=`<tr style="background:var(--surface2)"><td colspan="6" style="padding:6px 8px;font-size:11px;color:var(--text2)">
+      <b style="color:var(--text);font-size:12px">${numSort(g.numero)<0?'':'Corte '}${esc(g.numero)}</b> · ${n} artículo${n!==1?'s':''}${tela?' · '+esc(tela):''}${kg?' · '+kg.toLocaleString('es-AR',{minimumFractionDigits:1,maximumFractionDigits:1})+' kg':''}${prendas?' · '+prendas.toLocaleString('es-AR')+' prendas':''}</td></tr>`;
+    return grp+g.filas.map(({item,estado,secId,itemId,logiId})=>{
+      const cortado=estado.key!=='porcortar';
+      const ts=fechaCorteTs(item);
+      const fechaHtml=ts?new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})
+        :(cortado?(logiId?chip('Pendiente fecha',avisoBg,avisoCol):`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','fecha')" title="Ir a cargar la fecha">${chip('Pendiente fecha ›',avisoBg,avisoCol)}</span>`):'<span style="color:var(--text3)">—</span>');
+      const cant=cortesTabCantidad(item);
+      const [bg,col]=EST_COL[estado.key]||EST_COL.otro;
+      const faltaTela=cortado&&!logiId&&item.done&&!item.stock_bajado_tela;
+      const onclick=logiId?`cortesTabVerCorte(null,null,'${logiId}')`:`cortesTabVerCorte('${secId}','${itemId}',null)`;
+      return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${onclick}">
+        <td style="padding:8px;font-weight:700;color:var(--accent);white-space:nowrap">${esc(item.numero_corte)}</td>
+        <td style="padding:8px;white-space:nowrap">${esc(item.code||'—')}</td>
+        <td style="padding:8px">${esc(item.name||'')}</td>
+        <td style="padding:8px;white-space:nowrap">${fechaHtml}</td>
+        <td style="padding:8px;text-align:right;font-weight:600">${cant?cant.toLocaleString('es-AR'):'—'}</td>
+        <td style="padding:8px"><div style="display:flex;gap:4px;flex-wrap:wrap">${chip(estado.label,bg,col)}${faltaTela?`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','tela')" title="Ir a tildarlo">${chip('Falta bajar tela ›',avisoBg,avisoCol)}</span>`:''}</div></td>
       </tr>`;
-      }).join('')}
-    </tbody>
-  </table></div>`;
+    }).join('');
+  }).join('');
+  cont.innerHTML=resumenHtml+`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="border-bottom:2px solid var(--border)">${thC('Corte')}${thC('Código')}${thC('Artículo')}${thC('Cortado')}${thC('Prendas','text-align:right')}${thC('Etapa')}</tr></thead>
+      <tbody>${filasHtml}</tbody></table></div>`;
 }
+
 
 function renderRendimientoTab(){
   const el=document.getElementById('rendimiento-board');

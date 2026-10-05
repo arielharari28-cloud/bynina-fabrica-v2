@@ -11958,7 +11958,7 @@ function cmpPuedeCrear(secId,sec,item){
   if(!item||!item.numero_corte||item.es_complemento) return false;
   if(sec&&String(sec.tipo||'').startsWith('muestra')) return false;
   const e=cortesTabEstado(secId,sec,item);
-  if(e&&e.key==='finalizado') return false;
+  if(e&&e.key==='finalizado') return false;   // ya entregado: no se le agregan complementos
   if(currentUser==='ariel') return true;
   return currentUser==='peque'&&secId===cmpSecTizada();   // Peque: solo antes de confirmar la tizada
 }

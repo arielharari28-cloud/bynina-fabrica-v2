@@ -685,6 +685,11 @@
   .pm-marca{align-self:flex-start;margin-top:2px;font-size:9px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--accent-bg);color:var(--accent)}
   .pm-marca.mini{background:#f3e8d8;color:#7a4f1d}
   .pm-marca.prov{background:#e8eef7;color:#2c4a7a}
+  .mej-foto{position:relative}
+  .mej-foto-fecha{position:absolute;left:3px;bottom:3px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px}
+  .mej-foto-ppal,.mej-foto-star{position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:13px;line-height:1}
+  .mej-foto-ppal{background:var(--accent);color:#fff}
+  .mej-foto-star{border:0;background:rgba(255,255,255,.9);color:var(--text2);cursor:pointer}
   .pm-prod-wrap{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border2)}
   .pm-prod-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:10px;color:var(--text2)}
   .pm-tile.pm-prod{cursor:pointer;background:var(--surface2)}
@@ -1389,7 +1394,7 @@ async function uploadPhoto(secId,itemId,file){
     });
     const data = await res.json();
     if (data.secure_url) {
-      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/foto`).set(data.secure_url);
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({foto:data.secure_url,fotoAt:Date.now()});
       const item = sectionsData[secId].items[itemId];
       logActivity('Agregó foto', item.code);
       showToast('✓ Foto cargada');
@@ -4912,6 +4917,67 @@ async function uploadMejoraFoto(secId,itemId,file){
   }catch(e){ showToast('✗ Error al subir foto'); }
 }
 
+// --- MEJORA: fotos de la prueba y de producción ---
+// fotos_prueba / fotos_produccion = {id:{url,at,por}}. Se copian solas al pasar a Producto Perfecto
+// (marcarProductoPerfecto copia el ítem entero). La foto de producción nueva pasa a ser la foto
+// principal del artículo (la que usan Galería y Productos del mes); cualquier otra se puede
+// elegir como principal con la ★.
+function buildMejoraGaleriaHtml(secId,itemId,item,canEdit,tipo,label){
+  const fotos=Object.entries(item['fotos_'+tipo]||{}).sort((a,b)=>(a[1].at||0)-(b[1].at||0));
+  if(!fotos.length&&!canEdit) return '';
+  const fmt=ts=>ts?new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}):'';
+  return `<div style="margin-top:8px">
+    <div class="diseno-field-label">${label}</div>
+    <div class="diseno-fotos-grid" style="margin-top:6px">
+      ${fotos.map(([fid,f])=>{ const esPpal=item.foto===f.url;
+        return `<div class="diseno-foto-item mej-foto">
+          <img src="${f.url}" onclick="openPhotoModal('${f.url}')">
+          ${f.at?`<span class="mej-foto-fecha">${fmt(f.at)}</span>`:''}
+          ${esPpal?'<span class="mej-foto-ppal" title="Es la foto principal">★</span>':(canEdit?`<button class="mej-foto-star" title="Usar como foto principal" onclick="mejoraFotoPrincipal('${secId}','${itemId}','${f.url}')">☆</button>`:'')}
+          ${canEdit?`<button class="diseno-foto-del" onclick="deleteMejoraGaleriaFoto('${secId}','${itemId}','${tipo}','${fid}')">×</button>`:''}
+        </div>`; }).join('')}
+      ${canEdit?`<div class="diseno-add-foto" onclick="triggerMejoraGaleriaUpload('${secId}','${itemId}','${tipo}')" title="Agregar foto">📷</div>`:''}
+    </div>
+  </div>`;
+}
+function triggerMejoraGaleriaUpload(secId,itemId,tipo){
+  const input=document.createElement('input');
+  input.type='file';input.accept='image/*';input.multiple=true;
+  input.onchange=(e)=>{ Array.from(e.target.files||[]).forEach(file=>uploadMejoraGaleriaFoto(secId,itemId,tipo,file)); };
+  input.click();
+}
+async function uploadMejoraGaleriaFoto(secId,itemId,tipo,file){
+  showToast('📤 Subiendo foto...');
+  const formData=new FormData();
+  formData.append('file',file);
+  formData.append('upload_preset',CLOUDINARY_PRESET);
+  try{
+    const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
+    const data=await res.json();
+    if(!data.secure_url){ showToast('✗ Error al subir foto'); return; }
+    const ahora=Date.now();
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fotos_${tipo}`).push({url:data.secure_url,at:ahora,por:currentUser||''});
+    const item=(sectionsData[secId]||{}).items?.[itemId]||{};
+    if(tipo==='produccion'){
+      db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({foto:data.secure_url,fotoAt:ahora});
+      logActivity('Agregó foto de producción',item.code||'');
+      showToast('✓ Foto de producción cargada — quedó como foto principal');
+    } else {
+      logActivity('Agregó foto de la prueba',item.code||'');
+      showToast('✓ Foto de la prueba cargada');
+    }
+  }catch(e){ showToast('✗ Error al subir foto'); }
+}
+function mejoraFotoPrincipal(secId,itemId,url){
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({foto:url,fotoAt:Date.now()});
+  const item=(sectionsData[secId]||{}).items?.[itemId]||{};
+  logActivity('Cambió la foto principal',item.code||'');
+  showToast('★ Foto principal actualizada');
+}
+function deleteMejoraGaleriaFoto(secId,itemId,tipo,fid){
+  if(!confirm('¿Borrar esta foto?')) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fotos_${tipo}/${fid}`).remove();
+}
 function deleteMejoraFoto(secId,itemId,fotoId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/mejora_fotos/${fotoId}`).remove();
 }
@@ -7689,6 +7755,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
               ${canEdit?`<div class="diseno-add-foto" onclick="triggerMejoraFotoUpload('${secId}','${itemId}')" title="Agregar foto">📷</div>`:''}
             </div>
           </div>
+          ${buildMejoraGaleriaHtml(secId,itemId,item,canEdit,'prueba','Foto de la prueba (cómo quedó)')}
+          ${buildMejoraGaleriaHtml(secId,itemId,item,canEdit,'produccion','Foto de producción')}
           <div class="modelista-row">
             <span class="modelista-label">Modificación:</span>
             <select class="modelista-select" ${canEdit?'':'disabled'} onchange="saveMejoraTipo('${secId}','${itemId}',this.value)">
@@ -11101,6 +11169,22 @@ function pmEnProduccion(){
   });
   return porCode;
 }
+// Foto actual de cada código: la más recientemente cambiada en la app (fotoAt). Para fotos
+// viejas sin fecha, gana la etapa más avanzada del producto terminado (Mejora > Revisión final >
+// Productos Perfectos). Si no hay ninguna, queda la foto guardada al sumarlo.
+function pmIndiceFotos(){
+  const prio={mejora:3,revision_final:2,producto_perfecto:1};
+  const fab={}, prov={};
+  const mejor=(idx,code,foto,score)=>{ const k=pmNormCode(code); if(!k||!foto) return; if(!idx[k]||pmCmp(score,idx[k].score)>0) idx[k]={foto,score}; };
+  Object.values(sectionsData||{}).forEach(sec=>{
+    if(!sec||!prio[sec.tipo]) return;   // solo prenda terminada: un corte en taller puede tener foto de muestra o de tela
+    Object.values(sec.items||{}).forEach(it=>{ if(it) mejor(fab,it.code,it.foto,[it.fotoAt||0,prio[sec.tipo],it.fechaIngreso||0]); });
+  });
+  Object.values(logiItemsData||{}).forEach(it=>{ if(it&&it.origen==='proveedor') mejor(prov,it.code,it.foto,[it.fotoAt||0,0,it.fecha_creado||0]); });
+  return {fab,prov};
+}
+function pmCmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i]) return a[i]-b[i]; } return 0; }
+function pmFotoViva(p,idx){ const e=(p.origen==='proveedor'?idx.prov:idx.fab)[pmNormCode(p.code)]; return e?e.foto:p.foto; }
 function pmProduccionHtml(items, prod){
   const conProd=[], sinProd=[];
   items.forEach(([k,p])=>{
@@ -11136,9 +11220,10 @@ function renderProdMes(){
     </div>`;
   if(!boards.length) html+=`<div class="empty-state">No hay tableros en ${pmMesLabel(pmMes)}.</div>`;
   const prod=boards.length?pmEnProduccion():{};
+  const fotos=boards.length?pmIndiceFotos():{fab:{},prov:{}};
   boards.forEach(([bid,b])=>{
     const items=Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0));
-    const tiles=items.map(([k,p],i)=>pmTile(p,{
+    const tiles=items.map(([k,p],i)=>pmTile({...p,foto:pmFotoViva(p,fotos)},{
       attrs: edit?`draggable="true" data-bid="${bid}" data-k="${pmEsc(k)}" ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)" ondragover="pmDragOver(event)" ondrop="pmDrop(event)"`:'',
       after: edit?`<button class="pm-quitar" aria-label="Quitar" onclick="pmQuitar('${bid}','${k}')">×</button>
         <div class="pm-mover"><button aria-label="Mover antes" ${i===0?'disabled':''} onclick="pmMover('${bid}','${k}',-1)">‹</button><button aria-label="Mover después" ${i===items.length-1?'disabled':''} onclick="pmMover('${bid}','${k}',1)">›</button></div>`:''})).join('');
@@ -14312,7 +14397,7 @@ function logiEditFoto(id){
       const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:formData});
       const data=await res.json();
       if(data.secure_url){
-        db.ref(`fabrica_v5/logistica/items/${id}/foto`).set(data.secure_url);
+        db.ref(`fabrica_v5/logistica/items/${id}`).update({foto:data.secure_url,fotoAt:Date.now()});
         logActivity('Cambió la foto en Logística', logiItemsData[id]?.code||'');
         showToast('✓ Foto actualizada');
       } else showToast('✗ No se pudo subir la foto');

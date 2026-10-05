@@ -9151,7 +9151,10 @@ function renderRollosModal(){
     : `<option value="">Sin colores (cargá la orden de corte)</option>`;
   const bodyRows=rows.map(row=>{
     const{usado,sobrante}=rollosCalc(row);
-    const colorCell=liquidar
+    const rStock=row.stockId?tsData.rollos[row.stockId]:null;
+    const colorCell=rStock
+      ? `<span style="font-size:12px;font-weight:600" title="Sale del rollo ${tsEsc(rStock.codigo)}">${tsEsc(row.color||rStock.color)}</span>${(!liquidar&&!coloresDisponibles.includes(row.color))?'<br><span style="font-size:10.5px;color:#9a3412">no está en la orden de corte</span>':''}`
+      : liquidar
       ? `<input type="text" value="${(row.color||'').replace(/"/g,'&quot;')}" placeholder="Color del rollo" onchange="rollosUpdateField('${row.id}','color',this.value)" style="width:90px;padding:5px;font-size:12px;border:1px solid var(--border);border-radius:6px">`
       : `<select onchange="rollosUpdateField('${row.id}','color',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--border);border-radius:6px">${colorOptsFor(row.color)}</select>`;
     return `<tr>
@@ -9178,7 +9181,11 @@ function renderRollosModal(){
       </table>
       ${!rows.length?`<div class="oc-hint" style="padding:8px 0">No hay rollos cargados todavía.</div>`:''}
     </div>
-    <button class="btn-sm" onclick="rollosAddRow()" style="width:100%;padding:8px;margin-top:8px">+ Agregar rollo</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn-sm" onclick="rollosTogglePicker()" style="flex:1;padding:8px;font-weight:700;color:var(--accent);border-color:var(--accent)">+ Elegir varios rollos del stock</button>
+      <button class="btn-sm" onclick="rollosAddRow()" style="flex:1;padding:8px">+ Agregar rollo fuera de la app</button>
+    </div>
+    ${rollosPickerHtml()}
     <div id="rol-totales" style="text-align:right;font-size:12px;margin-top:8px;color:var(--text2)">${rollosTotalesTexto()}</div>
   `;
 }
@@ -11649,7 +11656,7 @@ function renderTsColor(){
       return `<div class="ts-rollo">
         <div><b>${tsEsc(r.codigo)}</b><span class="ts-sub">${r.deInventario?'Stock inicial':'Remito '+tsEsc(r.numeroRemito||'')} · ${tsFechaCorta(r.fechaIngreso)}</span></div>
         <div style="text-align:right"><b>${r.estado==='sobrante'&&tsNum(r.restante)!==tsNum(r.inicial)?`${tsFmt(tsNum(r.restante),1)} de ${tsFmt(tsNum(r.inicial),1)} ${u}`:`${tsFmt(tsNum(r.estado==='usado'?r.inicial:r.restante),1)} ${u}`}</b>
-          <span class="ts-estado ${e[1]}">${e[0]}</span></div>
+          <span class="ts-estado ${e[1]}">${e[0]}</span>${currentUser==='ariel'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}</div>
       </div>${Object.values(r.usos||{}).filter(Boolean).length?`<div class="ts-sub" style="margin:-4px 0 10px 12px">Usado en: ${Object.values(r.usos).filter(Boolean).map(u=>`corte ${tsEsc(u.corte||'—')} (${tsFmt(tsNum(u.usado),1)}${u.pendiente?', pendiente':''})`).join(' · ')}</div>`:''}`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
 }
 
@@ -11668,6 +11675,7 @@ function renderTsRemitos(){
           ${r.inicial?'<span class="ts-edad">Stock inicial</span>':`<span class="ts-edad ${r.facturado?'':'vieja'}">${r.facturado?'Facturado':'Sin facturar'}</span>`}
         </div>
         <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)} · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}</div>
+        ${tsRollosDeRemitoHtml(id)}
         <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
           <button class="ts-link" onclick="tsImprimirEtiquetas('${id}')">Imprimir etiquetas</button>
           ${tsPuedeCargar()&&!usados?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="tsBorrarRemito('${id}')">Borrar remito</button>`:''}
@@ -11676,6 +11684,27 @@ function renderTsRemitos(){
 }
 // Un rollo se considera usado si cambió desde que entró (un sobrante cargado en el inventario no cuenta).
 function tsRolloTocado(x){ return x.estado==='usado'||x.estado==='revision'||tsNum(x.restante)!==tsNum(x.inicial); }
+function tsEditarRollo(id){
+  if(currentUser!=='ariel') return;
+  const r=tsData.rollos[id]; if(!r) return;
+  const color=prompt(`Color del rollo ${r.codigo}`, r.color||''); if(color===null) return;
+  const kg=prompt(`Peso/medida inicial del rollo ${r.codigo} (${tsUnidadTxt(r.unidad)})`, String(tsNum(r.inicial)).replace('.',',')); if(kg===null) return;
+  const nuevoIni=tsNum(kg); if(!(nuevoIni>0)){ showToast('Peso inválido'); return; }
+  const nr={...r,color:color.trim()||r.color,inicial:nuevoIni};
+  const rest=tsRestanteDe(nr);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,restante:rest,estado:tsEstadoDe(nr,rest),editadoPor:currentUser,editadoEn:Date.now()});
+  logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · ${r.inicial} → ${nuevoIni}`);
+  showToast(`✓ ${r.codigo} actualizado`);
+}
+function tsRollosDeRemitoHtml(remId){
+  const rs=Object.entries(tsData.rollos).filter(([,x])=>x&&x.remitoId===remId).sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
+  if(!rs.length) return '';
+  return `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--accent)">Ver rollos y colores (${rs.length})</summary>
+    ${rs.map(([id,x])=>`<div class="ts-fila" style="grid-template-columns:.8fr 1.4fr 1fr .6fr;cursor:default">
+      <b>${tsEsc(x.codigo)}</b><span>${tsEsc(x.color)}</span><span>${tsFmt(tsRestanteDe(x),1)} de ${tsFmt(tsNum(x.inicial),1)} ${tsUnidadTxt(x.unidad)}</span>
+      ${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️ Editar</button>`:'<span></span>'}</div>`).join('')}
+  </details>`;
+}
 function tsBorrarRemito(id){
   const r=tsData.remitos[id]; if(!r) return;
   if(Object.values(tsData.rollos).some(x=>x&&x.remitoId===id&&tsRolloTocado(x))){ showToast('Ese remito ya tiene rollos usados: no se puede borrar'); return; }
@@ -11830,27 +11859,74 @@ function tsEstadoDe(r,restante){
   if(restante<=0.05) return usos.length?'usado':'entero';
   return usos.length||r.estado==='sobrante'?'sobrante':'entero';
 }
-// Opciones para el selector de una fila: primero los rollos de la tela y color del corte.
-function tsOpcionesRollo(row){
+// Solo rollos de la TELA de este corte (comparación sin mayúsculas ni acentos).
+function tsNorm(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
+function tsTelaDelCorte(){
   const it=(sectionsData[rollosCtx.secId]||{}).items?.[rollosCtx.itemId]||{};
-  const tela=String(it.tela_nombre||it.tela||'').trim().toLowerCase();
-  const color=String(row.color||'').trim().toLowerCase();
-  const enUso=new Set(rollosCtx.rows.filter(x=>x.id!==row.id&&x.stockId).map(x=>x.stockId));
-  const disp=Object.entries(tsData.rollos).filter(([id,r])=>r&&(id===row.stockId||((r.estado==='entero'||r.estado==='sobrante'||r.estado==='revision')&&tsRestanteDe(r)>0&&!enUso.has(id))));
-  const score=r=>(String(r.tela).toLowerCase()===tela?2:0)+(String(r.color).toLowerCase()===color?1:0);
-  disp.sort((a,b)=>score(b[1])-score(a[1])||String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
-  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(r.codigo)} · ${tsEsc(r.color)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${score(r)<2?' · '+tsEsc(r.tela):''}${r.estado==='sobrante'?' (sobrante)':''}</option>`;
-  const exactos=disp.filter(([,r])=>score(r)===3), otros=disp.filter(([,r])=>score(r)!==3);
+  return it.tela_nombre||it.tela||'';
+}
+function tsRollosDeLaTela(excluirRowId){
+  const tela=tsNorm(tsTelaDelCorte());
+  const enUso=new Set(rollosCtx.rows.filter(x=>x.id!==excluirRowId&&x.stockId).map(x=>x.stockId));
+  return Object.entries(tsData.rollos).filter(([id,r])=>r&&tela&&tsNorm(r.tela)===tela&&
+    (r.estado==='entero'||r.estado==='sobrante'||r.estado==='revision')&&tsRestanteDe(r)>0&&!enUso.has(id))
+    .sort((a,b)=>String(a[1].color).localeCompare(String(b[1].color),'es')||String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
+}
+// Color de la orden de corte que corresponde al color del rollo (ej. rollo "Jet Black" → "Negro - Jet Black").
+function tsColorOrdenPara(colorRollo){
+  const c=tsNorm(colorRollo); if(!c) return '';
+  const lista=rollosCtx.coloresDisponibles||[];
+  return lista.find(o=>tsNorm(o)===c)
+    || lista.find(o=>tsNorm(o).split(/\s*-\s*/).some(p=>p===c))
+    || lista.find(o=>tsNorm(o).includes(c)||c.includes(tsNorm(o)))
+    || '';
+}
+function tsOpcionesRollo(row){
+  const propias=tsRollosDeLaTela(row.id);
+  const actual=row.stockId&&tsData.rollos[row.stockId]&&!propias.some(([id])=>id===row.stockId)?[[row.stockId,tsData.rollos[row.stockId]]]:[];
+  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(r.codigo)} · ${tsEsc(r.color)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?' (sobrante)':''}</option>`;
+  const lista=[...actual,...propias];
   return `<option value="" ${!row.stockId?'selected':''}>Fuera de la app</option>`
-    +(exactos.length?`<optgroup label="Esta tela y color">${exactos.map(opt).join('')}</optgroup>`:'')
-    +(otros.length?`<optgroup label="Otros rollos en stock">${otros.map(opt).join('')}</optgroup>`:'');
+    +(lista.length?lista.map(opt).join(''):`<option disabled>Sin rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock</option>`);
+}
+// Carga varios rollos juntos: se tildan del stock de la tela y se agrega una fila por rollo.
+function rollosTogglePicker(){ rollosCtx.pickOpen=!rollosCtx.pickOpen; rollosCtx.pickSel=new Set(); renderRollosModal(); }
+function rollosPickToggle(id){ if(!rollosCtx.pickSel) rollosCtx.pickSel=new Set(); rollosCtx.pickSel.has(id)?rollosCtx.pickSel.delete(id):rollosCtx.pickSel.add(id); renderRollosModal(); }
+function rollosPickerHtml(){
+  if(!rollosCtx.pickOpen) return '';
+  const lista=tsRollosDeLaTela(null);
+  const sel=rollosCtx.pickSel||new Set();
+  const porColor={}; lista.forEach(([id,r])=>{ (porColor[r.color]||(porColor[r.color]=[])).push([id,r]); });
+  return `<div style="border:1px solid var(--accent);border-radius:10px;padding:10px;margin-top:8px;background:var(--accent-bg)">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">Rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock — tildá los que se van a usar</div>
+    ${lista.length?Object.entries(porColor).map(([color,arr])=>`<div style="margin:6px 0 2px;font-size:12px;font-weight:700">${tsEsc(color)}${tsColorOrdenPara(color)?'':' <span style="color:#9a3412;font-weight:600">(no está en la orden de corte)</span>'}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(([id,r])=>`<label style="display:flex;align-items:center;gap:5px;background:#fff;border:1px solid ${sel.has(id)?'var(--accent)':'var(--border)'};border-radius:8px;padding:5px 8px;font-size:12px;cursor:pointer">
+        <input type="checkbox" ${sel.has(id)?'checked':''} onchange="rollosPickToggle('${id}')"> ${tsEsc(r.codigo)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?' (sobr.)':''}</label>`).join('')}</div>`).join('')
+      :`<div style="font-size:12px;color:var(--text2)">No hay rollos de esta tela cargados en el stock.</div>`}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn-sm" onclick="rollosTogglePicker()">Cancelar</button>
+      <button class="btn-sm" style="background:var(--accent);color:#fff;border-color:var(--accent)" ${sel.size?'':'disabled'} onclick="rollosAgregarSeleccionados()">Agregar ${sel.size||''} rollo${sel.size===1?'':'s'}</button>
+    </div>
+  </div>`;
+}
+function rollosAgregarSeleccionados(){
+  const sel=[...(rollosCtx.pickSel||[])];
+  // saca las filas vacías que vienen por defecto, así no quedan mezcladas
+  rollosCtx.rows=rollosCtx.rows.filter(r=>r.stockId||String(r.kgmts||'').trim()||String(r.capas||'').trim()||String(r.nota||'').trim());
+  sel.forEach(id=>{
+    const r=tsData.rollos[id]; if(!r) return;
+    rollosCtx.rows.push({id:'ro'+Date.now()+Math.random().toString(36).slice(2,6),stockId:id,codigo:r.codigo,
+      color:tsColorOrdenPara(r.color)||r.color,kgmts:String(tsRestanteDe(r)),capas:'',nota:''});
+  });
+  rollosCtx.pickOpen=false; rollosCtx.pickSel=new Set();
+  renderRollosModal();
 }
 function rollosElegirStock(rowId,stockId){
   const row=rollosCtx.rows.find(r=>r.id===rowId); if(!row) return;
   row.stockId=stockId||'';
   const r=stockId?tsData.rollos[stockId]:null;
   row.codigo=r?r.codigo:'';
-  if(r) row.kgmts=String(tsRestanteDe(r));   // el peso sale del stock; si lo pesan y da distinto, lo pueden corregir
+  if(r){ row.kgmts=String(tsRestanteDe(r)); row.color=tsColorOrdenPara(r.color)||r.color; }   // el peso sale del stock; si lo pesan y da distinto, lo pueden corregir
   renderRollosModal();
 }
 // Aplica el consumo de esta orden de corte en los rollos del stock. Se llama al guardar el modal.

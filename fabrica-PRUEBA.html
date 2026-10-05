@@ -12097,13 +12097,18 @@ function estSyncDesdeCortes(){
         fecha_creado:Date.now(), link_secId:arts[0].secId, link_itemId:arts[0].itemId, auto_desde_corte:true};
     }
     const e=estampadosData[estId]||{estampas:{},fotos:{}};
-    // una estampa por artículo con DTF que todavía no esté
-    const codigos=new Set(Object.values(e.estampas||{}).map(x=>String(x.articulo||'').split('—')[0].trim().toUpperCase()));
+    const nueva=!estampadosData[estId];
+    // una estampa por artículo con DTF que todavía no esté (se compara por código, con cualquier tipo de guion)
+    const codDe=x=>String(x.articulo||'').split(/\s[—–-]\s/)[0].trim().toUpperCase();
+    const codigos=new Set(Object.values(e.estampas||{}).map(codDe));
     arts.forEach(a=>{
       const code=String(a.item.code||'').trim();
       if(!code||codigos.has(code.toUpperCase())) return;
       codigos.add(code.toUpperCase());
-      upd[`estampados/${estId}/estampas/e_${code.replace(/[.#$\[\]\/\s]/g,'_')}`]={articulo:`${code} — ${a.item.name||''}`,estado:'dibujo',img:a.item.foto||'',auto_desde_corte:true};
+      const k='e_'+code.replace(/[.#$\[\]\/\s]/g,'_');
+      const est={articulo:`${code} — ${a.item.name||''}`,estado:'dibujo',img:a.item.foto||'',auto_desde_corte:true};
+      if(nueva) upd[`estampados/${estId}`].estampas[k]=est;          // dentro del objeto nuevo
+      else upd[`estampados/${estId}/estampas/${k}`]=est;
     });
     arts.forEach(a=>{ if(a.item.estampado_id!==estId) upd[`sections/${a.secId}/items/${a.itemId}/estampado_id`]=estId; });
     // colores: lo realmente cortado, si nadie los editó a mano
@@ -12120,8 +12125,13 @@ function estSyncDesdeCortes(){
       });
     }
   });
-  if(Object.keys(upd).length) db.ref('fabrica_v5').update(upd);
+  if(!Object.keys(upd).length) return;
+  const firma=JSON.stringify(upd,(k,v)=>k==='fecha_creado'?undefined:v);
+  if(firma===estUltimaFirma) return;   // ya se intentó exactamente esto: no insistir
+  estUltimaFirma=firma;
+  db.ref('fabrica_v5').update(upd).catch(err=>console.error('Sync Estampas:',err));
 }
+let estUltimaFirma='';
 
 let galeriaDragKey=null;
 function onGaleriaDragStart(ev){

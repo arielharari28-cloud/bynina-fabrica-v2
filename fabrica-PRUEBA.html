@@ -685,6 +685,14 @@
   .pm-marca{align-self:flex-start;margin-top:2px;font-size:9px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--accent-bg);color:var(--accent)}
   .pm-marca.mini{background:#f3e8d8;color:#7a4f1d}
   .pm-marca.prov{background:#e8eef7;color:#2c4a7a}
+  .pm-prod-wrap{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border2)}
+  .pm-prod-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:10px;color:var(--text2)}
+  .pm-tile.pm-prod{cursor:pointer;background:var(--surface2)}
+  .pm-tile.pm-prod img{opacity:.92}
+  .pm-etapa{align-self:flex-start;font-size:10px;font-weight:700;background:#fff3d6;color:#7a5200;padding:2px 7px;border-radius:999px}
+  .pm-prod-empty{font-size:12px;color:var(--text3)}
+  .pm-sinrepo{margin-top:10px;font-size:12px;color:#9a3412;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .pm-sinrepo-chip{background:#fdecea;color:#9a3412;border-radius:999px;padding:2px 9px;font-weight:700;font-size:11px}
   .pm-chips{display:flex;gap:4px;flex-wrap:wrap}
   .pm-tile[draggable="true"]{cursor:grab}
   .pm-tile.dragging{opacity:.4}
@@ -11076,6 +11084,44 @@ function pmTile(p, extra){
     ${extra&&extra.after||''}
   </div>`;
 }
+// ---- En producción (para reposiciones) ----
+// Cortes del tablero Fábrica que todavía no terminaron (excluye Diseño/muestras, Productos
+// Perfectos y canceladas). Revisión final se incluye: está por pasar a ventas.
+function pmNormCode(c){ return String(c||'').trim().toUpperCase(); }
+function pmEnProduccion(){
+  const porCode={};
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    if(!sec||sec.tipo==='producto_perfecto'||sec.tipo==='muestra_cancelada') return;
+    if(getBoard(sec)==='diseno') return;
+    Object.entries(sec.items||{}).forEach(([itemId,it])=>{
+      if(!it||!it.code) return;
+      let cant=0; try{ cant=cortesTabCantidad(it)||0; }catch(e){}
+      (porCode[pmNormCode(it.code)] ||= []).push({secId,itemId,it,etapa:sec.title||'',cant});
+    });
+  });
+  return porCode;
+}
+function pmProduccionHtml(items, prod){
+  const conProd=[], sinProd=[];
+  items.forEach(([k,p])=>{
+    if(p.origen==='proveedor') return;          // las de proveedor se reponen comprando, no fabricando
+    const enCurso=prod[pmNormCode(p.code)]||[];
+    if(enCurso.length) enCurso.forEach(e=>conProd.push({p,e})); else sinProd.push(p);
+  });
+  const tiles=conProd.map(({p,e})=>`<div class="pm-tile pm-prod" onclick="irAItem('${e.secId}','${e.itemId}')" title="Ir al corte">
+      ${(e.it.foto||p.foto)?`<img src="${pmEsc(e.it.foto||p.foto)}" loading="lazy">`:'<div class="pm-sinfoto">📷</div>'}
+      <div class="pm-info">
+        <span class="pm-code">${pmEsc(e.it.code)}</span>
+        <span class="pm-etapa">${pmEsc(e.etapa)}</span>
+        <span class="pm-tela">${e.it.numero_corte?'Corte '+pmEsc(e.it.numero_corte):'Sin n° de corte'}${e.cant?' · '+e.cant+' u.':''}</span>
+      </div>
+    </div>`).join('');
+  return `<div class="pm-prod-wrap">
+      <div class="pm-prod-title">🏭 En producción <span class="sec-count">${conProd.length}</span></div>
+      ${tiles?`<div class="pm-grid">${tiles}</div>`:'<div class="pm-prod-empty">Ninguno de estos productos tiene un corte en curso.</div>'}
+      ${sinProd.length?`<div class="pm-sinrepo"><strong>Sin reposición en curso (${sinProd.length}):</strong> ${sinProd.map(p=>`<span class="pm-sinrepo-chip">${pmEsc(p.code||p.name)}</span>`).join('')}</div>`:''}
+    </div>`;
+}
 function renderProdMes(){
   const cont=document.getElementById('prodmes-content');
   if(!cont) return;
@@ -11089,6 +11135,7 @@ function renderProdMes(){
       <button class="pm-arrow" aria-label="Mes siguiente" onclick="pmMes=pmShift(pmMes,1);renderProdMes()">›</button>
     </div>`;
   if(!boards.length) html+=`<div class="empty-state">No hay tableros en ${pmMesLabel(pmMes)}.</div>`;
+  const prod=boards.length?pmEnProduccion():{};
   boards.forEach(([bid,b])=>{
     const items=Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0));
     const tiles=items.map(([k,p],i)=>pmTile(p,{
@@ -11105,6 +11152,7 @@ function renderProdMes(){
         </div>`:''}
       </div>
       <div class="pm-grid">${tiles||'<div class="empty-state">Todavía sin productos.</div>'}</div>
+      ${items.length?pmProduccionHtml(items,prod):''}
     </div>`;
   });
   if(edit){

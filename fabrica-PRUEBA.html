@@ -979,7 +979,8 @@
         <select id="web-filtro-estado" onchange="webFiltroEstado=this.value;renderWebTab()" aria-label="Filtrar por estado" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;background:var(--surface)">
           <option value="">Todos los estados</option>
           <option value="pendientes">Con algo pendiente</option>
-          <option value="sin_colores">Faltan colores</option>
+          <option value="sin_mayorista">Faltan colores en mayorista</option>
+          <option value="sin_colores">Faltan colores en minorista</option>
           <option value="sin_medidas">Faltan medidas</option>
           <option value="sin_medidas_web">Faltan medidas en web</option>
           <option value="completos">Completos</option>
@@ -14250,6 +14251,7 @@ function renderWebTab(){
       if(webFiltroEstado==='pendientes') return !completo;
       if(webFiltroEstado==='completos') return completo;
       if(webFiltroEstado==='sin_colores') return !colOk;
+      if(webFiltroEstado==='sin_mayorista') return colores.filter(c=>it.web_colores_may&&it.web_colores_may[webColorSlug(c)]).length<colores.length;
       if(webFiltroEstado==='sin_medidas') return !med;
       if(webFiltroEstado==='sin_medidas_web') return !medWeb;
       return true;
@@ -14265,7 +14267,8 @@ function renderWebTab(){
     const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
     if(!colores.length) return '';
     const completas=medidasCompletas(it);
-    const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
+    const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;      // minorista
+    const coloresMay=colores.filter(c=>it.web_colores_may&&it.web_colores_may[webColorSlug(c)]).length;  // mayorista
     const medidasWeb=!!it.medidas_subidas_web;
     const abierta=webAbiertos.has(id);
     const wChip=(ok,txt)=>`<span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#b91c1c'}">${ok?'✓':'✗'} ${txt}</span>`;
@@ -14273,19 +14276,22 @@ function renderWebTab(){
         <span style="font-weight:700;font-size:13px">${(it.code||'(sin código)').replace(/</g,'&lt;')}</span>
         <span style="font-size:13px;color:var(--text2);flex:1;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(it.name||'').replace(/</g,'&lt;')}</span>
         ${wChip(completas,'Medidas')}
-        ${wChip(coloresSubidos===colores.length,`Colores ${coloresSubidos}/${colores.length}`)}
+        ${wChip(coloresMay===colores.length,`Mayorista ${coloresMay}/${colores.length}`)}
+        ${wChip(coloresSubidos===colores.length,`Minorista ${coloresSubidos}/${colores.length}`)}
         ${wChip(medidasWeb,'Medidas en web')}
         <span style="font-size:11px;color:var(--text3)">${abierta?'▲':'▼'}</span>
       </div>`;
     if(!abierta) return `<div class="logi-card" style="display:block;padding:10px 12px;margin-bottom:6px">${cabecera}</div>`;
     const rows=colores.map(color=>{
       const slug=webColorSlug(color);
-      const subido=!!(it.web_colores&&it.web_colores[slug]);
-      return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer">
-        <input type="checkbox" ${subido?'checked':''} onchange="logiToggleWebColor('${id}','${slug}',this.checked)">
-        <span style="font-size:13px">${(color||'').replace(/</g,'&lt;')}</span>
-        <span style="margin-left:auto;font-size:11px;color:${subido?'#15803d':'#b91c1c'}">${subido?'✓ Subido':'Pendiente'}</span>
-      </label>`;
+      // web_colores = tienda minorista (byninamayorista.com.ar, lo que ya existía); web_colores_may = tienda mayorista
+      const may=!!(it.web_colores_may&&it.web_colores_may[slug]);
+      const min=!!(it.web_colores&&it.web_colores[slug]);
+      const bt=(on,txt,campo)=>`<button type="button" onclick="logiToggleWebTienda('${id}','${campo}','${slug}',${!on})" style="min-height:32px;padding:0 12px;border-radius:999px;font-size:12px;font-weight:700;cursor:pointer;border:1px solid ${on?'#15803d':'var(--border2)'};background:${on?'#dcfce7':'var(--surface)'};color:${on?'#166534':'var(--text2)'}">${on?'✓ ':''}${txt}</button>`;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <span style="font-size:13px;flex:1;min-width:100px">${(color||'').replace(/</g,'&lt;')}</span>
+        ${bt(may,'Mayorista','web_colores_may')}${bt(min,'Minorista','web_colores')}
+      </div>`;
     }).join('');
     const avisoMedidas = completas ? '' : `<div style="background:#fee2e2;color:#b91c1c;font-weight:700;font-size:12px;border-radius:8px;padding:6px 10px;margin-bottom:8px">⚠️ Faltan medidas de este artículo — cargalas antes de subir a la web</div>`;
     const recepcionInfoParts=[];
@@ -14315,6 +14321,10 @@ function renderWebTab(){
       ${rows}
     </div>`;
   }).join('');
+}
+function logiToggleWebTienda(itemId,campo,slug,checked){
+  if(campo!=='web_colores'&&campo!=='web_colores_may') return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/${campo}/${slug}`).set(!!checked);
 }
 function logiToggleWebColor(itemId,slug,checked){
   db.ref(`fabrica_v5/logistica/items/${itemId}/web_colores/${slug}`).set(!!checked);

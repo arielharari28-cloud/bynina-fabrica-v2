@@ -1762,6 +1762,7 @@ function openEstColorModal(estId,fotoId){
   setTimeout(()=>document.getElementById('in-est-color').focus(),50);
 }
 function saveEstColor(){
+  if(estCtx.estId) db.ref(`fabrica_v5/estampados/${estCtx.estId}/colores_manual`).set(true);
   const color=document.getElementById('in-est-color').value.trim();
   const estampaColor=document.getElementById('in-est-estampacolor').value.trim();
   const cantRaw=document.getElementById('in-est-cant').value.trim();
@@ -1775,12 +1776,30 @@ function saveEstColor(){
   document.getElementById('modal-est-color').classList.add('hidden');
 }
 function delEstColor(estId,fotoId){
+  db.ref(`fabrica_v5/estampados/${estId}/colores_manual`).set(true);
   db.ref(`fabrica_v5/estampados/${estId}/fotos/${fotoId}`).remove();
 }
 
 // Por si se marcó "estampado DTF" antes de cargar la Orden de Corte en fabrica (o se agregaron
 // colores nuevos después): vuelve a traer los colores/cantidades del corte vinculado, sin pisar
 // las variantes que ya estén cargadas acá (solo agrega las que falten, matcheando por nombre de color).
+// Lo que realmente se cortó, por color: capas reales (rollos del corte) × curva. Vacío si el corte
+// todavía no tiene rollos cargados. Es lo mismo que muestra "Prendas reales (según corte)" en Fábrica.
+// Ítem de fábrica vinculado a un corte de Estampas (si el link quedó viejo, lo busca por N° de corte).
+function estItemDe(c){
+  if(c.link_secId&&c.link_itemId&&sectionsData[c.link_secId]&&sectionsData[c.link_secId].items&&sectionsData[c.link_secId].items[c.link_itemId]) return sectionsData[c.link_secId].items[c.link_itemId];
+  const num=String(c.numero||'').replace(/^Corte\s*/i,'').trim();
+  const f=num?cmpFind(num):null;
+  return f?f.item:null;
+}
+function estRealPorColor(item){
+  if(!item) return {};
+  const ck=corteKeyFrom(item.numero_corte||'');
+  const grupo=ck?(gruposCorteData[ck]||{}):{};
+  const out={};
+  calcularGrillaEsperada({...item,rollos:grupo.rollos||item.rollos}).forEach(f=>{ out[f.color]=(out[f.color]||0)+(f.esperado||0); });
+  return out;
+}
 function resyncColoresEstampado(estId){
   const e=estampadosData[estId];
   if(!e||!e.link_secId||!e.link_itemId){ showToast('Este corte de Estampas no está vinculado a un ítem de fabrica'); return; }
@@ -1800,7 +1819,12 @@ function resyncColoresEstampado(estId){
     }
   }
   if(!item){ showToast('No encontré el ítem de fabrica vinculado (puede que se haya borrado)'); return; }
-  const filas=Object.values(item.capas||{}).filter(r=>r.color);
+  // Si el corte ya tiene rollos cargados, se trae lo REALMENTE cortado; si no, lo planeado en la Orden de Corte.
+  const real=estRealPorColor(item);
+  const usaReal=Object.keys(real).length>0;
+  const filas=usaReal
+    ? Object.entries(real).map(([color,cant])=>({color,cant:{total:cant}}))
+    : Object.values(item.capas||{}).filter(r=>r.color);
   if(!filas.length){ showToast('El corte todavía no tiene Orden de Corte cargada en fabrica'); return; }
   // Mapeo color(normalizado) -> [fotoId, fotoActual] de lo que YA está cargado en Estampas
   const fotoIdPorColor={};
@@ -1827,7 +1851,11 @@ function resyncColoresEstampado(estId){
       agregados++;
     }
   });
-  if(!agregados && !actualizados){ showToast('Ya está todo al día, no había cambios'); return; }
+  if(usaReal){ /* colores que ya no existen en lo cortado quedan en 0 para que el total cierre */
+    Object.entries(e.fotos||{}).forEach(([fid,f])=>{ const key=(f.color||'').trim().toLowerCase(); if(key&&!filas.some(r=>(r.color||'').trim().toLowerCase()===key)&&parseInt(f.cant)){ updates[`fabrica_v5/estampados/${estId}/fotos/${fid}/cant`]=0; actualizados++; } });
+  }
+  if(usaReal) updates[`fabrica_v5/estampados/${estId}/colores_manual`]=null;
+  if(!agregados && !actualizados){ if(usaReal) db.ref().update(updates); showToast('Ya está todo al día, no había cambios'); return; }
   db.ref().update(updates);
   const partes=[];
   if(agregados) partes.push(`${agregados} color${agregados!==1?'es':''} nuevo${agregados!==1?'s':''}`);
@@ -1933,8 +1961,19 @@ function renderEstampadosTab(){
         autoSplits[fid]=estampasEntries.map((_,i)=>base+(i<resto?1:0));
       }
     });
+    // Artículos que en Fábrica tienen este mismo N° de corte: sirve para marcar estampas que
+    // quedaron cargadas acá pero que no están en el corte (se dividían las cantidades de más).
+    const numCorte=String(c.numero||'').replace(/^Corte\s*/i,'').trim();
+    const codigosCorte=new Set();
+    if(numCorte) Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
+      if(it&&!it.es_complemento&&String(it.numero_corte||'').trim()===numCorte&&it.code) codigosCorte.add(String(it.code).trim().toUpperCase());
+    }));
+    const codEst=e=>String(e.articulo||'').split('—')[0].trim().toUpperCase();
+    const sobrantesEst=codigosCorte.size?estampasEntries.filter(([,e])=>!codigosCorte.has(codEst(e))):[];
+    const avisoEstampas=sobrantesEst.length?`<div style="font-size:11px;font-weight:700;color:#9a3412;background:#fdecea;border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ En Fábrica el corte ${numCorte} tiene ${codigosCorte.size} artículo${codigosCorte.size!==1?'s':''} (${[...codigosCorte].join(', ')}) y acá hay ${nEst} estampas. Las marcadas en rojo no están en ese corte: si no van, sacalas con la ✕ — mientras estén, las cantidades se reparten también entre ellas.</div>`:'';
     const gridItems=estampasEntries.map(([eid,e],i)=>{
       const s=estLabel(e.estado);
+      const noEnCorte=codigosCorte.size&&!codigosCorte.has(codEst(e));
       const perColor={};
       coloresArr.forEach(([fid])=>{
         const manual=e.cantPorColor&&e.cantPorColor[fid];
@@ -1944,13 +1983,14 @@ function renderEstampadosTab(){
       const breakdown=coloresArr.filter(([fid])=>perColor[fid]>0)
         .map(([fid,f])=>`${(f.color||'').replace(/</g,'&lt;')}: ${perColor[fid]}`).join(' · ');
       const photo=e.img?`<img src="${e.img}" onclick="openPhotoModal('${e.img}')">`:`<div class="est-photo-empty" onclick="openEstEstampaModal('${c.id}','${eid}')">📷</div>`;
-      return `<div class="est-card-inner">
+      return `<div class="est-card-inner" ${noEnCorte?'style="outline:2px solid #dc2626;outline-offset:-2px"':''}>
         <div class="est-photo-wrap">${photo}
           ${e.img?`<button class="est-photo-edit" title="Editar" onclick="event.stopPropagation();openEstEstampaModal('${c.id}','${eid}')">✏️</button>`:''}
           <button class="est-photo-del" title="Quitar" onclick="event.stopPropagation();delEstEstampa('${c.id}','${eid}')">✕</button>
         </div>
         <div class="est-info">
-          <span class="est-articulo" onclick="openEstEstampaModal('${c.id}','${eid}')">${(e.articulo||'').replace(/</g,'&lt;')}</span>
+          <span class="est-articulo" onclick="openEstEstampaModal('${c.id}','${eid}')">${(e.articulo||'').replace(/</g,'&lt;')||'<i>Sin código</i>'}</span>
+          ${noEnCorte?`<span style="font-size:10.5px;font-weight:800;color:#b91c1c">No está en el corte ${numCorte}</span>`:''}
           ${coloresArr.length?`<div class="est-cant-wrap" onclick="event.stopPropagation();openEstRepartirModal('${c.id}','${eid}')" title="Tocá para repartir por color a mano">
             <span class="est-cant">${total} u.</span>
             ${breakdown?`<div class="est-color-breakdown">${breakdown}</div>`:''}
@@ -1980,7 +2020,7 @@ function renderEstampadosTab(){
       coloresHtml=`<div class="section-label">Variantes de color${totalCant?` · ${totalCant} u.`:''}</div>
         <div class="colores-row">${coloresFoto}${chips}
           <button class="btn-color-add" onclick="openEstColorModal('${c.id}')">+ Color</button>
-          ${c.link_secId&&c.link_itemId?`<button class="btn-color-add" title="Vuelve a traer los colores desde la Orden de Corte de fabrica" onclick="resyncColoresEstampado('${c.id}')">🔄 Traer de Orden de Corte</button>`:''}
+          ${c.link_secId&&c.link_itemId?`<button class="btn-color-add" title="Vuelve a traer los colores: lo realmente cortado si el corte ya tiene rollos; si no, lo planeado en la Orden de Corte" onclick="resyncColoresEstampado('${c.id}')">🔄 ${Object.keys(estRealPorColor(estItemDe(c))).length?'Actualizar con lo cortado':'Traer de Orden de Corte'}</button>`:''}
         </div>`;
     }
 
@@ -1990,6 +2030,10 @@ function renderEstampadosTab(){
     const itemLinkeado=c.link_secId&&c.link_itemId&&sectionsData[c.link_secId]&&sectionsData[c.link_secId].items[c.link_itemId];
     const yaCortado=itemLinkeado?!!itemLinkeado.fecha_corte:null; // null = no lo pudimos determinar
     const avisoNoCortado=(yaCortado===false)?`<div style="font-size:11px;font-weight:700;color:#b8860b;background:#fbf1d8;border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ Todavía no se cortó este corte — las cantidades son estimadas (de la ficha), no confirmadas. Avanzar solo con el dibujo, no cerrar cantidades por color todavía.</div>`:'';
+    const realColores=estRealPorColor(estItemDe(c));
+    const totalReal=Object.values(realColores).reduce((a,b)=>a+b,0);
+    const totalCargado=Object.values(c.fotos||{}).reduce((a,f)=>a+(parseInt(f.cant)||0),0);
+    const avisoReal=(totalReal&&totalReal!==totalCargado)?`<div style="font-size:11px;font-weight:700;color:#9a3412;background:#fdecea;border-radius:6px;padding:6px 8px;margin-bottom:8px">⚠️ Lo cortado de verdad es ${totalReal} u. (${Object.entries(realColores).map(([k,v])=>k+' '+v).join(' · ')}) y acá figuran ${totalCargado}. Tocá “🔄 Actualizar con lo cortado” en Variantes de color.</div>`:'';
     const estadoCorte=estadoPorCorte[c.id];
     const estadoCorteHtml=estadoCorte?`<span class="chip est-estado-${estadoCorte.cls}" style="font-size:11px;font-weight:600">${estadoCorte.label}</span>`:'';
     const idx=visibles.findIndex(x=>x.id===c.id);
@@ -2006,7 +2050,7 @@ function renderEstampadosTab(){
           <button class="icon-btn" title="Borrar" onclick="delEstCorte('${c.id}')">✕</button>
         </div>
       </div>
-      ${avisoNoCortado}
+      ${avisoNoCortado}${avisoReal}${avisoEstampas}
       <div class="section-label" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span>Estampas (${estampasEntries.length})</span>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:400;color:var(--text2);cursor:pointer" title="Activá esto si la tizada trae los dos (o más) artículos juntos en el mismo molde: cada capa produce un juego completo por artículo, no se reparte la misma tela entre ellos.">
@@ -3541,6 +3585,7 @@ function startListening(){
   });
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
+    estProgramarSync();
     ensureSeccionCorte('s6'); // Sector nuevo: que siempre exista y se vea aunque esté en 0.
     backfillFechasIngreso();
     backfillPasosNuevoDesarrollo();
@@ -3562,10 +3607,12 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
   db.ref('fabrica_v5/grupos_corte').on('value',snap=>{
     gruposCorteData=snap.val()||{};
     backfillGruposCorte();
+    estProgramarSync();
     renderSections('diseno');renderSections('fabrica');
   });
   db.ref('fabrica_v5/estampados').on('value',snap=>{
     estampadosData=snap.val()||{};
+    estProgramarSync();
     if(!document.getElementById('tab-estampas').classList.contains('hidden')) renderEstampadosTab();
     // También refresca las tarjetas de fabrica: el badge "En Estampas" depende de si el corte vinculado sigue existiendo.
     renderSections('diseno');renderSections('fabrica');
@@ -12015,6 +12062,67 @@ function buildItem(secId,itemId,item,sec,idx,total){
   let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
   return html+extra;
 }
+// ============ ESTAMPAS AUTOMÁTICAS DESDE EL CORTE ============
+// Cuando un corte que lleva estampado DTF ya está cortado, Estampas se arma solo con los datos reales:
+//  - la tarjeta del corte (si no existe) con id fijo "auto_<corte>" (así dos personas con la app
+//    abierta no crean dos tarjetas),
+//  - una estampa por cada artículo de ese corte marcado con DTF (las que ya estén no se tocan),
+//  - los colores y cantidades de lo realmente cortado (salvo que alguien los haya editado a mano
+//    en Estampas: ahí se respeta lo manual y solo se avisa si no coincide).
+// No borra nada: las estampas que no están en el corte quedan marcadas en rojo para sacarlas a mano.
+let estSyncTimer=null;
+function estProgramarSync(){ clearTimeout(estSyncTimer); estSyncTimer=setTimeout(estSyncDesdeCortes,1500); }
+function estSyncDesdeCortes(){
+  if(!currentUser||!sectionsData||!estampadosData) return;
+  if(!['ariel','stef','emir','peque','noelia'].includes(currentUser)) return;
+  const cortes={};   // numero -> [{secId,itemId,item}]
+  Object.entries(sectionsData).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,it])=>{
+    if(!it||!it.estampado_dtf||it.es_complemento||!it.numero_corte) return;
+    const est=cortesTabEstado(secId,sec,it);
+    if(!est||!['fabrica','taller'].includes(est.key)) return;   // recién cuando ya está cortado (y antes de finalizar)
+    const n=String(it.numero_corte).trim();
+    (cortes[n]||(cortes[n]=[])).push({secId,itemId,item:it});
+  }));
+  const upd={};
+  Object.entries(cortes).forEach(([numero,arts])=>{
+    const ck=corteKeyFrom(numero);
+    // tarjeta existente: por id vinculado de algún artículo, o por N° de corte
+    let estId=arts.map(a=>a.item.estampado_id).find(id=>id&&estampadosData[id]);
+    if(!estId) estId=Object.keys(estampadosData).find(id=>{ const e=estampadosData[id]; return e&&String(e.numero||'').replace(/^Corte\s*/i,'').trim()===numero; });
+    const real=estRealPorColor(arts[0].item);
+    if(!estId){
+      estId='auto_'+ck;
+      const fotos={}; Object.entries(real).forEach(([color,cant],i)=>{ fotos['c'+i]={color,estampaColor:'',cant}; });
+      upd[`estampados/${estId}`]={numero, tela:arts[0].item.tela_nombre||arts[0].item.tela||'', coloresImg:'', fotos, estampas:{},
+        fecha_creado:Date.now(), link_secId:arts[0].secId, link_itemId:arts[0].itemId, auto_desde_corte:true};
+    }
+    const e=estampadosData[estId]||{estampas:{},fotos:{}};
+    // una estampa por artículo con DTF que todavía no esté
+    const codigos=new Set(Object.values(e.estampas||{}).map(x=>String(x.articulo||'').split('—')[0].trim().toUpperCase()));
+    arts.forEach(a=>{
+      const code=String(a.item.code||'').trim();
+      if(!code||codigos.has(code.toUpperCase())) return;
+      codigos.add(code.toUpperCase());
+      upd[`estampados/${estId}/estampas/e_${code.replace(/[.#$\[\]\/\s]/g,'_')}`]={articulo:`${code} — ${a.item.name||''}`,estado:'dibujo',img:a.item.foto||'',auto_desde_corte:true};
+    });
+    arts.forEach(a=>{ if(a.item.estampado_id!==estId) upd[`sections/${a.secId}/items/${a.itemId}/estampado_id`]=estId; });
+    // colores: lo realmente cortado, si nadie los editó a mano
+    if(estampadosData[estId]&&!e.colores_manual&&Object.keys(real).length){
+      const porColor={}; Object.entries(e.fotos||{}).forEach(([fid,f])=>{ porColor[String(f.color||'').trim().toLowerCase()]=fid; });
+      Object.entries(real).forEach(([color,cant])=>{
+        const fid=porColor[color.trim().toLowerCase()];
+        if(fid){ if(parseInt(e.fotos[fid].cant)!==cant) upd[`estampados/${estId}/fotos/${fid}/cant`]=cant; }
+        else upd[`estampados/${estId}/fotos/f_${color.replace(/[.#$\[\]\/\s]/g,'_')}`]={color,estampaColor:'',cant};
+      });
+      Object.entries(e.fotos||{}).forEach(([fid,f])=>{
+        const k=String(f.color||'').trim().toLowerCase();
+        if(k&&!Object.keys(real).some(c=>c.trim().toLowerCase()===k)&&parseInt(f.cant)) upd[`estampados/${estId}/fotos/${fid}/cant`]=0;
+      });
+    }
+  });
+  if(Object.keys(upd).length) db.ref('fabrica_v5').update(upd);
+}
+
 let galeriaDragKey=null;
 function onGaleriaDragStart(ev){
   galeriaDragKey=ev.currentTarget.dataset.key;

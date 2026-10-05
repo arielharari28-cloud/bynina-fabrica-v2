@@ -976,6 +976,14 @@
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--text2)">Cortes finalizados — tildá cada color a medida que lo subís a la web.</span>
         <button class="btn-sm" onclick="webExportarExcel()" style="margin-left:auto">⬇️ Descargar Excel</button>
+        <select id="web-filtro-estado" onchange="webFiltroEstado=this.value;renderWebTab()" aria-label="Filtrar por estado" style="border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;background:var(--surface)">
+          <option value="">Todos los estados</option>
+          <option value="pendientes">Con algo pendiente</option>
+          <option value="sin_colores">Faltan colores</option>
+          <option value="sin_medidas">Faltan medidas</option>
+          <option value="sin_medidas_web">Faltan medidas en web</option>
+          <option value="completos">Completos</option>
+        </select>
         <input type="text" id="web-search" placeholder="Buscar N° corte o código..." style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px" oninput="webSearch=this.value;renderWebTab()">
       </div>
       <div id="web-board"><div class="loading">Cargando...</div></div>
@@ -11557,7 +11565,7 @@ function renderTsColor(){
     .sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
   const u=tsUnidadTxt((todos[0]||[])[1]?.unidad);
   const disp=todos.filter(([,r])=>r.estado==='entero'||r.estado==='sobrante');
-  const tot=disp.reduce((s,[,r])=>s+tsNum(r.restante),0);
+  const tot=disp.reduce((s,[,r])=>s+tsRestanteDe(r),0);
   const chip=(k,t)=>`<button class="ts-chip ${f===k?'on':''}" onclick="tsVista.filtroEstado='${k}';renderTelasStock()">${t}</button>`;
   const est={entero:['Entero','ok'],sobrante:['Sobrante','sobr'],revision:['Compartido · en revisión','rev'],usado:['Usado','usado']};
   cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
@@ -14218,6 +14226,7 @@ function webColorSlug(color){
   return String(color||'').trim().toLowerCase().replace(/[.#$\[\]\/]/g,'_').replace(/\s+/g,'_');
 }
 let webSearch='';
+let webFiltroEstado='';
 let costeoSearch='';
 let costeoOrdenPor='fecha'; // 'fecha' | 'corte'
 // Filas compactas: código, nombre y tres chips (medidas completas / colores subidos / medidas en
@@ -14229,13 +14238,28 @@ function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
   let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
-  // Orden: lo más recién ingresado primero (no por N° de corte) — así lo nuevo aparece arriba.
-  items.sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
+  // Orden: el último finalizado primero (si un corte viejo no tiene fecha de cierre, usa la de ingreso).
+  items.sort((a,b)=>(b[1].fecha_cerrado||b[1].fecha_creado||0)-(a[1].fecha_cerrado||a[1].fecha_creado||0));
+  // Filtro por estado de subida a la web
+  if(webFiltroEstado){
+    items=items.filter(([id,it])=>{
+      const colores=[...new Set(Object.values(it.grilla||{}).map(f=>f.color).filter(Boolean))];
+      const subidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
+      const med=medidasCompletas(it), medWeb=!!it.medidas_subidas_web, colOk=colores.length&&subidos===colores.length;
+      const completo=med&&medWeb&&colOk;
+      if(webFiltroEstado==='pendientes') return !completo;
+      if(webFiltroEstado==='completos') return completo;
+      if(webFiltroEstado==='sin_colores') return !colOk;
+      if(webFiltroEstado==='sin_medidas') return !med;
+      if(webFiltroEstado==='sin_medidas_web') return !medWeb;
+      return true;
+    });
+  }
   if(webSearch.trim()){
     const q=webSearch.trim().toLowerCase();
     items=items.filter(([id,it])=>String(it.numero_corte||'').toLowerCase().includes(q)||String(it.code||'').toLowerCase().includes(q));
   }
-  if(!items.length){ cont.innerHTML='<div class="empty-state">Todavía no hay cortes finalizados.</div>'; return; }
+  if(!items.length){ cont.innerHTML=`<div class="empty-state">${webFiltroEstado||webSearch.trim()?'Ningún corte coincide con el filtro.':'Todavía no hay cortes finalizados.'}</div>`; return; }
   cont.innerHTML=items.map(([id,it])=>{
     const filas=Object.values(it.grilla||{});
     const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
@@ -14280,6 +14304,10 @@ function renderWebTab(){
       : '';
     return `<div class="logi-card" style="display:block;padding:12px;margin-bottom:10px;${completas?'':'border:2px solid #ef4444'}">
       ${cabecera}
+      ${puedeEditarFotoLogi()?`<div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+        ${it.foto?`<img src="${it.foto}" style="width:52px;height:68px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="openPhotoModal('${it.foto}')">`:'<div style="width:52px;height:68px;border-radius:6px;background:var(--surface2);display:flex;align-items:center;justify-content:center">📷</div>'}
+        <button class="btn-sm" onclick="event.stopPropagation();logiEditFoto('${id}')">${it.foto?'📷 Cambiar foto':'📷 Cargar foto'}</button>
+      </div>`:''}
       <div style="margin-top:10px">${avisoMedidas}</div>
       ${it.numero_corte?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px">N° corte: ${it.numero_corte}</div>`:''}
       ${recepcionInfoHtml}
@@ -14876,8 +14904,9 @@ function buildMedidasHtml(id,it,canEdit,mostrarSubidaWeb){
 // (ej. descripción mal puesta) sin importar en qué etapa esté el movimiento.
 // Cambiar la foto de un movimiento ya cargado en Logística — solo Ariel, mismo criterio que
 // la edición de nombre/código: para corregir sin depender de en qué etapa esté.
+function puedeEditarFotoLogi(){ return currentUser==='ariel'||currentUser==='noelia'; }
 function logiEditFoto(id){
-  if(currentUser!=='ariel') return;
+  if(!puedeEditarFotoLogi()) return;
   const input=document.createElement('input');
   input.type='file';input.accept='image/*';
   input.onchange=async(e)=>{
@@ -14972,7 +15001,7 @@ function logiRenderDetail(id){
   const it = logiItemsData[id];
   if(!it){ logiCloseDetail(); return; }
   const puedeEditarNombreCodigo = currentUser==='ariel';
-  const fotoEditableAttrs = puedeEditarNombreCodigo ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
+  const fotoEditableAttrs = puedeEditarFotoLogi() ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
   document.getElementById('logi-detail-photo').outerHTML = `<div id="logi-detail-photo"${fotoEditableAttrs}>${it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`}</div>`;
   document.getElementById('logi-detail-code').innerHTML = `${it.code||'(sin código)'}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditCodigo('${id}')" style="cursor:pointer;font-size:13px;color:var(--accent)" title="Editar código">✏️</span>`:''}`;
   document.getElementById('logi-detail-name').innerHTML = `${it.name||''}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditNombre('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar nombre">✏️</span>`:''}`;

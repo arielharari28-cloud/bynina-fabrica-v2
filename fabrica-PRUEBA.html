@@ -663,6 +663,46 @@
     .oc-fields-row{gap:10px}
     .oc-field-block{min-width:0;flex:1 1 100%}
   }
+  /* --- Productos del mes --- */
+  .pm-mesbar{display:flex;align-items:center;justify-content:space-between;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;margin-bottom:14px;max-width:520px}
+  .pm-arrow{width:44px;height:44px;border:0;background:transparent;font-size:22px;color:var(--accent);cursor:pointer}
+  .pm-mes{font-size:16px;font-weight:700}
+  .pm-arch{font-size:10px;font-weight:700;text-transform:uppercase;background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:middle}
+  .pm-board{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:14px}
+  .pm-board-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .pm-board-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+  .pm-board-actions{display:flex;gap:6px;align-items:center}
+  .pm-btn-out{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--accent);background:var(--surface);color:var(--accent);font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}
+  .pm-btn-icon{width:36px;height:36px;border-radius:999px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:14px}
+  .pm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+  .pm-tile{position:relative;border:2px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface);display:flex;flex-direction:column}
+  .pm-tile img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block;cursor:pointer}
+  .pm-sinfoto{width:100%;aspect-ratio:3/4;display:flex;align-items:center;justify-content:center;background:var(--surface2);color:var(--text3);font-size:1.5rem}
+  .pm-info{padding:6px 7px 7px;display:flex;flex-direction:column;gap:2px}
+  .pm-code{font-size:11px;font-weight:800}
+  .pm-name{font-size:11px;font-weight:600;line-height:1.25}
+  .pm-tela{font-size:10px;color:var(--text2)}
+  .pm-marca{align-self:flex-start;margin-top:2px;font-size:9px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--accent-bg);color:var(--accent)}
+  .pm-marca.mini{background:#f3e8d8;color:#7a4f1d}
+  .pm-quitar{position:absolute;top:5px;right:5px;width:26px;height:26px;border-radius:999px;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1;cursor:pointer}
+  .pm-nuevo{width:100%;max-width:520px;min-height:48px;border:1.5px dashed var(--border2);border-radius:14px;background:transparent;color:var(--accent);font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;font-family:inherit;display:block}
+  .pm-copiar{border-style:solid;background:var(--accent-bg)}
+  .pm-hist-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--text2);margin:18px 0 8px}
+  .pm-hist{width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text)}
+  .pm-hist-n{font-size:12px;color:var(--text2);font-weight:500}
+  .pm-sumar-head{display:flex;justify-content:space-between;align-items:center}
+  .pm-volver{min-height:44px;border:0;background:transparent;color:var(--accent);font-weight:700;font-size:14px;cursor:pointer;padding:0;font-family:inherit}
+  .pm-sub{font-size:12px;color:var(--text2)}
+  .pm-sumar-title{font-size:18px;font-weight:800;margin:4px 0 10px}
+  .pm-search{width:100%;max-width:520px;box-sizing:border-box;padding:11px 12px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--surface);font-family:inherit}
+  .pm-tile .pm-check{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:999px;background:rgba(255,255,255,.9);border:1.5px solid var(--border2);color:#fff;font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .pm-tile.sel{border-color:var(--accent)}
+  .pm-tile.sel .pm-check{background:var(--accent);border-color:var(--accent)}
+  .pm-tile.ya{opacity:.5}
+  .pm-tile.ya .pm-check{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+  .pm-sumar-bar{position:sticky;bottom:0;padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));background:var(--bg)}
+  .pm-agregar{width:100%;max-width:520px;min-height:48px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+  .pm-agregar[disabled]{opacity:.45;cursor:default}
 </style>
 </head>
 <body>
@@ -752,6 +792,7 @@
       <button class="tab" id="tab-btn-talleres">Talleres</button>
       <button class="tab" id="tab-btn-pendientes">Pendientes</button>
       <button class="tab" id="tab-btn-galeria">Galería</button>
+      <button class="tab hidden" id="tab-btn-prodmes">⭐ Productos del mes</button>
       <button class="tab" id="tab-btn-actividad">Actividad</button>
       <button class="tab" id="tab-btn-estampas">🎨 Estampas</button>
       <button class="tab" id="tab-btn-logistica">📦 Logística</button>
@@ -802,6 +843,7 @@
       <div class="galeria-hint">📌 Arrastrá las fotos para acomodarlas como quieras — el orden queda guardado.</div>
       <div id="galeria-content"><div class="loading">Cargando...</div></div>
     </div>
+    <div id="tab-prodmes" class="hidden"><div id="prodmes-content"><div class="loading">Cargando...</div></div></div>
     <div id="tab-actividad" class="hidden"><div id="actividad-list"><div class="loading">Cargando...</div></div></div>
     <div id="tab-estampas" class="hidden">
       <div class="est-stats-bar" id="estampas-stats"></div>
@@ -3420,6 +3462,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
+    if(!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
     publishPendientesResumen();
     renderMisPendientesBadge();
     if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
@@ -3469,6 +3512,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     const v=snap.val()||{};
     galeriaOrden={diseno:Array.isArray(v.diseno)?v.diseno:[],fabrica:Array.isArray(v.fabrica)?v.fabrica:[]};
     if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
+    if(!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
   });
   db.ref('fabrica_v5/marcas').on('value',snap=>{
     const v=snap.val();
@@ -10467,13 +10511,13 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
-  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
   // Peque ahora tiene Costeo para poder cargar/corregir Proveedor y Precio de los avíos ahí —
   // el resto de los campos de Costeo (kg, precio x kg, otros gastos, precios de venta) le
   // quedan de solo lectura igual que a cualquiera que no sea Ariel/Stef (ver canEdit en
@@ -10487,7 +10531,7 @@ const TAB_VISIBILITY={
   // Noelia ve todas las pestañas (pediste "que vea todo") — la restricción real de que solo
   // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
   // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
-  noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
+  noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
   // Meli (administración): solo la pestaña de Facturación, nada más — ni siquiera ve el resto
   // de Logística, para no exponerle datos operativos que no necesita.
   meli:['tab-btn-logistica','tab-btn-facturacion'],
@@ -10966,6 +11010,161 @@ function renderGaleria(){
   });
   cont.innerHTML=html;
 }
+// ============ PRODUCTOS DEL MES ============
+// Mini tableros mensuales (ej. "Básicos del mes", "Más vendidos") armados con artículos de
+// Productos Perfectos. Cada producto se guarda como "foto" del momento (código, nombre, tela,
+// marca, foto) para que el archivo de meses viejos no cambie aunque el artículo después se mueva.
+// Datos: fabrica_v5/productos_mes/{YYYY-MM}/{boardId} = {title, creadoEn, items:{codeKey:{...}}}
+let pmData = {}, pmMes = null, pmSumarBoard = null, pmSel = new Set(), pmBusca = '', pmFMarca = '', pmFTela = '';
+db.ref('fabrica_v5/productos_mes').on('value', snap => {
+  pmData = snap.val() || {};
+  if (!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
+});
+function pmEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pmMesActual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function pmMesLabel(m){ const [y,mm]=m.split('-'); const n=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']; return n[+mm-1]+' '+y; }
+function pmShift(m,delta){ let [y,mm]=m.split('-').map(Number); mm+=delta; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return y+'-'+String(mm).padStart(2,'0'); }
+function pmPuedeEditar(){ return currentUser==='ariel'||currentUser==='stef'; }
+function pmEditable(m){ return pmPuedeEditar() && m>=pmMesActual(); }   // los meses pasados quedan archivados (solo lectura)
+function pmKey(code){ return String(code||'').trim().replace(/[.#$\[\]\/]/g,'_') || 'sin_codigo'; }
+// Artículos terminados (Productos Perfectos), uno por código: si un código está en varios cortes,
+// queda el más reciente que tenga foto.
+function pmCatalogo(){
+  const porCodigo = {};
+  Object.values(sectionsData||{}).forEach(sec=>{
+    if(!sec||sec.tipo!=='producto_perfecto') return;
+    Object.values(sec.items||{}).forEach(it=>{
+      if(!it) return;
+      const code=(it.code||'').trim(); const key=pmKey(code||it.name);
+      const ts=it.fechaIngreso||it.updatedAt||it.createdAt||0;
+      const prev=porCodigo[key];
+      const mejor=!prev || (!!it.foto && !prev.foto) || ((!!it.foto===!!prev.foto) && ts>prev._ts);
+      if(mejor) porCodigo[key]={key,code,name:it.name||'',tela:it.tela||'',marca:it.marca||(marcasList&&marcasList[0])||'By Nina',foto:it.foto||'',categoria:it.categoria||'',_ts:ts};
+    });
+  });
+  return Object.values(porCodigo).sort((a,b)=>String(a.code||a.name).localeCompare(String(b.code||b.name),'es',{numeric:true}));
+}
+function pmTile(p, extra){
+  return `<div class="pm-tile ${extra&&extra.cls||''}" ${extra&&extra.attrs||''}>
+    ${p.foto?`<img src="${pmEsc(p.foto)}" loading="lazy" ${extra&&extra.noZoom?'':`onclick="event.stopPropagation();openPhotoModal('${pmEsc(p.foto)}')"`}>`:`<div class="pm-sinfoto">📷</div>`}
+    ${extra&&extra.badge||''}
+    <div class="pm-info">
+      <span class="pm-code">${pmEsc(p.code||'(sin código)')}</span>
+      <span class="pm-name">${pmEsc(p.name)}</span>
+      <span class="pm-tela">${pmEsc(p.tela)}</span>
+      <span class="pm-marca ${String(p.marca).toLowerCase().includes('mini')?'mini':''}">${pmEsc(p.marca)}</span>
+    </div>
+    ${extra&&extra.after||''}
+  </div>`;
+}
+function renderProdMes(){
+  const cont=document.getElementById('prodmes-content');
+  if(!cont) return;
+  if(!pmMes) pmMes=pmMesActual();
+  if(pmSumarBoard){ renderPmSumar(); return; }
+  const edit=pmEditable(pmMes);
+  const boards=Object.entries(pmData[pmMes]||{}).sort((a,b)=>(a[1].creadoEn||0)-(b[1].creadoEn||0));
+  let html=`<div class="pm-mesbar">
+      <button class="pm-arrow" aria-label="Mes anterior" onclick="pmMes=pmShift(pmMes,-1);renderProdMes()">‹</button>
+      <div class="pm-mes">${pmMesLabel(pmMes)}${pmMes<pmMesActual()?' <span class="pm-arch">archivado</span>':''}</div>
+      <button class="pm-arrow" aria-label="Mes siguiente" onclick="pmMes=pmShift(pmMes,1);renderProdMes()">›</button>
+    </div>`;
+  if(!boards.length) html+=`<div class="empty-state">No hay tableros en ${pmMesLabel(pmMes)}.</div>`;
+  boards.forEach(([bid,b])=>{
+    const items=Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0));
+    const tiles=items.map(([k,p])=>pmTile(p,{after: edit?`<button class="pm-quitar" aria-label="Quitar" onclick="pmQuitar('${bid}','${k}')">×</button>`:''})).join('');
+    html+=`<div class="pm-board">
+      <div class="pm-board-head">
+        <div class="pm-board-title">${pmEsc(b.title)} <span class="sec-count">${items.length}</span></div>
+        ${edit?`<div class="pm-board-actions">
+          <button class="pm-btn-out" onclick="pmAbrirSumar('${bid}')">+ Sumar</button>
+          <button class="pm-btn-icon" aria-label="Renombrar" title="Renombrar" onclick="pmRenombrar('${bid}')">✎</button>
+          <button class="pm-btn-icon" aria-label="Borrar tablero" title="Borrar tablero" onclick="pmBorrar('${bid}')">🗑</button>
+        </div>`:''}
+      </div>
+      <div class="pm-grid">${tiles||'<div class="empty-state">Todavía sin productos.</div>'}</div>
+    </div>`;
+  });
+  if(edit){
+    html+=`<button class="pm-nuevo" onclick="pmNuevo()">+ Nuevo tablero</button>`;
+    const prev=pmShift(pmMes,-1);
+    if(!boards.length && Object.keys(pmData[prev]||{}).length) html+=`<button class="pm-nuevo pm-copiar" onclick="pmCopiar('${prev}')">Copiar tableros de ${pmMesLabel(prev)}</button>`;
+  }
+  const meses=Object.keys(pmData).filter(m=>m<pmMesActual()&&m!==pmMes).sort().reverse();
+  if(meses.length){
+    html+=`<div class="pm-hist-title">Meses anteriores</div>`+meses.map(m=>`<button class="pm-hist" onclick="pmMes='${m}';renderProdMes();window.scrollTo(0,0)"><span>${pmMesLabel(m)}</span><span class="pm-hist-n">${Object.keys(pmData[m]||{}).length} tableros ›</span></button>`).join('');
+  }
+  cont.innerHTML=html;
+}
+function pmNuevo(){
+  const t=prompt('Nombre del tablero (ej: Básicos del mes, Más vendidos)');
+  if(!t||!t.trim()) return;
+  db.ref(`fabrica_v5/productos_mes/${pmMes}`).push({title:t.trim(),creadoEn:Date.now(),creadoPor:currentUser});
+}
+function pmRenombrar(bid){
+  const b=(pmData[pmMes]||{})[bid]; if(!b) return;
+  const t=prompt('Nuevo nombre',b.title); if(!t||!t.trim()) return;
+  db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/title`).set(t.trim());
+}
+function pmBorrar(bid){
+  const b=(pmData[pmMes]||{})[bid]; if(!b) return;
+  if(!confirm(`¿Borrar el tablero "${b.title}"? Los artículos no se tocan.`)) return;
+  db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}`).remove();
+}
+function pmQuitar(bid,k){ db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/items/${k}`).remove(); }
+function pmCopiar(desde){
+  const src=pmData[desde]||{}; const upd={}; let i=0;
+  Object.values(src).forEach(b=>{
+    const id=db.ref(`fabrica_v5/productos_mes/${pmMes}`).push().key;
+    upd[id]={title:b.title,creadoEn:Date.now()+(i++),creadoPor:currentUser,items:b.items||{}};
+  });
+  db.ref(`fabrica_v5/productos_mes/${pmMes}`).update(upd);
+  if(typeof showToast==='function') showToast('Tableros copiados — sumá o sacá lo que cambie este mes');
+}
+// ---- Sumar productos ----
+function pmAbrirSumar(bid){ pmSumarBoard=bid; pmSel=new Set(); pmBusca=''; pmFMarca=''; pmFTela=''; renderProdMes(); window.scrollTo(0,0); }
+function pmCerrarSumar(){ pmSumarBoard=null; pmSel=new Set(); renderProdMes(); }
+function pmToggleSel(k){ if(pmSel.has(k)) pmSel.delete(k); else pmSel.add(k); renderPmSumar(); }
+function renderPmSumar(){
+  const cont=document.getElementById('prodmes-content');
+  const b=(pmData[pmMes]||{})[pmSumarBoard];
+  if(!b){ pmSumarBoard=null; renderProdMes(); return; }
+  const ya=b.items||{};
+  const cat=pmCatalogo();
+  const marcas=[...new Set(cat.map(p=>p.marca).filter(Boolean))].sort();
+  const telas=[...new Set(cat.map(p=>p.tela).filter(Boolean))].sort();
+  const q=pmBusca.trim().toLowerCase();
+  const lista=cat.filter(p=>(!q||(p.code+' '+p.name).toLowerCase().includes(q))&&(!pmFMarca||p.marca===pmFMarca)&&(!pmFTela||p.tela===pmFTela));
+  const opt=(arr,v)=>arr.map(x=>`<option value="${pmEsc(x)}" ${x===v?'selected':''}>${pmEsc(x)}</option>`).join('');
+  const tiles=lista.map(p=>{
+    const enTablero=!!ya[p.key], sel=pmSel.has(p.key);
+    return pmTile(p,{noZoom:true,cls:(sel?'sel':'')+(enTablero?' ya':''),
+      attrs: enTablero?'':`onclick="pmToggleSel('${p.key}')"`,
+      badge:`<span class="pm-check">${sel?'✓':enTablero?'✓':''}</span>`});
+  }).join('');
+  cont.innerHTML=`<div class="pm-sumar-head">
+      <button class="pm-volver" onclick="pmCerrarSumar()">‹ Volver</button>
+      <span class="pm-sub">Productos Perfectos</span>
+    </div>
+    <div class="pm-sumar-title">Sumar a «${pmEsc(b.title)}»</div>
+    <input class="pm-search" id="pm-search" type="text" placeholder="Buscar por código o nombre" value="${pmEsc(pmBusca)}" oninput="pmBusca=this.value;renderPmSumar();const e=document.getElementById('pm-search');e.focus();e.setSelectionRange(e.value.length,e.value.length)">
+    <div class="filtro-corte-bar" style="margin:8px 0 12px">
+      <select class="filtro-corte-select" onchange="pmFMarca=this.value;renderPmSumar()"><option value="">Marca: todas</option>${opt(marcas,pmFMarca)}</select>
+      <select class="filtro-corte-select" onchange="pmFTela=this.value;renderPmSumar()"><option value="">Tela: todas</option>${opt(telas,pmFTela)}</select>
+    </div>
+    <div class="pm-grid">${tiles||'<div class="empty-state">No hay artículos terminados que coincidan.</div>'}</div>
+    <div class="pm-sumar-bar"><button class="pm-agregar" ${pmSel.size?'':'disabled'} onclick="pmAgregarSel()">${pmSel.size?`Agregar ${pmSel.size} producto${pmSel.size>1?'s':''}`:'Tocá los productos para elegirlos'}</button></div>`;
+}
+function pmAgregarSel(){
+  const b=(pmData[pmMes]||{})[pmSumarBoard]; if(!b) return;
+  const cat=pmCatalogo(); const upd={}; let orden=Object.keys(b.items||{}).length;
+  cat.filter(p=>pmSel.has(p.key)).forEach(p=>{
+    upd[p.key]={code:p.code,name:p.name,tela:p.tela,marca:p.marca,foto:p.foto,orden:orden++,agregadoEn:Date.now(),agregadoPor:currentUser};
+  });
+  db.ref(`fabrica_v5/productos_mes/${pmMes}/${pmSumarBoard}/items`).update(upd);
+  pmCerrarSumar();
+}
+
 let galeriaDragKey=null;
 function onGaleriaDragStart(ev){
   galeriaDragKey=ev.currentTarget.dataset.key;
@@ -15881,7 +16080,7 @@ function deleteCosteo(key){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-prodmes','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -15903,6 +16102,11 @@ document.getElementById('tab-btn-pendientes').onclick=function(){
   ocultarTabsMenosActiva('tab-pendientes');
   this.classList.add('active');
   renderPendientes();
+};
+document.getElementById('tab-btn-prodmes').onclick=function(){
+  ocultarTabsMenosActiva('tab-prodmes');
+  this.classList.add('active');
+  renderProdMes();
 };
 document.getElementById('tab-btn-galeria').onclick=function(){
   ocultarTabsMenosActiva('tab-galeria');

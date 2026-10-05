@@ -5690,9 +5690,30 @@ function confirmarRetiroTaller(secId,itemId){
   // acá, en el momento del retiro — ya no antes, al sacarlo del taller nuestro.
   const faltan=[!item.taller_ficha_entregada?'Ficha entregada':null,!item.taller_muestra_entregada?'Muestra entregada':null,!item.taller_ninox_salida?'Salida en Ninox':null].filter(Boolean);
   if(faltan.length){ showToast(`Falta completar antes de confirmar el retiro: ${faltan.join(', ')}`); return; }
-  if(!confirm(`¿${item.taller_corte||'El taller'} ya pasó a retirar "${item.code}"?`)) return;
+  // Complementos: el corte base puede salir sin ellos (queda el aviso); el complemento va sí o sí
+  // al mismo taller que su corte base.
+  const extraCmp={}, otrasRutas={};
+  const pendCmp=Object.entries(item.complementos||{}).filter(([L,c])=>!cmpEntregado(cmpFind(c.numero)));
+  if(!item.es_complemento&&pendCmp.length){
+    const lista=pendCmp.map(([L,c])=>`${c.numero} (${c.que})`).join(', ');
+    if(!confirm(`${lista} todavía no está en el taller.\n¿El corte ${item.numero_corte} sale igual al taller SIN COMPLEMENTO?`)) return;
+    pendCmp.forEach(([L])=>{ extraCmp[`sin_complemento/${L}`]=true; });
+  }
+  if(item.es_complemento&&item.complemento_de){
+    const p=cmpFind(item.complemento_de.numero);
+    if(p&&p.item.taller_corte&&item.taller_corte!==p.item.taller_corte){
+      extraCmp.taller_corte=p.item.taller_corte;
+      showToast(`🧩 Va al mismo taller que el ${item.complemento_de.numero}: ${p.item.taller_corte}`);
+    }
+    const L=String(item.numero_corte).trim().slice(String(item.complemento_de.numero).trim().length);
+    if(p&&L&&p.item.sin_complemento&&p.item.sin_complemento[L]) otrasRutas[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/sin_complemento/${L}`]=null;
+  }
+  if(!confirm(`¿${extraCmp.taller_corte||item.taller_corte||'El taller'} ya pasó a retirar "${item.code}"?`)) return;
   const diasStd=diasTallerDeItem(item);
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({retirado_taller:true,fecha_retiro_confirmado:Date.now(),...(diasStd?{dias_estandar_taller:diasStd}:{})});
+  const updRet={retirado_taller:true,fecha_retiro_confirmado:Date.now(),...(diasStd?{dias_estandar_taller:diasStd}:{})};
+  Object.entries(extraCmp).forEach(([k,v])=>{ updRet[k]=v; });
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updRet);
+  if(Object.keys(otrasRutas).length) db.ref().update(otrasRutas);
   logActivity('Confirmó que el taller retiró el corte',`${item.code} — ${item.taller_corte||''}`);
   showToast(`✅ ${item.code} — retirado, pasa a Talleres`);
 }
@@ -7043,7 +7064,7 @@ function necesitaProgresiones(item){
 function destinoMoldeAdela(item){
   return necesitaProgresiones(item)?'Molde - Pendiente Progresiones':'Molde - Pendiente Digitalizar';
 }
-function buildItem(secId,itemId,item,sec,idx,total){
+function buildItemBase(secId,itemId,item,sec,idx,total){
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
   const tipo=sec.tipo||'';
   // Noelia no tiene edición general acá, pero en Revisión Final y en Productos Perfectos sí
@@ -8490,6 +8511,10 @@ function buildOrdenCtx(secId,itemId){
 }
 function openOrdenCorteModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(item.es_complemento&&item.complemento_de&&!cmpCortado(cmpFind(item.complemento_de.numero))){
+    showToast(`⏳ Primero se tiene que terminar de cortar el ${item.complemento_de.numero}`);
+    return;
+  }
   if(!item.ficha_link||!item.curva||!item.ancho||!item.control_piezas_link){
     showToast('⏳ Falta completar Ficha, Curva, Ancho y/o Control de piezas antes de tizar');
     return;
@@ -11860,6 +11885,136 @@ function tsAprobarCompartido(id){
   showToast(`✓ ${r.codigo} aprobado: queda ${tsFmt(rest,2)} ${tsUnidadTxt(r.unidad)}`);
 }
 
+// ============ COMPLEMENTOS DE CORTE (10 → 10B, 10C…) ============
+// Un corte puede llevar complementos (cuello, lazo…) que se tizan aparte y se cortan cuando el corte
+// base ya está cortado. Datos:
+//   corte base: complementos/{letra} = {numero:'10B', que:'Cuello', creadoPor, creadoEn}
+//               sin_complemento/{letra} = true  → salió a taller sin ese complemento (aviso rojo)
+//   complemento: es_complemento:true, complemento_de:{numero:'10', code, que}
+// Los cortes se buscan por N° de corte (el itemId cambia cada vez que el corte pasa de etapa).
+function cmpEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function cmpFind(numero){
+  const key=corteKeyFrom(String(numero||''));
+  if(!key) return null;
+  for(const [secId,sec] of Object.entries(sectionsData||{})){
+    for(const [itemId,item] of Object.entries((sec&&sec.items)||{})){
+      if(item&&corteKeyFrom(item.numero_corte||'')===key) return {secId,itemId,item,sec};
+    }
+  }
+  return null;
+}
+function cmpEstado(f){ return f?cortesTabEstado(f.secId,f.sec,f.item):null; }
+function cmpCortado(f){ const e=cmpEstado(f); return !!(e&&['fabrica','taller','finalizado'].includes(e.key)); }
+function cmpEntregado(f){ const e=cmpEstado(f); return !!(e&&(e.key==='taller'||e.key==='finalizado')); }
+function cmpSecTizada(){ return getSectionIdByTitleExact('Pendiente armar tizada'); }
+function cmpPuedeCrear(secId,sec,item){
+  if(!item||!item.numero_corte||item.es_complemento) return false;
+  if(sec&&String(sec.tipo||'').startsWith('muestra')) return false;
+  const e=cortesTabEstado(secId,sec,item);
+  if(e&&e.key==='finalizado') return false;
+  if(currentUser==='ariel') return true;
+  return currentUser==='peque'&&secId===cmpSecTizada();   // Peque: solo antes de confirmar la tizada
+}
+function cmpCrear(secId,itemId){
+  const sec=sectionsData[secId], item=(sec&&sec.items||{})[itemId];
+  if(!cmpPuedeCrear(secId,sec,item)) return;
+  const que=prompt('¿Qué complemento lleva? (ej: Cuello, Lazo)');
+  if(!que||!que.trim()) return;
+  const base=String(item.numero_corte).trim();
+  // siguiente letra libre: mira los complementos ya anotados y cualquier corte que ya use ese número
+  const usadas=new Set(Object.keys(item.complementos||{}));
+  let letra=null;
+  for(const L of 'BCDEFGHIJKLMNOPQRSTUVWXYZ'){ if(!usadas.has(L)&&!cmpFind(base+L)){ letra=L; break; } }
+  if(!letra){ showToast('No quedan letras libres para complementos de este corte'); return; }
+  const numero=base+letra;
+  // copia los datos del artículo, sin nada de la etapa ni de cantidades del corte base
+  const NO=/^(rollos|grilla|orden|fecha|tiza|encimado|taller_(ficha|muestra|ninox)|retirad|capas|liquid|cortad|unidades|pasos|ajust|pago|entreg|recib|mov|complementos|sin_complemento|aprobado|control_|en_ninox|avios|estampa)/i;
+  const nuevo={};
+  Object.entries(item).forEach(([k,v])=>{ if(!NO.test(k)) nuevo[k]=v; });
+  Object.assign(nuevo,{
+    numero_corte:numero, name:`${item.name||item.code||''} — ${que.trim()}`, tela:'',
+    es_complemento:true, complemento_de:{numero:base,code:item.code||'',que:que.trim()},
+    taller_corte:item.taller_corte||'', creadoEn:Date.now()
+  });
+  const destId=cmpSecTizada()||secId;
+  const upd={};
+  const newKey=db.ref(`fabrica_v5/sections/${destId}/items`).push().key;
+  upd[`fabrica_v5/sections/${destId}/items/${newKey}`]=nuevo;
+  upd[`fabrica_v5/sections/${secId}/items/${itemId}/complementos/${letra}`]={numero,que:que.trim(),creadoPor:currentUser,creadoEn:Date.now()};
+  // Corte que ya está en taller (cargado después): queda marcado como que salió sin este complemento.
+  const yaEnTaller=cmpEntregado({secId,itemId,item,sec});
+  if(yaEnTaller) upd[`fabrica_v5/sections/${secId}/items/${itemId}/sin_complemento/${letra}`]=true;
+  db.ref().update(upd);
+  logActivity('Agregó complemento',`Corte ${base} → ${numero} (${que.trim()})`);
+  showToast(`🧩 Creado ${numero} · ${que.trim()} — queda en Pendiente armar tizada${yaEnTaller?' · el corte '+base+' queda marcado como que salió sin complemento':''}`);
+}
+// Lo que realmente se cortó en el corte base, por color y talle (referencia para el complemento).
+function cmpReferenciaHtml(parent){
+  const it=parent.item; const ck=corteKeyFrom(it.numero_corte);
+  const grupo=ck?(gruposCorteData[ck]||{}):{};
+  const filas=calcularGrillaEsperada({...it,rollos:grupo.rollos||it.rollos});
+  if(!filas.length) return '<div style="font-size:11.5px;color:var(--text2)">Todavía no hay rollos cargados en el corte base para calcular lo cortado.</div>';
+  const talles=[...new Set(filas.map(f=>f.talle))], colores=[...new Set(filas.map(f=>f.color))];
+  const q=(c,t)=>filas.filter(f=>f.color===c&&f.talle===t).reduce((s,f)=>s+(f.esperado||0),0);
+  const total=filas.reduce((s,f)=>s+(f.esperado||0),0);
+  return `<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11.5px;min-width:100%">
+    <tr><th style="text-align:left;padding:3px 6px">Color</th>${talles.map(t=>`<th style="padding:3px 6px">${cmpEsc(t)}</th>`).join('')}<th style="padding:3px 6px;text-align:right">Total</th></tr>
+    ${colores.map(c=>{ const tot=talles.reduce((s,t)=>s+q(c,t),0); return `<tr style="border-top:1px solid var(--border)"><td style="padding:3px 6px;font-weight:600">${cmpEsc(c)}</td>${talles.map(t=>`<td style="padding:3px 6px;text-align:center">${q(c,t)||'—'}</td>`).join('')}<td style="padding:3px 6px;text-align:right;font-weight:700">${tot}</td></tr>`; }).join('')}
+    <tr style="border-top:1px solid var(--border)"><td style="padding:3px 6px;font-weight:700">Total cortado</td><td colspan="${talles.length}"></td><td style="padding:3px 6px;text-align:right;font-weight:700">${total}</td></tr>
+  </table></div>`;
+}
+// Franja que se agrega debajo de la tarjeta de cualquier corte.
+function cmpStripHtml(secId,itemId,item,sec){
+  if(!item||!item.numero_corte) return '';
+  const caja=(bg,html)=>`<div style="margin:-4px 0 10px;padding:9px 12px;border-radius:0 0 10px 10px;background:${bg};font-size:12px;border:1px solid var(--border);border-top:0">${html}</div>`;
+  if(item.es_complemento&&item.complemento_de){
+    const p=cmpFind(item.complemento_de.numero);
+    const cortado=cmpCortado(p);
+    return caja('#f3efe7',`<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+        <span>🧩 <b>Complemento del corte ${cmpEsc(item.complemento_de.numero)}</b> · ${cmpEsc(item.complemento_de.code)} · ${cmpEsc(item.complemento_de.que)} · va al mismo taller${p&&p.item.taller_corte?` (${cmpEsc(p.item.taller_corte)})`:''}</span>
+        ${p?`<button class="btn-sm" onclick="irAItem('${p.secId}','${p.itemId}')">Ver corte ${cmpEsc(item.complemento_de.numero)}</button>`:''}
+      </div>
+      ${!p?'<div style="color:var(--warn-text)">No encuentro el corte base.</div>':cortado
+        ?`<div style="font-weight:700;margin-bottom:4px">Lo que se cortó en el ${cmpEsc(item.complemento_de.numero)}:</div>${cmpReferenciaHtml(p)}`
+        :`<div style="color:var(--warn-text);font-weight:600">⏳ Orden de corte bloqueada hasta que se termine de cortar el ${cmpEsc(item.complemento_de.numero)}.</div>`}`);
+  }
+  const comps=Object.entries(item.complementos||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+  const puede=cmpPuedeCrear(secId,sec,item);
+  if(!comps.length&&!puede) return '';
+  const cortado=cmpCortado({secId,itemId,item,sec});
+  const pendSin=Object.keys(item.sin_complemento||{}).filter(L=>{ const f=cmpFind(String(item.numero_corte).trim()+L); return !cmpEntregado(f); });
+  const filas=comps.map(([L,c])=>{
+    const f=cmpFind(c.numero);
+    const est=!f?'No encontrado':cmpEntregado(f)?'✓ En taller':cmpCortado(f)?'Cortado':!cortado?`Esperando que termine el ${cmpEsc(item.numero_corte)}`:'Pendiente de corte';
+    return `<button class="btn-sm" ${f?`onclick="irAItem('${f.secId}','${f.itemId}')"`:'disabled'} style="margin:2px 6px 2px 0">🧩 ${cmpEsc(c.numero)} · ${cmpEsc(c.que)} — ${est}</button>`;
+  }).join('');
+  return caja(pendSin.length?'#fdecea':'#f3efe7',`${pendSin.length?`<div style="color:#9a3412;font-weight:800;margin-bottom:6px">SE CORTÓ SIN COMPLEMENTO — ESPERANDO ENTREGAR A TALLER (${pendSin.map(L=>cmpEsc(String(item.numero_corte).trim()+L)).join(', ')})</div>`:''}
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">${comps.length?'<span style="font-weight:700;margin-right:6px">Complementos:</span>':''}${filas}
+    ${puede?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent);font-weight:700" onclick="cmpCrear('${secId}','${itemId}')">+ Lleva complemento</button>`:''}</div>`);
+}
+// Aviso fijo arriba de la pestaña Cortes con los cortes que salieron sin su complemento.
+function cmpBannerCortesHtml(){
+  const pend=[];
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,it])=>{
+    if(!it||!it.sin_complemento) return;
+    const falta=Object.keys(it.sin_complemento).map(L=>String(it.numero_corte).trim()+L).filter(n=>!cmpEntregado(cmpFind(n)));
+    if(falta.length) pend.push({secId,itemId,it,falta});
+  }));
+  if(!pend.length) return '';
+  return `<div style="background:#fdecea;border:1px solid #f3c4bd;border-radius:12px;padding:12px;margin-bottom:12px">
+    <div style="font-size:12px;font-weight:800;color:#9a3412;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px">Pendientes de complemento</div>
+    ${pend.map(p=>`<div style="background:#fff;border-radius:8px;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="irAItem('${p.secId}','${p.itemId}')">
+      <div style="font-weight:800">Corte ${cmpEsc(p.it.numero_corte)} · ${cmpEsc(p.it.code)} ${cmpEsc(p.it.name||'')}</div>
+      <div style="font-size:12px;font-weight:800;color:#9a3412">SE CORTÓ SIN COMPLEMENTO — ESPERANDO ENTREGAR A TALLER</div>
+      <div style="font-size:12px">Falta: <b>${p.falta.map(cmpEsc).join(', ')}</b> · Taller: ${cmpEsc(p.it.taller_corte||'—')}</div></div>`).join('')}
+  </div>`;
+}
+
+function buildItem(secId,itemId,item,sec,idx,total){
+  const html=buildItemBase(secId,itemId,item,sec,idx,total);
+  let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
+  return html+extra;
+}
 let galeriaDragKey=null;
 function onGaleriaDragStart(ev){
   galeriaDragKey=ev.currentTarget.dataset.key;
@@ -13420,7 +13575,7 @@ function renderCortesTab(){
   const q=(cortesTabSearch||'').trim().toLowerCase();
   let filas=todas;
   if(q) filas=filas.filter(({item})=>`${item.numero_corte} ${item.code||''} ${item.name||''}`.toLowerCase().includes(q));
-  if(!filas.length){ cont.innerHTML=resumenHtml+'<div class="empty-state">No hay cortes con ese filtro</div>'; return; }
+  if(!filas.length){ cont.innerHTML=cmpBannerCortesHtml()+resumenHtml+'<div class="empty-state">No hay cortes con ese filtro</div>'; return; }
   const numSort=n=>{ const m=String(n||'').match(/\d+/); return m?parseInt(m[0]):-1; };
   const grupos={};
   filas.forEach(f=>{ const k=corteKeyFrom(f.item.numero_corte)||String(f.item.numero_corte); (grupos[k]=grupos[k]||{key:k,numero:f.item.numero_corte,filas:[]}).filas.push(f); });
@@ -13464,7 +13619,7 @@ function renderCortesTab(){
       </tr>`;
     }).join('');
   }).join('');
-  cont.innerHTML=resumenHtml+`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto">
+  cont.innerHTML=cmpBannerCortesHtml()+resumenHtml+`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="border-bottom:2px solid var(--border)">${thC('Corte')}${thC('Código')}${thC('Artículo')}${thC('Cortado')}${thC('Prendas','text-align:right')}${thC('Etapa')}</tr></thead>
       <tbody>${filasHtml}</tbody></table></div>`;

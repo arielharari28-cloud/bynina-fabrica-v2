@@ -684,6 +684,15 @@
   .pm-tela{font-size:10px;color:var(--text2)}
   .pm-marca{align-self:flex-start;margin-top:2px;font-size:9px;font-weight:700;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--accent-bg);color:var(--accent)}
   .pm-marca.mini{background:#f3e8d8;color:#7a4f1d}
+  .pm-marca.prov{background:#e8eef7;color:#2c4a7a}
+  .pm-chips{display:flex;gap:4px;flex-wrap:wrap}
+  .pm-tile[draggable="true"]{cursor:grab}
+  .pm-tile.dragging{opacity:.4}
+  .pm-tile.drop-target{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-bg)}
+  .pm-mover{display:none;gap:6px;padding:0 7px 7px}
+  .pm-mover button{flex:1;min-height:34px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);font-size:16px;cursor:pointer;color:var(--text)}
+  .pm-mover button[disabled]{opacity:.35}
+  @media (hover:none){ .pm-mover{display:flex} }
   .pm-quitar{position:absolute;top:5px;right:5px;width:26px;height:26px;border-radius:999px;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1;cursor:pointer}
   .pm-nuevo{width:100%;max-width:520px;min-height:48px;border:1.5px dashed var(--border2);border-radius:14px;background:transparent;color:var(--accent);font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;font-family:inherit;display:block}
   .pm-copiar{border-style:solid;background:var(--accent-bg)}
@@ -11015,7 +11024,7 @@ function renderGaleria(){
 // Productos Perfectos. Cada producto se guarda como "foto" del momento (código, nombre, tela,
 // marca, foto) para que el archivo de meses viejos no cambie aunque el artículo después se mueva.
 // Datos: fabrica_v5/productos_mes/{YYYY-MM}/{boardId} = {title, creadoEn, items:{codeKey:{...}}}
-let pmData = {}, pmMes = null, pmSumarBoard = null, pmSel = new Set(), pmBusca = '', pmFMarca = '', pmFTela = '';
+let pmData = {}, pmMes = null, pmSumarBoard = null, pmSel = new Set(), pmBusca = '', pmFMarca = '', pmFTela = '', pmFOrigen = '';
 db.ref('fabrica_v5/productos_mes').on('value', snap => {
   pmData = snap.val() || {};
   if (!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
@@ -11042,6 +11051,16 @@ function pmCatalogo(){
       if(mejor) porCodigo[key]={key,code,name:it.name||'',tela:it.tela||'',marca:it.marca||(marcasList&&marcasList[0])||'By Nina',foto:it.foto||'',categoria:it.categoria||'',_ts:ts};
     });
   });
+  Object.values(porCodigo).forEach(p=>{ p.origen='fabrica'; });
+  // Prendas compradas a proveedores: entran por Logística con origen 'proveedor'.
+  // Clave con prefijo para que nunca choquen con un código de fábrica.
+  Object.values(logiItemsData||{}).forEach(it=>{
+    if(!it||it.origen!=='proveedor') return;
+    const code=(it.code||'').trim(); const key='prov_'+pmKey(code||it.name);
+    const ts=it.fecha_creado||0; const prev=porCodigo[key];
+    const mejor=!prev || (!!it.foto && !prev.foto) || ((!!it.foto===!!prev.foto) && ts>prev._ts);
+    if(mejor) porCodigo[key]={key,code,name:it.name||'',tela:it.tela||'',marca:it.marca||(marcasList&&marcasList[0])||'By Nina',foto:it.foto||'',categoria:'',origen:'proveedor',proveedor:it.proveedor||'',_ts:ts};
+  });
   return Object.values(porCodigo).sort((a,b)=>String(a.code||a.name).localeCompare(String(b.code||b.name),'es',{numeric:true}));
 }
 function pmTile(p, extra){
@@ -11051,8 +11070,8 @@ function pmTile(p, extra){
     <div class="pm-info">
       <span class="pm-code">${pmEsc(p.code||'(sin código)')}</span>
       <span class="pm-name">${pmEsc(p.name)}</span>
-      <span class="pm-tela">${pmEsc(p.tela)}</span>
-      <span class="pm-marca ${String(p.marca).toLowerCase().includes('mini')?'mini':''}">${pmEsc(p.marca)}</span>
+      <span class="pm-tela">${p.origen==='proveedor'?pmEsc(p.proveedor?('Prov. '+p.proveedor):'Proveedor')+(p.tela?' · '+pmEsc(p.tela):''):pmEsc(p.tela)}</span>
+      <span class="pm-chips"><span class="pm-marca ${String(p.marca).toLowerCase().includes('mini')?'mini':''}">${pmEsc(p.marca)}</span>${p.origen==='proveedor'?'<span class="pm-marca prov">Proveedor</span>':''}</span>
     </div>
     ${extra&&extra.after||''}
   </div>`;
@@ -11072,7 +11091,10 @@ function renderProdMes(){
   if(!boards.length) html+=`<div class="empty-state">No hay tableros en ${pmMesLabel(pmMes)}.</div>`;
   boards.forEach(([bid,b])=>{
     const items=Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0));
-    const tiles=items.map(([k,p])=>pmTile(p,{after: edit?`<button class="pm-quitar" aria-label="Quitar" onclick="pmQuitar('${bid}','${k}')">×</button>`:''})).join('');
+    const tiles=items.map(([k,p],i)=>pmTile(p,{
+      attrs: edit?`draggable="true" data-bid="${bid}" data-k="${pmEsc(k)}" ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)" ondragover="pmDragOver(event)" ondrop="pmDrop(event)"`:'',
+      after: edit?`<button class="pm-quitar" aria-label="Quitar" onclick="pmQuitar('${bid}','${k}')">×</button>
+        <div class="pm-mover"><button aria-label="Mover antes" ${i===0?'disabled':''} onclick="pmMover('${bid}','${k}',-1)">‹</button><button aria-label="Mover después" ${i===items.length-1?'disabled':''} onclick="pmMover('${bid}','${k}',1)">›</button></div>`:''})).join('');
     html+=`<div class="pm-board">
       <div class="pm-board-head">
         <div class="pm-board-title">${pmEsc(b.title)} <span class="sec-count">${items.length}</span></div>
@@ -11111,6 +11133,42 @@ function pmBorrar(bid){
   if(!confirm(`¿Borrar el tablero "${b.title}"? Los artículos no se tocan.`)) return;
   db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}`).remove();
 }
+// ---- Orden manual ----
+function pmOrdenActual(bid){
+  const b=(pmData[pmMes]||{})[bid]||{};
+  return Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0)).map(([k])=>k);
+}
+function pmGuardarOrden(bid,keys){
+  const upd={}; keys.forEach((k,i)=>{ upd[`${k}/orden`]=i; });
+  db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/items`).update(upd);
+}
+function pmMover(bid,k,delta){
+  const keys=pmOrdenActual(bid); const i=keys.indexOf(k), j=i+delta;
+  if(i<0||j<0||j>=keys.length) return;
+  [keys[i],keys[j]]=[keys[j],keys[i]];
+  pmGuardarOrden(bid,keys);
+}
+let pmDrag=null;
+function pmDragStart(ev){ const t=ev.currentTarget; pmDrag={bid:t.dataset.bid,k:t.dataset.k}; ev.dataTransfer.effectAllowed='move'; ev.dataTransfer.setData('text/plain',pmDrag.k); setTimeout(()=>t.classList.add('dragging'),0); }
+function pmDragEnd(ev){ ev.currentTarget.classList.remove('dragging'); document.querySelectorAll('.pm-tile.drop-target').forEach(e=>e.classList.remove('drop-target')); pmDrag=null; }
+function pmDragOver(ev){
+  if(!pmDrag||ev.currentTarget.dataset.bid!==pmDrag.bid) return;
+  ev.preventDefault(); ev.dataTransfer.dropEffect='move';
+  document.querySelectorAll('.pm-tile.drop-target').forEach(e=>{ if(e!==ev.currentTarget) e.classList.remove('drop-target'); });
+  ev.currentTarget.classList.add('drop-target');
+}
+function pmDrop(ev){
+  ev.preventDefault();
+  if(!pmDrag) return;
+  const t=ev.currentTarget, bid=t.dataset.bid, target=t.dataset.k;
+  if(bid!==pmDrag.bid||target===pmDrag.k){ pmDrag=null; return; }
+  const keys=pmOrdenActual(bid).filter(k=>k!==pmDrag.k);
+  // Si soltás sobre la mitad derecha de una foto, queda después; si no, antes.
+  const r=t.getBoundingClientRect(); const despues=ev.clientX>r.left+r.width/2;
+  keys.splice(keys.indexOf(target)+(despues?1:0),0,pmDrag.k);
+  pmGuardarOrden(bid,keys);
+  pmDrag=null;
+}
 function pmQuitar(bid,k){ db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/items/${k}`).remove(); }
 function pmCopiar(desde){
   const src=pmData[desde]||{}; const upd={}; let i=0;
@@ -11122,7 +11180,7 @@ function pmCopiar(desde){
   if(typeof showToast==='function') showToast('Tableros copiados — sumá o sacá lo que cambie este mes');
 }
 // ---- Sumar productos ----
-function pmAbrirSumar(bid){ pmSumarBoard=bid; pmSel=new Set(); pmBusca=''; pmFMarca=''; pmFTela=''; renderProdMes(); window.scrollTo(0,0); }
+function pmAbrirSumar(bid){ pmSumarBoard=bid; pmSel=new Set(); pmBusca=''; pmFMarca=''; pmFTela=''; pmFOrigen=''; renderProdMes(); window.scrollTo(0,0); }
 function pmCerrarSumar(){ pmSumarBoard=null; pmSel=new Set(); renderProdMes(); }
 function pmToggleSel(k){ if(pmSel.has(k)) pmSel.delete(k); else pmSel.add(k); renderPmSumar(); }
 function renderPmSumar(){
@@ -11134,7 +11192,7 @@ function renderPmSumar(){
   const marcas=[...new Set(cat.map(p=>p.marca).filter(Boolean))].sort();
   const telas=[...new Set(cat.map(p=>p.tela).filter(Boolean))].sort();
   const q=pmBusca.trim().toLowerCase();
-  const lista=cat.filter(p=>(!q||(p.code+' '+p.name).toLowerCase().includes(q))&&(!pmFMarca||p.marca===pmFMarca)&&(!pmFTela||p.tela===pmFTela));
+  const lista=cat.filter(p=>(!q||(p.code+' '+p.name+' '+(p.proveedor||'')).toLowerCase().includes(q))&&(!pmFMarca||p.marca===pmFMarca)&&(!pmFTela||p.tela===pmFTela)&&(!pmFOrigen||p.origen===pmFOrigen));
   const opt=(arr,v)=>arr.map(x=>`<option value="${pmEsc(x)}" ${x===v?'selected':''}>${pmEsc(x)}</option>`).join('');
   const tiles=lista.map(p=>{
     const enTablero=!!ya[p.key], sel=pmSel.has(p.key);
@@ -11144,11 +11202,12 @@ function renderPmSumar(){
   }).join('');
   cont.innerHTML=`<div class="pm-sumar-head">
       <button class="pm-volver" onclick="pmCerrarSumar()">‹ Volver</button>
-      <span class="pm-sub">Productos Perfectos</span>
+      <span class="pm-sub">Terminados de fábrica y de proveedores</span>
     </div>
     <div class="pm-sumar-title">Sumar a «${pmEsc(b.title)}»</div>
     <input class="pm-search" id="pm-search" type="text" placeholder="Buscar por código o nombre" value="${pmEsc(pmBusca)}" oninput="pmBusca=this.value;renderPmSumar();const e=document.getElementById('pm-search');e.focus();e.setSelectionRange(e.value.length,e.value.length)">
     <div class="filtro-corte-bar" style="margin:8px 0 12px">
+      <select class="filtro-corte-select" onchange="pmFOrigen=this.value;renderPmSumar()"><option value="">Fábrica y proveedores</option><option value="fabrica" ${pmFOrigen==='fabrica'?'selected':''}>Fábrica Nina</option><option value="proveedor" ${pmFOrigen==='proveedor'?'selected':''}>Proveedores</option></select>
       <select class="filtro-corte-select" onchange="pmFMarca=this.value;renderPmSumar()"><option value="">Marca: todas</option>${opt(marcas,pmFMarca)}</select>
       <select class="filtro-corte-select" onchange="pmFTela=this.value;renderPmSumar()"><option value="">Tela: todas</option>${opt(telas,pmFTela)}</select>
     </div>
@@ -11159,7 +11218,7 @@ function pmAgregarSel(){
   const b=(pmData[pmMes]||{})[pmSumarBoard]; if(!b) return;
   const cat=pmCatalogo(); const upd={}; let orden=Object.keys(b.items||{}).length;
   cat.filter(p=>pmSel.has(p.key)).forEach(p=>{
-    upd[p.key]={code:p.code,name:p.name,tela:p.tela,marca:p.marca,foto:p.foto,orden:orden++,agregadoEn:Date.now(),agregadoPor:currentUser};
+    upd[p.key]={code:p.code,name:p.name,tela:p.tela,marca:p.marca,foto:p.foto,origen:p.origen,proveedor:p.proveedor||'',orden:orden++,agregadoEn:Date.now(),agregadoPor:currentUser};
   });
   db.ref(`fabrica_v5/productos_mes/${pmMes}/${pmSumarBoard}/items`).update(upd);
   pmCerrarSumar();
@@ -11854,6 +11913,7 @@ let logiNotaPendiente = null;
 // "Entregas del taller" en Fábrica/Talleres siempre está al día, lo abra o no Emir.
 db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
+  if(pmSumarBoard&&!document.getElementById('tab-prodmes').classList.contains('hidden')) renderPmSumar();
   logiBackfillFechaEntrega();
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
   if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();

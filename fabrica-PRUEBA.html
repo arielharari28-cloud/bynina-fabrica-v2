@@ -1889,6 +1889,9 @@ function delEstColoresFoto(estId){
 }
 
 // --- Render de la pestaña Estampas ---
+// Solo reemplaza el contenido si cambió: así un aviso de la base que no cambia nada visible
+// (otra persona guardando algo, un dato interno) no redibuja la pestaña ni la hace "moverse".
+function setHtmlSiCambia(el,html){ if(!el) return; if(el.__ultimoHtml===html) return; el.__ultimoHtml=html; el.innerHTML=html; }
 function renderEstampadosTab(){
   const cont=document.getElementById('estampas-board');
   if(!cont) return;
@@ -1898,11 +1901,11 @@ function renderEstampadosTab(){
   const listos=lista.reduce((a,c)=>a+Object.values(c.estampas).filter(x=>x.estado==='listo').length,0);
   const totalUnidades=lista.reduce((a,c)=>a+Object.values(c.fotos).reduce((s,f)=>s+(f.cant||0),0),0);
   const statsEl=document.getElementById('estampas-stats');
-  if(statsEl) statsEl.innerHTML=`
+  if(statsEl) setHtmlSiCambia(statsEl,`
     <div class="est-stat"><span class="est-stat-num">${lista.length}</span><span class="est-stat-label">Cortes</span></div>
     <div class="est-stat"><span class="est-stat-num">${totalUnidades}</span><span class="est-stat-label">Unidades</span></div>
     <div class="est-stat"><span class="est-stat-num">${listos}</span><span class="est-stat-label">Estampas listas</span></div>
-    <div class="est-stat"><span class="est-stat-num">${totalEst}</span><span class="est-stat-label">Estampas total</span></div>`;
+    <div class="est-stat"><span class="est-stat-num">${totalEst}</span><span class="est-stat-label">Estampas total</span></div>`);
 
   const counts={todos:totalEst};
   EST_ESTADOS.forEach(s=>{ counts[s.key]=lista.reduce((a,c)=>a+Object.values(c.estampas).filter(x=>x.estado===s.key).length,0); });
@@ -1912,10 +1915,10 @@ function renderEstampadosTab(){
   lista.forEach(c=>{ estadoPorCorte[c.id]=estadoCorteVinculado(c.numero); });
   const totalFinalizados=lista.filter(c=>estadoPorCorte[c.id]&&estadoPorCorte[c.id].cls==='finalizado').length;
   const filtrosEl=document.getElementById('estampas-filtros');
-  filtrosEl.innerHTML=[{key:'todos',label:'Todos'},...EST_ESTADOS].map(s=>
+  setHtmlSiCambia(filtrosEl,[{key:'todos',label:'Todos'},...EST_ESTADOS].map(s=>
     `<button class="filter-pill ${estFilter===s.key?'active':''}" onclick="estFilter='${s.key}';renderEstampadosTab()">${s.label} <span class="cnt">${counts[s.key]||0}</span></button>`
   ).join('')
-  +`<button class="filter-pill" style="margin-left:10px;border-color:#177a3e;${estVistaFinalizados?'background:#177a3e;color:#fff':'color:#177a3e'}" onclick="estVistaFinalizados=!estVistaFinalizados;renderEstampadosTab()">✅ Finalizados <span class="cnt">${totalFinalizados}</span></button>`;
+  +`<button class="filter-pill" style="margin-left:10px;border-color:#177a3e;${estVistaFinalizados?'background:#177a3e;color:#fff':'color:#177a3e'}" onclick="estVistaFinalizados=!estVistaFinalizados;renderEstampadosTab()">✅ Finalizados <span class="cnt">${totalFinalizados}</span></button>`);
 
   const telas=[...new Set(lista.map(c=>(c.tela||'').trim()).filter(Boolean))].sort();
   const telaSel=document.getElementById('estampas-tela-filter');
@@ -1939,7 +1942,7 @@ function renderEstampadosTab(){
     return;
   }
 
-  cont.innerHTML=visibles.map(c=>{
+  setHtmlSiCambia(cont,visibles.map(c=>{
     const totalCant=Object.values(c.fotos).reduce((a,f)=>a+(f.cant||0),0);
     const esPendienteUso=(c.numero||'').trim().toUpperCase().includes('PENDIENTE DE USO');
     const estampasEntries=Object.entries(c.estampas);
@@ -2061,7 +2064,7 @@ function renderEstampadosTab(){
       <div class="est-grid">${gridItems}${addEstBtn}</div>
       ${coloresHtml}
     </div>`;
-  }).join('');
+  }).join(''));
 }
 // ================== FIN ESTAMPAS DTF ==================
 
@@ -12201,6 +12204,15 @@ function estSyncDesdeCortes(){
       });
     }
   });
+  // Freno: si una misma tarjeta se reescribió más de 3 veces en un minuto, algo está peleando (por
+  // ejemplo alguien con una versión vieja de la app abierta): se deja de sincronizar por 10 minutos.
+  const ahora=Date.now();
+  const idDe=p2=>(p2.match(/^estampados\/([^/]+)/)||[])[1];
+  Object.keys(upd).forEach(p2=>{ const id=idDe(p2); if(id&&estFrenadas[id]>ahora) delete upd[p2]; });
+  [...new Set(Object.keys(upd).map(idDe).filter(Boolean))].forEach(id=>{
+    const h=(estEscrituras[id]||[]).filter(t=>t>ahora-60000); h.push(ahora); estEscrituras[id]=h;
+    if(h.length>3){ estFrenadas[id]=ahora+600000; console.warn('Estampas: se frena la sincronización de',id,upd); Object.keys(upd).forEach(p2=>{ if(idDe(p2)===id) delete upd[p2]; }); }
+  });
   if(!Object.keys(upd).length) return;
   const firma=JSON.stringify(upd,(k,v)=>k==='fecha_creado'?undefined:v);
   if(firma===estUltimaFirma) return;   // ya se intentó exactamente esto: no insistir
@@ -12208,6 +12220,7 @@ function estSyncDesdeCortes(){
   db.ref('fabrica_v5').update(upd).catch(err=>console.error('Sync Estampas:',err));
 }
 let estUltimaFirma='';
+const estEscrituras={}, estFrenadas={};
 
 let galeriaDragKey=null;
 function onGaleriaDragStart(ev){

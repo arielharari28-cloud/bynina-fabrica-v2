@@ -12144,8 +12144,7 @@ function cmpPuedeCrear(secId,sec,item){
   if(sec&&String(sec.tipo||'').startsWith('muestra')) return false;
   const e=cortesTabEstado(secId,sec,item);
   if(e&&e.key==='finalizado') return false;   // ya entregado: no se le agregan complementos
-  if(currentUser==='ariel') return true;
-  return currentUser==='peque'&&secId===cmpSecTizada();   // Peque: solo antes de confirmar la tizada
+  return currentUser==='ariel'||currentUser==='peque';   // Ariel y Peque, en cualquier etapa antes de finalizar
 }
 function cmpCrear(secId,itemId){
   const sec=sectionsData[secId], item=(sec&&sec.items||{})[itemId];
@@ -12197,7 +12196,13 @@ function cmpReferenciaHtml(parent){
 }
 // Franja que se agrega debajo de la tarjeta de cualquier corte.
 function cmpStripHtml(secId,itemId,item,sec){
-  if(!item||!item.numero_corte) return '';
+  if(!item) return '';
+  if(!item.numero_corte){
+    // Sin N° de corte no se puede armar el 10B: se avisa en vez de esconder el botón.
+    if((currentUser==='ariel'||currentUser==='peque')&&!String((sec&&sec.tipo)||'').startsWith('muestra')&&getBoard(sec)!=='diseno')
+      return `<div style="margin:-4px 0 10px;padding:9px 12px;border-radius:0 0 10px 10px;background:#f3efe7;font-size:12px;border:1px solid var(--border);border-top:0;color:var(--text2)">🧩 Para marcar que lleva complemento, primero asigná el <b>N° de corte</b> (el complemento sale como ese número + B, C…).</div>`;
+    return '';
+  }
   const caja=(bg,html)=>`<div style="margin:-4px 0 10px;padding:9px 12px;border-radius:0 0 10px 10px;background:${bg};font-size:12px;border:1px solid var(--border);border-top:0">${html}</div>`;
   if(item.es_complemento&&item.complemento_de){
     const p=cmpFind(item.complemento_de.numero);
@@ -12222,7 +12227,7 @@ function cmpStripHtml(secId,itemId,item,sec){
   }).join('');
   return caja(pendSin.length?'#fdecea':'#f3efe7',`${pendSin.length?`<div style="color:#9a3412;font-weight:800;margin-bottom:6px">SE CORTÓ SIN COMPLEMENTO — ESPERANDO ENTREGAR A TALLER (${pendSin.map(L=>cmpEsc(String(item.numero_corte).trim()+L)).join(', ')})</div>`:''}
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">${comps.length?'<span style="font-weight:700;margin-right:6px">Complementos:</span>':''}${filas}
-    ${puede?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent);font-weight:700" onclick="cmpCrear('${secId}','${itemId}')">+ Lleva complemento</button>`:''}</div>`);
+    ${puede?`<button class="btn-sm" style="min-height:38px;padding:0 14px;border:1.5px solid var(--accent);background:var(--accent-bg);color:var(--accent);font-weight:800;font-size:13px" onclick="cmpCrear('${secId}','${itemId}')">🧩 + Lleva complemento (cuello, lazo…)</button>`:''}</div>`);
 }
 // Aviso fijo arriba de la pestaña Cortes con los cortes que salieron sin su complemento.
 function cmpBannerCortesHtml(){

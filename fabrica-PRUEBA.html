@@ -9140,6 +9140,7 @@ function openRollosModal(secId,itemId){
   };
   const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||'',stockId:r.stockId||'',codigo:r.codigo||'',sobranteReal:(r.sobranteReal===undefined||r.sobranteReal===null)?'':String(r.sobranteReal)}));
   rollosCtx.rows=filasExistentes;
+  rollosCtx.stockAlAbrir=new Set(filasExistentes.filter(r=>r.stockId).map(r=>r.stockId));
   renderRollosModal();
   document.getElementById('modal-rollos').classList.remove('hidden');
 }
@@ -11732,7 +11733,7 @@ function renderTsTela(){
             <span><b>${tsFmt(rest,1)} ${u}</b>${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
             <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
             <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}</span>
-          </div>`; }).join('')}
+          </div>${tsUsosHtml(id,r)}`; }).join('')}
       </div>`; }).join('')||'<div class="empty-state">No hay rollos disponibles de esta tela.</div>'}`;
 }
 function tsSetDolar(v){ db.ref('fabrica_v5/telas_stock/config/dolarHoy').set(tsNum(v)||null); }
@@ -11760,7 +11761,7 @@ function renderTsColor(){
         <div style="text-align:right"><b>${r.estado==='sobrante'&&tsNum(r.restante)!==tsNum(r.inicial)?`${tsFmt(tsNum(r.restante),1)} de ${tsFmt(tsNum(r.inicial),1)} ${u}`:`${tsFmt(tsNum(r.estado==='usado'?r.inicial:r.restante),1)} ${u}`}</b>
           <span class="ts-estado ${e[1]}">${e[0]}</span>${currentUser==='ariel'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}
           ${tsPuedeCargar()&&r.estado!=='usado'?`<br><button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar en un corte</button>`:''}</div>
-      </div>${Object.values(r.usos||{}).filter(Boolean).length?`<div class="ts-sub" style="margin:-4px 0 10px 12px">Usado en: ${Object.values(r.usos).filter(Boolean).map(u=>`corte ${tsEsc(u.corte||'—')} (${tsFmt(tsNum(u.usado),1)}${u.pendiente?', pendiente':''})`).join(' · ')}</div>`:''}`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
+      </div><div style="margin:-4px 0 10px 12px">${tsUsosHtml(id,r)}</div>`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
 }
 
 // ---- remitos cargados ----
@@ -11803,6 +11804,23 @@ function tsEditarRollo(id){
   db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,ajuste:ajuste||null,restante:rest,estado:tsEstadoDe(nr,rest),editadoPor:currentUser,editadoEn:Date.now()});
   logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · entró ${r.inicial} → ${nuevoIni} · queda ${rest}`);
   showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${un}`);
+}
+function tsQuitarUso(id,ctx){
+  if(!tsPuedeCargar()) return;
+  const r=tsData.rollos[id]; if(!r||!r.usos||!r.usos[ctx]) return;
+  const u=r.usos[ctx];
+  if(!confirm(`¿Sacar el uso del corte ${u.corte||''} del rollo ${r.codigo}? Vuelven ${tsFmt(tsNum(u.usado),2)} ${tsUnidadTxt(r.unidad)} al stock.`)) return;
+  const usos={...r.usos}; delete usos[ctx];
+  const sinUsos=!Object.values(usos).some(Boolean);
+  const nr={...r,usos,ajuste:sinUsos?0:r.ajuste}; const rest=tsRestanteDe(nr);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({[`usos/${ctx}`]:null,restante:rest,estado:tsEstadoDe(nr,rest),...(sinUsos&&r.ajuste?{ajuste:null}:{})});
+  logActivity('Quitó uso de rollo',`${r.codigo} · corte ${u.corte||''}`);
+  showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${tsUnidadTxt(r.unidad)}`);
+}
+function tsUsosHtml(id,r){
+  const us=Object.entries(r.usos||{}).filter(([,u])=>u);
+  if(!us.length) return '';
+  return `<div class="ts-sub" style="margin:2px 0 6px">Usado en: ${us.map(([k,u])=>`<span style="display:inline-flex;align-items:center;gap:3px;background:var(--surface2);border-radius:999px;padding:1px 8px;margin:2px 4px 2px 0">corte ${tsEsc(u.corte||'—')} (${tsFmt(tsNum(u.usado),1)}${u.pendiente?', pendiente':''})${tsPuedeCargar()?`<button style="border:0;background:none;color:#b42318;cursor:pointer;font-size:13px;padding:0 2px" title="Sacar este uso" onclick="tsQuitarUso('${id}','${k}')">×</button>`:''}</span>`).join('')}</div>`;
 }
 function tsRollosDeRemitoHtml(remId){
   const rs=Object.entries(tsData.rollos).filter(([,x])=>x&&x.remitoId===remId).sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
@@ -11964,7 +11982,9 @@ function tsEstadoDe(r,restante){
   const usos=Object.values(r.usos||{}).filter(Boolean);
   if(usos.some(u=>u.pendiente)) return 'revision';
   if(restante<=0.05) return usos.length?'usado':'entero';
-  return usos.length||r.estado==='sobrante'?'sobrante':'entero';
+  if(usos.length) return 'sobrante';
+  // sin usos: un rollo de remito vuelve a "entero"; uno del stock inicial conserva lo que se cargó (entero o sobrante)
+  return r.deInventario&&r.estado==='sobrante'?'sobrante':'entero';
 }
 // Solo rollos de la TELA de este corte (comparación sin mayúsculas ni acentos).
 function tsNorm(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
@@ -12058,10 +12078,14 @@ function tsAplicarConsumo(ctx,rows,info){
   const upd={}; let compartidos=0, sinMedidas=false;
   // rollos que este corte usaba antes y ya no: se les saca el uso
   Object.entries(tsData.rollos).forEach(([id,r])=>{
-    if(r&&r.usos&&r.usos[ctx]&&!r.usos[ctx].manual&&!(id in usadoPor)){
+    const sacadoDelModal=rollosCtx.stockAlAbrir&&rollosCtx.stockAlAbrir.has(id);
+    if(r&&r.usos&&r.usos[ctx]&&(!r.usos[ctx].manual||sacadoDelModal)&&!(id in usadoPor)){
       const usos={...r.usos}; delete usos[ctx];
-      const nr={...r,usos}; const rest=tsRestanteDe(nr);
+      // sin ningún uso, un ajuste de pesada anterior ya no aplica: el rollo vuelve a lo que entró
+      const sinUsos=!Object.values(usos).some(Boolean);
+      const nr={...r,usos,ajuste:sinUsos?0:r.ajuste}; const rest=tsRestanteDe(nr);
       upd[`rollos/${id}/usos/${ctx}`]=null; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest);
+      if(sinUsos&&r.ajuste) upd[`rollos/${id}/ajuste`]=null;
     }
   });
   Object.entries(usadoPor).forEach(([id,usado])=>{

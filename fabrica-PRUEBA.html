@@ -1619,6 +1619,8 @@ function delEstCorte(estId){
   const e=estampadosData[estId]; if(!e) return;
   if(!confirm(`¿Borrar el corte ${e.numero} de Estampas?`)) return;
   db.ref(`fabrica_v5/estampados/${estId}`).remove();
+  const ckDesc=corteKeyFrom(String(e.numero||'').replace(/^Corte\s*/i,'').trim());
+  if(ckDesc) db.ref(`fabrica_v5/estampas_descartadas/${ckDesc}`).set({por:currentUser,fecha:Date.now()});
   // Si venía vinculado a una o más tarjetas de fabrica (un corte compartido puede tener varios
   // artículos apuntando al mismo estampado), les sacamos la marca "En Estampas" a TODOS para
   // que no quede ninguna colgada apuntando a un corte que ya no existe.
@@ -1688,7 +1690,12 @@ function cycleEstEstado(estId,estampaId){
   db.ref(`fabrica_v5/estampados/${estId}/estampas/${estampaId}/estado`).set(next);
 }
 function delEstEstampa(estId,estampaId){
-  db.ref(`fabrica_v5/estampados/${estId}/estampas/${estampaId}`).remove();
+  const est=((estampadosData[estId]||{}).estampas||{})[estampaId]||{};
+  const code=String(est.articulo||'').split(/\s[—–-]\s/)[0].trim().toUpperCase();
+  const upd={}; upd[`fabrica_v5/estampados/${estId}/estampas/${estampaId}`]=null;
+  // la carga automática desde el corte no vuelve a agregar una estampa que alguien borró a mano
+  if(code) upd[`fabrica_v5/estampados/${estId}/ignorados/${code.replace(/[.#$\[\]\/\s]/g,'_')}`]=true;
+  db.ref().update(upd);
 }
 // Reparto por color a mano: abre un campo editable por cada color del corte, precargado con
 // lo que le tocaría automático a esta estampa. Si lo dejás igual, sigue siendo automático
@@ -12149,7 +12156,8 @@ function buildItem(secId,itemId,item,sec,idx,total){
 //  - los colores y cantidades de lo realmente cortado (salvo que alguien los haya editado a mano
 //    en Estampas: ahí se respeta lo manual y solo se avisa si no coincide).
 // No borra nada: las estampas que no están en el corte quedan marcadas en rojo para sacarlas a mano.
-let estSyncTimer=null;
+let estSyncTimer=null, estDescartadas={};
+db.ref('fabrica_v5/estampas_descartadas').on('value',snap=>{ estDescartadas=snap.val()||{}; });
 function estProgramarSync(){ clearTimeout(estSyncTimer); estSyncTimer=setTimeout(estSyncDesdeCortes,1500); }
 function estSyncDesdeCortes(){
   if(!currentUser||!sectionsData||!estampadosData) return;
@@ -12165,10 +12173,12 @@ function estSyncDesdeCortes(){
   const upd={};
   Object.entries(cortes).forEach(([numero,arts])=>{
     const ck=corteKeyFrom(numero);
+    const hayTarjeta=Object.values(estampadosData).some(e=>e&&String(e.numero||'').replace(/^Corte\s*/i,'').trim()===numero);
     // tarjeta existente: por id vinculado de algún artículo, o por N° de corte
     let estId=arts.map(a=>a.item.estampado_id).find(id=>id&&estampadosData[id]);
     if(!estId) estId=Object.keys(estampadosData).find(id=>{ const e=estampadosData[id]; return e&&String(e.numero||'').replace(/^Corte\s*/i,'').trim()===numero; });
     const real=estRealPorColor(arts[0].item);
+    if(!estId&&!hayTarjeta&&estDescartadas[ck]) return;   // la tarjeta se borró a mano: no se recrea
     if(!estId){
       estId='auto_'+ck;
       const fotos={}; Object.entries(real).forEach(([color,cant],i)=>{ fotos['c'+i]={color,estampaColor:'',cant}; });
@@ -12183,6 +12193,7 @@ function estSyncDesdeCortes(){
     arts.forEach(a=>{
       const code=String(a.item.code||'').trim();
       if(!code||codigos.has(code.toUpperCase())) return;
+      if((e.ignorados||{})[code.toUpperCase().replace(/[.#$\[\]\/\s]/g,'_')]) return;   // se borró a mano
       codigos.add(code.toUpperCase());
       const k='e_'+code.replace(/[.#$\[\]\/\s]/g,'_');
       const est={articulo:`${code} — ${a.item.name||''}`,estado:'dibujo',img:a.item.foto||'',auto_desde_corte:true};

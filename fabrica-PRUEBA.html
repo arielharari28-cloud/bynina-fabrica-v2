@@ -4890,6 +4890,17 @@ function editFaltanteCorte(secId,itemId){
 // --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  // El precio pactado con el taller es obligatorio antes de marcar la entrega: sin él, la
+  // entrega llega a Logística/Facturación sin poder calcular lo que se le debe.
+  if(item.numero_corte&&!(parseFloat(item.precio_taller)>0)){
+    const v=prompt(`Antes de marcar la entrega cargá el precio pactado con ${item.taller_corte||'el taller'} para el corte ${item.numero_corte} ($ por prenda):`,'');
+    if(v===null) return;
+    const n=parseFloat(String(v).replace(/\./g,'').replace(',','.'));
+    if(!(n>0)){ showToast('⏳ Sin precio del taller no se puede marcar como entregado'); return; }
+    db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/precio_taller`).set(n);
+    item.precio_taller=n;
+    logActivity('Cargó precio de taller',`${item.code||''} · corte ${item.numero_corte}: $${n}`);
+  }
   const hoy=new Date();
   const fechaDefault=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   // Si tiene pasos extra sin terminar (plancha, ojal, broche...), va primero al taller de

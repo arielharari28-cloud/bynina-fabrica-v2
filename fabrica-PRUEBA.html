@@ -11621,9 +11621,18 @@ function renderTelasStock(){
       </div>
       <div class="ts-plata-nota">${tsFmt(val.kg,1)} kg${val.m?` y ${tsFmt(val.m,1)} m`:''} en stock · sobrantes incluidos</div>
     </div>
-    <input class="ts-search" id="ts-search" type="text" placeholder="Buscar tela, color o proveedor" value="${tsEsc(tsVista.busca)}"
+    <input class="ts-search" id="ts-search" type="text" placeholder="Buscar tela, color, proveedor o N° de corte" value="${tsEsc(tsVista.busca)}"
       oninput="tsVista.busca=this.value;renderTelasStock();const e=document.getElementById('ts-search');e.focus();e.setSelectionRange(e.value.length,e.value.length)">`;
-  if(!telas.length) html+=`<div class="empty-state">${Object.keys(tsData.rollos).length?'Ninguna tela coincide con la búsqueda.':'Todavía no hay tela cargada. '+(tsPuedeCargar()?'Tocá “+ Ingresar remito” cuando llegue la próxima.':'')}</div>`;
+  if(/^\s*(corte\s*)?\d+[a-z]?\s*$/i.test(tsVista.busca)){
+    const n=tsVista.busca.trim().replace(/^corte\s*/i,'');
+    const ck=corteKeyFrom(n);
+    const usados=Object.entries(tsData.rollos).filter(([,r])=>r&&r.usos&&r.usos['c_'+ck]);
+    html+=`<div class="ts-card"><div class="ts-tela">Rollos usados en el corte ${tsEsc(n)}</div>
+      ${usados.length?usados.map(([rid,r])=>{ const u=r.usos['c_'+ck]; return `<div class="ts-fila" style="grid-template-columns:.8fr 1.4fr 1fr 1fr;cursor:default">
+        <b>${tsEsc(r.codigo)}</b><span>${tsEsc(r.tela)} · ${tsEsc(r.color)}</span><span>usó ${tsFmt(tsNum(u.usado),2)} ${tsUnidadTxt(r.unidad)}${u.pendiente?' (pendiente)':''}</span><span class="ts-c-total">queda ${tsFmt(tsRestanteDe(r),2)}</span></div>`; }).join('')
+      :'<div class="ts-sub" style="margin-top:6px">Ningún rollo del stock está anotado en ese corte.</div>'}</div>`;
+  }
+  if(!telas.length&&!/^\s*(corte\s*)?\d+[a-z]?\s*$/i.test(tsVista.busca)) html+=`<div class="empty-state">${Object.keys(tsData.rollos).length?'Ninguna tela coincide con la búsqueda.':'Todavía no hay tela cargada. '+(tsPuedeCargar()?'Tocá “+ Ingresar remito” cuando llegue la próxima.':'')}</div>`;
   telas.forEach(t=>{
     const u=tsUnidadTxt(t.unidad), ult=t.ultima;
     const vieja=ult&&ult.fecha&&(Date.now()-new Date(ult.fecha+'T12:00:00'))>60*86400000;
@@ -11671,7 +11680,8 @@ function renderTsColor(){
       return `<div class="ts-rollo">
         <div><b>${tsEsc(r.codigo)}</b><span class="ts-sub">${r.deInventario?'Stock inicial':'Remito '+tsEsc(r.numeroRemito||'')} · ${tsFechaCorta(r.fechaIngreso)}</span></div>
         <div style="text-align:right"><b>${r.estado==='sobrante'&&tsNum(r.restante)!==tsNum(r.inicial)?`${tsFmt(tsNum(r.restante),1)} de ${tsFmt(tsNum(r.inicial),1)} ${u}`:`${tsFmt(tsNum(r.estado==='usado'?r.inicial:r.restante),1)} ${u}`}</b>
-          <span class="ts-estado ${e[1]}">${e[0]}</span>${currentUser==='ariel'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}</div>
+          <span class="ts-estado ${e[1]}">${e[0]}</span>${currentUser==='ariel'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}
+          ${tsPuedeCargar()&&r.estado!=='usado'?`<br><button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar en un corte</button>`:''}</div>
       </div>${Object.values(r.usos||{}).filter(Boolean).length?`<div class="ts-sub" style="margin:-4px 0 10px 12px">Usado en: ${Object.values(r.usos).filter(Boolean).map(u=>`corte ${tsEsc(u.corte||'—')} (${tsFmt(tsNum(u.usado),1)}${u.pendiente?', pendiente':''})`).join(' · ')}</div>`:''}`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
 }
 
@@ -11710,6 +11720,31 @@ function tsEditarRollo(id){
   db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,restante:rest,estado:tsEstadoDe(nr,rest),editadoPor:currentUser,editadoEn:Date.now()});
   logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · ${r.inicial} → ${nuevoIni}`);
   showToast(`✓ ${r.codigo} actualizado`);
+}
+// Desde Telas: anotar que un rollo se usó en un N° de corte (sin abrir el corte). Se guarda con el
+// mismo identificador que usa el modal de rollos de ese corte, así no se cuenta dos veces.
+function tsAsignarACorte(id){
+  if(!tsPuedeCargar()) return;
+  const r=tsData.rollos[id]; if(!r) return;
+  const num=prompt(`¿En qué N° de corte se usó el rollo ${r.codigo}?`); if(!num||!num.trim()) return;
+  const numero=num.trim().replace(/^corte\s*/i,'');
+  const ck=corteKeyFrom(numero); if(!ck){ showToast('N° de corte inválido'); return; }
+  const f=cmpFind(numero);
+  if(!f&&!confirm(`No encuentro el corte ${numero} en la app. ¿Anotarlo igual?`)) return;
+  const disp=tsRestanteDe(r);
+  const q=prompt(`Rollo ${r.codigo}: tiene ${tsFmt(disp,2)} ${tsUnidadTxt(r.unidad)}.\n¿Cuánto QUEDÓ después del corte ${numero}? (dejá 0 si se usó entero)`,'0');
+  if(q===null) return;
+  const quedo=Math.max(0,tsNum(q));
+  if(quedo>disp){ showToast('Quedó más de lo que tenía el rollo'); return; }
+  const ctx='c_'+ck;
+  const otros=Object.entries(r.usos||{}).filter(([k,u])=>u&&k!==ctx);
+  const previo=(r.usos||{})[ctx];
+  const pendiente=otros.length>0&&!(previo&&!previo.pendiente);
+  const uso={corte:numero,code:f?f.item.code||'':'',usado:Math.round((disp+(previo&&!previo.pendiente?tsNum(previo.usado):0)-quedo)*100)/100,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente,manual:true};
+  const nr={...r,usos:{...(r.usos||{}),[ctx]:uso}}; const rest=tsRestanteDe(nr);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({[`usos/${ctx}`]:uso,restante:rest,estado:tsEstadoDe(nr,rest)});
+  logActivity('Asignó rollo a corte',`${r.codigo} → corte ${numero} · queda ${tsFmt(rest,2)}`);
+  showToast(pendiente?`${r.codigo}: ya estaba en otro corte — queda para revisión`:`✓ ${r.codigo} anotado en el corte ${numero} · queda ${tsFmt(rest,2)} ${tsUnidadTxt(r.unidad)}`);
 }
 function tsRollosDeRemitoHtml(remId){
   const rs=Object.entries(tsData.rollos).filter(([,x])=>x&&x.remitoId===remId).sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
@@ -11966,7 +12001,7 @@ function tsAplicarConsumo(ctx,rows,info){
   const upd={}; let compartidos=0, sinMedidas=false;
   // rollos que este corte usaba antes y ya no: se les saca el uso
   Object.entries(tsData.rollos).forEach(([id,r])=>{
-    if(r&&r.usos&&r.usos[ctx]&&!(id in usadoPor)){
+    if(r&&r.usos&&r.usos[ctx]&&!r.usos[ctx].manual&&!(id in usadoPor)){
       const usos={...r.usos}; delete usos[ctx];
       const nr={...r,usos}; const rest=tsRestanteDe(nr);
       upd[`rollos/${id}/usos/${ctx}`]=null; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest);

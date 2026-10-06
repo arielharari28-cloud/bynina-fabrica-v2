@@ -9086,7 +9086,7 @@ function openRollosModal(secId,itemId){
     peso:numAr(item.peso_metro),
     curvaSum:Object.values(item.curva_valores||{}).reduce((s,v)=>s+(parseInt(v)||0),0)
   };
-  const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||'',stockId:r.stockId||'',codigo:r.codigo||''}));
+  const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||'',stockId:r.stockId||'',codigo:r.codigo||'',sobranteReal:(r.sobranteReal===undefined||r.sobranteReal===null)?'':String(r.sobranteReal)}));
   rollosCtx.rows=filasExistentes;
   renderRollosModal();
   document.getElementById('modal-rollos').classList.remove('hidden');
@@ -9173,7 +9173,12 @@ function renderRollosModal(){
       <td><input type="number" min="0" step="0.01" value="${row.kgmts}" placeholder="0" oninput="rollosUpdateField('${row.id}','kgmts',this.value)" style="width:64px;padding:5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:6px"></td>
       <td><input type="number" min="0" value="${row.capas}" placeholder="0" oninput="rollosUpdateField('${row.id}','capas',this.value)" class="oc-capas-input" style="width:56px"></td>
       <td><span class="oc-cell-calc" id="rol-usado-${row.id}">${usado?usado.toFixed(2):'—'}</span></td>
-      <td><span class="oc-cell-calc" id="rol-sobrante-${row.id}">${row.kgmts?sobrante.toFixed(2):'—'}</span></td>
+      <td>${rStock
+        ? `<div style="display:flex;flex-direction:column;gap:3px;align-items:center">
+            <input type="number" min="0" step="0.01" value="${row.sobranteReal??''}" placeholder="${row.kgmts?sobrante.toFixed(2):'—'}" title="Si lo pesaron, poné lo que quedó de verdad. Vacío = se calcula por capas." oninput="rollosUpdateField('${row.id}','sobranteReal',this.value)" style="width:64px;padding:4px;font-size:12px;text-align:center;border:1px solid ${row.sobranteReal!==''&&row.sobranteReal!=null?'var(--accent)':'var(--border)'};border-radius:6px">
+            <button type="button" class="btn-sm" style="font-size:10.5px;padding:2px 6px;${String(row.sobranteReal)==='0'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="rollosUsadoEntero('${row.id}')">${String(row.sobranteReal)==='0'?'✓ Entero':'Se usó entero'}</button>
+          </div>`
+        : `<span class="oc-cell-calc" id="rol-sobrante-${row.id}">${row.kgmts?sobrante.toFixed(2):'—'}</span>`}</td>
       <td><input type="text" value="${(row.nota||'').replace(/"/g,'&quot;')}" placeholder="Ej: queda 1 rollo, 5m" oninput="rollosUpdateField('${row.id}','nota',this.value)" style="width:140px;padding:5px;font-size:12px;border:1px solid var(--border);border-radius:6px"></td>
       <td><button class="btn-danger" style="padding:2px 6px;font-size:11px" onclick="rollosRemoveRow('${row.id}')" title="Eliminar rollo">🗑️</button></td>
     </tr>`;
@@ -9216,7 +9221,7 @@ function saveRollos(){
   const rollosObj={};
   rows.forEach(row=>{
     if(!row.color&&!row.kgmts&&!row.capas) return;
-    rollosObj[row.id]={color:row.color||'',kgmts:row.kgmts!==''?parseFloat(row.kgmts)||0:'',capas:row.capas!==''?parseInt(row.capas)||0:'',nota:row.nota||'',stockId:row.stockId||null,codigo:row.codigo||null};
+    rollosObj[row.id]={color:row.color||'',kgmts:row.kgmts!==''?parseFloat(row.kgmts)||0:'',capas:row.capas!==''?parseInt(row.capas)||0:'',nota:row.nota||'',stockId:row.stockId||null,codigo:row.codigo||null,sobranteReal:(row.stockId&&String(row.sobranteReal??'').trim()!=='')?numAr(row.sobranteReal):null};
   });
   // descuenta del stock los rollos elegidos de la app (los "fuera de la app" no tocan nada)
   const filasGuardadas=rows.filter(row=>row.color||row.kgmts||row.capas);
@@ -11931,6 +11936,12 @@ function rollosAgregarSeleccionados(){
   rollosCtx.pickOpen=false; rollosCtx.pickSel=new Set();
   renderRollosModal();
 }
+// El rollo se terminó (o lo pesaron): lo real manda sobre el cálculo por capas.
+function rollosUsadoEntero(rowId){
+  const row=rollosCtx.rows.find(r=>r.id===rowId); if(!row) return;
+  row.sobranteReal=String(row.sobranteReal)==='0'?'':'0';
+  renderRollosModal();
+}
 function rollosElegirStock(rowId,stockId){
   const row=rollosCtx.rows.find(r=>r.id===rowId); if(!row) return;
   row.stockId=stockId||'';
@@ -11946,7 +11957,10 @@ function tsAplicarConsumo(ctx,rows,info){
     if(!row.stockId) return;
     const r=tsData.rollos[row.stockId]; if(!r) return;
     const capas=numAr(row.capas);
-    const usado=r.unidad==='m'?capas*rollosCtx.largo:capas*rollosCtx.largo*rollosCtx.peso;
+    const real=String(row.sobranteReal??'').trim();
+    const usado=real!==''
+      ? Math.max(0,numAr(row.kgmts)-numAr(real))                       // pesado / se usó entero
+      : (r.unidad==='m'?capas*rollosCtx.largo:capas*rollosCtx.largo*rollosCtx.peso);   // cálculo por capas
     usadoPor[row.stockId]=(usadoPor[row.stockId]||0)+usado;
   });
   const upd={}; let compartidos=0, sinMedidas=false;

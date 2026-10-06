@@ -784,6 +784,34 @@
   .ts-aviso{width:100%;text-align:left;min-height:44px;border:1px solid #c7d6ec;background:#e8eef7;color:#2c4a7a;border-radius:12px;padding:0 14px;font-weight:700;font-size:13px;cursor:pointer;margin-bottom:12px;font-family:inherit}
   .rol-stock{font-size:11.5px;padding:5px;border:1px solid var(--border);border-radius:6px;max-width:190px}
   .rol-stock.en{border-color:var(--accent);background:var(--accent-bg);font-weight:600}
+  /* --- Logística: detalle de entrega --- */
+  .ld-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px}
+  .ld-head{display:flex;gap:16px;align-items:center;margin-bottom:14px}
+  .ld-head #logi-detail-photo img,.ld-head #logi-detail-photo .logi-noimg{width:76px;height:96px;object-fit:cover;border-radius:10px}
+  .ld-meta{font-size:12.5px;color:var(--text2);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+  .ld-meta span:empty{display:none}
+  .ld-meta #logi-detail-corte{color:var(--accent);font-weight:700}
+  .ld-chip{font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;white-space:nowrap}
+  .ld-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+  .ld-kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px}
+  .ld-kpi span{display:block;font-size:12px;color:var(--text2)}
+  .ld-kpi b{font-size:24px;font-weight:800}
+  .ld-pend{margin-bottom:14px}
+  .ld-pend-t{font-size:13px;font-weight:800;margin-bottom:8px}
+  .ld-pend-row{display:flex;gap:8px;flex-wrap:wrap}
+  .ld-pbtn{min-height:44px;padding:0 16px;border-radius:999px;border:1.5px solid var(--border2);background:var(--surface);color:var(--text);font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  .ld-pbtn.ok{border-color:#15803d;background:#dcfce7;color:#166534}
+  .ld-pbtn small{font-weight:500;opacity:.8}
+  .ld-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(260px,1fr);gap:14px;align-items:start}
+  @media (max-width:900px){ .ld-grid{grid-template-columns:1fr} }
+  .ld-side{display:flex;flex-direction:column;gap:14px}
+  .ld-title{font-size:15px;font-weight:800;margin-bottom:8px}
+  .ld-row{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0;align-items:center}
+  .ld-mas summary{cursor:pointer;font-size:15px;font-weight:800;list-style:none}
+  .ld-mas summary::-webkit-details-marker{display:none}
+  .ld-mas summary::after{content:" ＋";color:var(--text2);font-weight:400}
+  .ld-mas[open] summary::after{content:" －"}
+  .logi-count-table.hide-esp .c-esp,.logi-count-table.hide-pc .c-pc,.logi-count-table.hide-ft .c-ft,.logi-count-table.hide-saldo .c-saldo{display:none}
 </style>
 </head>
 <body>
@@ -954,22 +982,35 @@
       </div>
       <div id="logi-detail-screen" class="hidden">
         <button class="logi-back-btn" onclick="logiCloseDetail()">← Volver a la lista</button>
-        <div class="logi-detail-header">
+        <div class="logi-detail-header ld-card ld-head">
           <div id="logi-detail-photo"></div>
-          <div>
-            <div style="font-weight:800;font-size:17px" id="logi-detail-code"></div>
-            <div style="font-size:13px;color:var(--text2)" id="logi-detail-name"></div>
-            <div style="font-size:12px;color:var(--accent);font-weight:600" id="logi-detail-corte"></div>
-            <div style="font-size:11px;color:var(--text3)" id="logi-detail-fecha"></div>
-            <div style="font-size:11px;color:var(--text3)" id="logi-detail-quienes"></div>
-            <div style="margin-top:6px" id="logi-detail-prioridad"></div>
-            <div style="margin-top:6px" id="logi-detail-etapa-ariel"></div>
-            <div style="margin-top:6px" id="logi-detail-eliminar"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:19px" id="logi-detail-code"></div>
+            <div style="font-size:14px;color:var(--text2)" id="logi-detail-name"></div>
+            <div class="ld-meta"><span id="logi-detail-corte"></span> <span id="logi-detail-fecha"></span> <span id="logi-detail-quienes"></span></div>
+          </div>
+          <div id="logi-detail-estado"></div>
+        </div>
+        <div id="logi-detail-kpis" class="ld-kpis"></div>
+        <div id="logi-detail-pend"></div>
+        <div class="ld-grid">
+          <div class="ld-card">
+            <div class="ld-title">Conteo por color y talle</div>
+            <div id="logi-rows-container"></div>
+            <div id="logi-final-summary"></div>
+          </div>
+          <div class="ld-side">
+            <div id="logi-detail-plata"></div>
+            <div id="logi-detail-web"></div>
+            <div id="logi-detail-extra"></div>
+            <details class="ld-card ld-mas" id="logi-detail-mas">
+              <summary>Más opciones</summary>
+              <div style="margin-top:8px" id="logi-detail-prioridad"></div>
+              <div style="margin-top:8px" id="logi-detail-etapa-ariel"></div>
+              <div style="margin-top:8px" id="logi-detail-eliminar"></div>
+            </details>
           </div>
         </div>
-        <div id="logi-detail-extra"></div>
-        <div id="logi-rows-container"></div>
-        <div id="logi-final-summary"></div>
       </div>
     </div>
     <div id="tab-web" class="hidden">
@@ -11628,8 +11669,8 @@ function renderTelasStock(){
     const ck=corteKeyFrom(n);
     const usados=Object.entries(tsData.rollos).filter(([,r])=>r&&r.usos&&r.usos['c_'+ck]);
     html+=`<div class="ts-card"><div class="ts-tela">Rollos usados en el corte ${tsEsc(n)}</div>
-      ${usados.length?usados.map(([rid,r])=>{ const u=r.usos['c_'+ck]; return `<div class="ts-fila" style="grid-template-columns:.8fr 1.4fr 1fr 1fr;cursor:default">
-        <b>${tsEsc(r.codigo)}</b><span>${tsEsc(r.tela)} · ${tsEsc(r.color)}</span><span>usó ${tsFmt(tsNum(u.usado),2)} ${tsUnidadTxt(r.unidad)}${u.pendiente?' (pendiente)':''}</span><span class="ts-c-total">queda ${tsFmt(tsRestanteDe(r),2)}</span></div>`; }).join('')
+      ${usados.length?`<div class="ts-fila ts-fila-head" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr"><span>Rollo</span><span>Tela · color</span><span>Entró con</span><span>Usó</span><span class="ts-c-total">Queda</span></div>`+usados.map(([rid,r])=>{ const u=r.usos['c_'+ck], un=tsUnidadTxt(r.unidad); return `<div class="ts-fila" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr;cursor:default">
+        <b>${tsEsc(r.codigo)}</b><span>${tsEsc(r.tela)} · ${tsEsc(r.color)}</span><span>${tsFmt(tsNum(r.inicial),2)} ${un}</span><span>${tsFmt(tsNum(u.usado),2)} ${un}${u.pendiente?' (pendiente)':''}</span><span class="ts-c-total">${tsFmt(tsRestanteDe(r),2)} ${un}</span></div>`; }).join('')
       :'<div class="ts-sub" style="margin-top:6px">Ningún rollo del stock está anotado en ese corte.</div>'}</div>`;
   }
   if(!telas.length&&!/^\s*(corte\s*)?\d+[a-z]?\s*$/i.test(tsVista.busca)) html+=`<div class="empty-state">${Object.keys(tsData.rollos).length?'Ninguna tela coincide con la búsqueda.':'Todavía no hay tela cargada. '+(tsPuedeCargar()?'Tocá “+ Ingresar remito” cuando llegue la próxima.':'')}</div>`;
@@ -11702,7 +11743,6 @@ function renderTsRemitos(){
         <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)} · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}</div>
         ${tsRollosDeRemitoHtml(id)}
         <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
-          <button class="ts-link" onclick="tsImprimirEtiquetas('${id}')">Imprimir etiquetas</button>
           ${tsPuedeCargar()&&!usados?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="tsBorrarRemito('${id}')">Borrar remito</button>`:''}
         </div>
       </div>`; }).join(''):'<div class="empty-state">Todavía no hay remitos cargados.</div>'}`;
@@ -11829,7 +11869,7 @@ function renderTsForm(){
       <button type="button" class="ts-addcolor" onclick="tsAddColor()">+ Agregar color</button>
       ${f.inicial?'<button type="button" class="ts-addcolor" onclick="tsAddColor(true)">+ Agregar sobrantes de un color</button>':''}
       <div class="ts-totales" id="ts-totales"></div>
-      <div class="ts-sub">Cada rollo recibe un código (T-0001, T-0002…). Escribilo o pegá la etiqueta en el rollo: es lo que el cortador va a elegir después.</div>
+      <div class="ts-sub">Cargá cada rollo con el peso que dice la etiqueta del proveedor: el cortador lo reconoce por color y peso.</div>
       <button type="button" class="ts-btn ts-guardar" id="ts-guardar" onclick="tsGuardarRemito()">${f.inicial?'Guardar stock inicial':'Guardar remito'}</button>
     </div>`;
   tsActualizarTotales();
@@ -11870,7 +11910,6 @@ async function tsGuardarRemito(){
     logActivity(f.inicial?'Cargó stock inicial de tela':'Ingresó remito de tela',`${f.inicial?'':f.numero+' · '}${f.tela} · ${t.rollos} rollos`);
     showToast(`✓ ${f.inicial?'Stock inicial':'Remito'} guardado: ${t.rollos} rollos al stock`);
     tsForm=null; tsVista.modo='remitos'; renderTelasStock();
-    if(confirm('¿Imprimir las etiquetas de los rollos ahora?')) tsImprimirEtiquetas(remId);
   }catch(e){ console.error(e); showToast('✗ No se pudo guardar. Revisá la conexión y probá de nuevo.'); btn.disabled=false; btn.textContent='Guardar remito'; }
 }
 // Etiquetas: una por rollo, con el código grande, para pegar o copiar en el rollo.
@@ -11934,7 +11973,7 @@ function tsColorOrdenPara(colorRollo){
 function tsOpcionesRollo(row){
   const propias=tsRollosDeLaTela(row.id);
   const actual=row.stockId&&tsData.rollos[row.stockId]&&!propias.some(([id])=>id===row.stockId)?[[row.stockId,tsData.rollos[row.stockId]]]:[];
-  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(r.codigo)} · ${tsEsc(r.color)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?' (sobrante)':''}</option>`;
+  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(r.color)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?` (sobrante, entró con ${tsFmt(tsNum(r.inicial),1)})`:''} · ${tsEsc(r.codigo)}</option>`;
   const lista=[...actual,...propias];
   return `<option value="" ${!row.stockId?'selected':''}>Fuera de la app</option>`
     +(lista.length?lista.map(opt).join(''):`<option disabled>Sin rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock</option>`);
@@ -11951,7 +11990,7 @@ function rollosPickerHtml(){
     <div style="font-weight:700;font-size:13px;margin-bottom:6px">Rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock — tildá los que se van a usar</div>
     ${lista.length?Object.entries(porColor).map(([color,arr])=>`<div style="margin:6px 0 2px;font-size:12px;font-weight:700">${tsEsc(color)}${tsColorOrdenPara(color)?'':' <span style="color:#9a3412;font-weight:600">(no está en la orden de corte)</span>'}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(([id,r])=>`<label style="display:flex;align-items:center;gap:5px;background:#fff;border:1px solid ${sel.has(id)?'var(--accent)':'var(--border)'};border-radius:8px;padding:5px 8px;font-size:12px;cursor:pointer">
-        <input type="checkbox" ${sel.has(id)?'checked':''} onchange="rollosPickToggle('${id}')"> ${tsEsc(r.codigo)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?' (sobr.)':''}</label>`).join('')}</div>`).join('')
+        <input type="checkbox" ${sel.has(id)?'checked':''} onchange="rollosPickToggle('${id}')"> <b>${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}</b>${r.estado==='sobrante'?` (sobrante de ${tsFmt(tsNum(r.inicial),1)})`:''} · ${tsEsc(r.codigo)}</label>`).join('')}</div>`).join('')
       :`<div style="font-size:12px;color:var(--text2)">No hay rollos de esta tela cargados en el stock.</div>`}
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn-sm" onclick="rollosTogglePicker()">Cancelar</button>
@@ -14994,6 +15033,46 @@ function logiProgresoTexto(it){
 // costo/Ninox) y de "pendiente dividir" (reparto Avellaneda/Depósito) — factorizado para
 // poder mostrarlo tanto en la card del tablero como en la pantalla de detalle, así se edita
 // todo desde cualquiera de los dos lugares sin duplicar la lógica.
+// Detalle de entrega (rediseño): pendientes como botones, Plata (solo Ariel y Meli) y Web resumido.
+function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
+  const pend=document.getElementById('logi-detail-pend'), plata=document.getElementById('logi-detail-plata'), web=document.getElementById('logi-detail-web');
+  if(!cerrado){ pend.innerHTML=''; plata.innerHTML=''; web.innerHTML=''; return; }
+  const quien=(u)=>u&&USER_DISPLAY[u]?' — '+USER_DISPLAY[u]:'';
+  const btn=(ok,txt,okTxt,fn)=>`<button class="ld-pbtn ${ok?'ok':''}" onclick="${fn}">${ok?'✓ '+okTxt:'☐ '+txt}</button>`;
+  const botones=[];
+  if(it.division_avellaneda) botones.push(btn(it.recibido_avellaneda,`Recibido en Avellaneda <small>(${it.division_avellaneda})</small>`,`Recibido en Avellaneda <small>${quien(it.recibido_avellaneda_por)}</small>`,`logiToggleRecibido('${id}','avellaneda',${!it.recibido_avellaneda})`));
+  if(it.division_deposito) botones.push(btn(it.recibido_deposito,`Recibido en Depósito <small>(${it.division_deposito})</small>`,`Recibido en Depósito <small>${quien(it.recibido_deposito_por)}</small>`,`logiToggleRecibido('${id}','deposito',${!it.recibido_deposito})`));
+  botones.push(btn(it.costo_sacado,'Sacar costo',`Costo sacado <small>${quien(it.costo_sacado_por)}</small>`,`logiToggleCostoSacado('${id}',${!it.costo_sacado})`));
+  botones.push(btn(it.cargado_ninox,'Cargar a Ninox',`Cargado a Ninox <small>${quien(it.cargado_ninox_por)}</small>`,`logiToggleCargadoNinox('${id}',${!it.cargado_ninox})`));
+  pend.innerHTML=`<div class="ld-card ld-pend"><div class="ld-pend-t">Pendientes de este corte</div><div class="ld-pend-row">${botones.join('')}</div></div>`;
+  // Plata: solo Ariel y Meli
+  if(currentUser==='ariel'||currentUser==='meli'){
+    const ck=corteKeyFrom(it.numero_corte);
+    const ce=ck?(costeosData[ck]||null):null;
+    let costo='—';
+    try{ if(ce&&ce.precio_kg){ const tot=costeoTotales(ce); costo='$ '+Math.round(tot.costoPrenda).toLocaleString('es-AR')+' / prenda'; } }catch(e){}
+    if(it.origen==='proveedor'&&it.precio_costo) costo='$ '+Number(it.precio_costo).toLocaleString('es-AR')+' / prenda';
+    const u=totalOk+totalDetalle;
+    plata.innerHTML=`<div class="ld-card"><div class="ld-title">Plata</div>
+      ${it.origen==='proveedor'?'':`<div class="ld-row"><span>Precio taller</span><span>$ <input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.</span></div>
+      <div class="ld-row"><span>Se le debe al taller</span><b style="color:var(--accent)">${it.precio_taller?'$ '+(it.precio_taller*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>`}
+      <div class="ld-row"><span>Costo por prenda</span><b>${costo}${it.costo_confirmado?'':' <small style="font-weight:500;color:var(--text2)">· sin confirmar</small>'}</b></div>
+      ${it.origen==='proveedor'?'':costoConfirmadoCheckboxHtml(id,it.costo_confirmado)}
+      ${ck?`<button class="btn-sm" style="margin-top:6px" onclick="openCosteoDetail('${ck}')">Precios de venta → Costeo</button>`:''}
+    </div>`;
+  } else plata.innerHTML='';
+  // Web: solo el estado, se carga en la pestaña Web
+  const colores=[...new Set(Object.values(it.grilla||{}).map(f=>f.color).filter(Boolean))];
+  const may=colores.filter(c=>it.web_colores_may&&it.web_colores_may[webColorSlug(c)]).length;
+  const min=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
+  let medOk=false; try{ medOk=medidasCompletas(it); }catch(e){}
+  web.innerHTML=colores.length?`<div class="ld-card"><div class="ld-title">Web</div>
+    <div class="ld-row"><span>Minorista</span><b style="color:${min===colores.length?'#15803d':'#b91c1c'}">${min}/${colores.length} colores</b></div>
+    <div class="ld-row"><span>Mayorista</span><b style="color:${may===colores.length?'#15803d':'#b91c1c'}">${may}/${colores.length} colores</b></div>
+    <div class="ld-row"><span>Medidas</span><b style="color:${medOk?'#15803d':'#b91c1c'}">${medOk?'cargadas':'sin cargar'}${it.medidas_subidas_web?' · en web':''}</b></div>
+    <button class="btn-sm" style="margin-top:6px" onclick="webAbiertos.add('${id}');document.getElementById('tab-btn-web').click()">Ir a la pestaña Web →</button>
+  </div>`:'';
+}
 function logiExtraCerradoHtml(id,it,cerrado){
   let extraCerradoHtml='';
   const enDividir = !cerrado && logiEstadoColumna(it)==='dividir';
@@ -15480,7 +15559,9 @@ function logiRenderDetail(id){
   // Mismo bloque de costo/precios de venta/recepción por destino/Ninox/colores web que se ve
   // en la card del tablero — así entrar al detalle desde Comercializar (o desde cualquier lado)
   // te deja parado directo donde se carga lo que falte, sin tener que volver al tablero a buscarlo.
-  document.getElementById('logi-detail-extra').innerHTML = logiExtraCerradoHtml(id,it,it.estado==='cerrado') + buildMedidasHtml(id,it,true);
+  // Cerrado: lo de este bloque se reparte en Pendientes / Plata / Web (logiDetalleCajas). Antes de
+  // cerrar (por ejemplo, Pendiente dividir) se sigue mostrando el bloque de siempre.
+  document.getElementById('logi-detail-extra').innerHTML = it.estado==='cerrado' ? '' : (logiExtraCerradoHtml(id,it,false) ? `<div class="ld-card">${logiExtraCerradoHtml(id,it,false)}</div>` : '');
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';
@@ -15534,15 +15615,15 @@ function logiRenderDetail(id){
       return `<tr class="${completo?'logi-row-complete':''}">
         <td>${(f.color||'—').replace(/</g,'&lt;')}</td>
         <td>${(f.talle||'—').replace(/</g,'&lt;')}</td>
-        <td>${esperadoCell}</td>
+        <td class="c-esp">${esperadoCell}</td>
         <td><input type="number" min="0" class="logi-in-contado" value="${contado}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','contado',this.value)"></td>
-        <td style="font-weight:700;color:${porControlar<0?'#b0392f':porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
+        <td class="c-pc" style="font-weight:700;color:${porControlar<0?'#b0392f':porControlar>0?'#b8860b':'var(--text2)'}">${porControlar||0}</td>
         <td><input type="number" min="0" class="logi-in-ok" value="${f.ok||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','ok',this.value)"></td>
         <td>
           <input type="number" min="0" class="logi-in-detalle" value="${f.detalle||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','detalle',this.value)">
           ${cerrado?'':`<button class="logi-note-btn ${tieneNotaDetalle?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','detalle')">📝</button>`}
         </td>
-        <td>
+        <td class="c-ft">
           <input type="number" min="0" class="logi-in-fallado" value="${f.fallado||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','fallado',this.value)">
           ${cerrado?'':`<button class="logi-note-btn ${tieneNotaFallado?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','fallado')">📝</button>`}
         </td>
@@ -15550,25 +15631,27 @@ function logiRenderDetail(id){
           <input type="number" min="0" class="logi-in-fallado-tela" value="${f.fallado_tela||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','fallado_tela',this.value)">
           ${cerrado?'':`<button class="logi-note-btn ${tieneNotaFalladoTela?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','fallado_tela')">📝</button>`}
         </td>
-        <td style="font-weight:700;color:${saldo<0?'#b0392f':(saldo===0&&f.esperado?'#2e7d4f':'var(--text2)')}">${f.esperado?saldo:'—'}</td>
+        <td class="c-saldo" style="font-weight:700;color:${saldo<0?'#b0392f':(saldo===0&&f.esperado?'#2e7d4f':'var(--text2)')}">${f.esperado?saldo:'—'}</td>
         ${canEditarGrilla?`<td><button class="logi-note-btn" title="Borrar fila" onclick="logiBorrarFila('${id}','${key}')">🗑️</button></td>`:''}
       </tr>`;
     }).join('');
     const totalRow = `<tr class="logi-total-row" style="font-weight:700;border-top:2px solid var(--border)">
       <td colspan="2">Total</td>
-      <td>${totalEsperado||'—'}</td>
+      <td class="c-esp">${totalEsperado||'—'}</td>
       <td>${totalContado}</td>
-      <td style="color:${totalPorControlar<0?'#b0392f':totalPorControlar>0?'#b8860b':'var(--text2)'}">${totalPorControlar}</td>
+      <td class="c-pc" style="color:${totalPorControlar<0?'#b0392f':totalPorControlar>0?'#b8860b':'var(--text2)'}">${totalPorControlar}</td>
       <td>${totalOk}</td>
       <td>${totalDetalle}</td>
-      <td>${totalFallado}</td>
+      <td class="c-ft">${totalFallado}</td>
       <td>${totalFalladoTela}</td>
-      <td style="color:${totalSaldo<0?'#b0392f':(totalSaldo===0&&totalEsperado?'#2e7d4f':'var(--text2)')}">${totalEsperado?totalSaldo:'—'}</td>
+      <td class="c-saldo" style="color:${totalSaldo<0?'#b0392f':(totalSaldo===0&&totalEsperado?'#2e7d4f':'var(--text2)')}">${totalEsperado?totalSaldo:'—'}</td>
       ${canEditarGrilla?'<td></td>':''}
     </tr>`;
-    rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table">
+    // Con el conteo cerrado se esconden las columnas que no aportan (esperado, y las que están todas en 0).
+    const ocultas=[cerrado?'hide-esp':'', (cerrado&&totalPorControlar===0)?'hide-pc':'', (cerrado&&totalFallado===0)?'hide-ft':'', (cerrado&&totalSaldo===0)?'hide-saldo':''].filter(Boolean).join(' ');
+    rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table ${ocultas}">
       <thead><tr>
-        <th>Color</th><th>Talle</th><th>Esperado</th><th>Contado</th><th>Por controlar</th><th>OK</th><th>Detalle</th><th title="Fallado por culpa del taller — sí se le descuenta/no se le paga">Fallado taller</th><th title="Fallado por defecto de tela — no es responsabilidad del taller">Fallado tela</th><th>Saldo</th>${canEditarGrilla?'<th></th>':''}
+        <th>Color</th><th>Talle</th><th class="c-esp">Esperado</th><th>Contado</th><th class="c-pc">Por controlar</th><th>OK</th><th>Detalle</th><th class="c-ft" title="Fallado por culpa del taller — sí se le descuenta/no se le paga">Fallado taller</th><th title="Fallado por defecto de tela — no es responsabilidad del taller">Fallado tela</th><th class="c-saldo">Saldo</th>${canEditarGrilla?'<th></th>':''}
       </tr></thead>
       <tbody>${body}</tbody>
       <tfoot>${totalRow}</tfoot>
@@ -15582,13 +15665,15 @@ function logiRenderDetail(id){
   const totalClasificadas = totalOk+totalDetalle+totalFallado+totalFalladoTela;
   const puedeCerrar = !cerrado && filas.length>0 && totalContado>0 && totalPorControlar===0;
 
-  let html = `<div class="logi-final-summary">
-    <div class="logi-line"><span>🔢 Contado</span><strong>${totalContado}</strong></div>
-    <div class="logi-line"><span>✅ OK (depósito)</span><strong>${totalOk}</strong></div>
-    <div class="logi-line"><span>🟡 Con detalle (local físico)</span><strong>${totalDetalle}</strong></div>
-    <div class="logi-line"><span>❌ Fallado taller (fuera de venta)</span><strong>${totalFallado}</strong></div>
-    <div class="logi-line"><span>🧵 Fallado tela (fuera de venta)</span><strong>${totalFalladoTela}</strong></div>
-  </div>`;
+  const kpi=(l,v,c)=>`<div class="ld-kpi"><span>${l}</span><b style="color:${c}">${v}</b></div>`;
+  document.getElementById('logi-detail-kpis').innerHTML = filas.length
+    ? kpi('Contado',totalContado,'var(--text)')+kpi('OK (depósito)',totalOk,'#2d6a4f')+kpi('Con detalle (local)',totalDetalle,'#7a5200')+kpi('Fallado tela',totalFalladoTela,'#9a3412')+kpi('Fallado taller',totalFallado,totalFallado?'#b0392f':'var(--text2)')
+    : '';
+  document.getElementById('logi-detail-estado').innerHTML = cerrado
+    ? '<span class="ld-chip" style="background:#e8f4ef;color:#2d6a4f">✓ Conteo cerrado</span>'
+    : `<span class="ld-chip" style="background:#fff3d6;color:#7a5200">${{conteo:'Pendiente de conteo',control:'Pendiente de control',dividir:'Pendiente dividir'}[logiEstadoColumna(it)]||'En curso'}</span>`;
+  logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle);
+  let html = '';
 
   if(cerrado){
     const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');

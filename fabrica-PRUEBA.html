@@ -11649,6 +11649,7 @@ function renderTelasStock(){
   if(tsVista.modo==='color') return renderTsColor();
   if(tsVista.modo==='remitos') return renderTsRemitos();
   if(tsVista.modo==='revision') return renderTsRevision();
+  if(tsVista.modo==='tela') return renderTsTela();
   const val=tsValor(), dolar=tsNum(tsData.config.dolarHoy);
   const totalPesos=val.ARS+(dolar?val.USD*dolar:0);
   const q=tsVista.busca.trim().toLowerCase();
@@ -11699,7 +11700,7 @@ function renderTelasStock(){
     }).join('');
     html+=`<div class="ts-card">
       <div class="ts-card-head">
-        <div><div class="ts-tela">${tsEsc(t.tela)}</div><div class="ts-sub">${tsEsc([...t.provs].filter(Boolean).join(', '))} · se mide en ${t.unidad==='m'?'metros':'kilos'}</div></div>
+        <div><button class="ts-tela" style="border:0;background:none;padding:0;cursor:pointer;text-align:left;font-family:inherit;color:var(--text)" onclick="tsVerTela(decodeURIComponent('${encodeURIComponent(t.tela).replace(/'/g,'%27')}'))">${tsEsc(t.tela)} <span style="font-size:12px;font-weight:700;color:var(--accent)">Ver todos los rollos ›</span></button><div class="ts-sub">${tsEsc([...t.provs].filter(Boolean).join(', '))} · se mide en ${t.unidad==='m'?'metros':'kilos'}</div></div>
         ${ult?`<span class="ts-edad ${vieja?'vieja':''}">${tsHace(ult.fecha)}</span>`:''}
       </div>
       ${ult?`<div class="ts-ult">Última compra: <b>${tsFechaCorta(ult.fecha)}</b> · Precio: <b>${tsMoneda(ult.moneda,tsNum(ult.precio))} por ${u}</b></div>`:''}
@@ -11708,6 +11709,31 @@ function renderTelasStock(){
     </div>`;
   });
   cont.innerHTML=html;
+}
+function tsVerTela(tela){ tsVista={...tsVista,modo:'tela',tela}; renderTelasStock(); window.scrollTo(0,0); }
+function renderTsTela(){
+  const cont=document.getElementById('telas-content');
+  const rollos=Object.entries(tsData.rollos).filter(([,r])=>r&&r.tela===tsVista.tela&&r.estado!=='usado');
+  const u=tsUnidadTxt((rollos[0]||[])[1]?.unidad);
+  const porColor={}; rollos.forEach(([id,r])=>{ (porColor[r.color]||(porColor[r.color]=[])).push([id,r]); });
+  const total=rollos.reduce((a,[,r])=>a+tsRestanteDe(r),0);
+  const est={entero:['Entero','ok'],sobrante:['Sobrante','sobr'],revision:['En revisión','rev']};
+  cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
+    <div class="ts-title">${tsEsc(tsVista.tela)}</div>
+    <div class="ts-sub" style="margin-bottom:12px">${tsFmt(total,1)} ${u} disponibles en ${rollos.length} rollo${rollos.length!==1?'s':''}</div>
+    ${Object.keys(porColor).sort((a,b)=>a.localeCompare(b,'es')).map(color=>{
+      const arr=porColor[color].sort((a,b)=>tsRestanteDe(b[1])-tsRestanteDe(a[1]));
+      const sub=arr.reduce((a,[,r])=>a+tsRestanteDe(r),0);
+      return `<div class="ts-card" style="padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px"><b style="font-size:14.5px">${tsEsc(color)}</b><b>${tsFmt(sub,1)} ${u}</b></div>
+        ${arr.map(([id,r])=>{ const e=est[r.estado]||['','']; const rest=tsRestanteDe(r);
+          return `<div class="ts-fila" style="grid-template-columns:.8fr 1fr 1fr 1.2fr;cursor:default">
+            <span style="font-weight:700">${tsEsc(r.codigo)}</span>
+            <span><b>${tsFmt(rest,1)} ${u}</b>${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
+            <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
+            <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}</span>
+          </div>`; }).join('')}
+      </div>`; }).join('')||'<div class="empty-state">No hay rollos disponibles de esta tela.</div>'}`;
 }
 function tsSetDolar(v){ db.ref('fabrica_v5/telas_stock/config/dolarHoy').set(tsNum(v)||null); }
 
@@ -11763,39 +11789,20 @@ function tsRolloTocado(x){ return x.estado==='usado'||x.estado==='revision'||tsN
 function tsEditarRollo(id){
   if(currentUser!=='ariel') return;
   const r=tsData.rollos[id]; if(!r) return;
-  const color=prompt(`Color del rollo ${r.codigo}`, r.color||''); if(color===null) return;
-  const kg=prompt(`Peso/medida inicial del rollo ${r.codigo} (${tsUnidadTxt(r.unidad)})`, String(tsNum(r.inicial)).replace('.',',')); if(kg===null) return;
+  const un=tsUnidadTxt(r.unidad);
+  const color=prompt(`Rollo ${r.codigo} — color:`, r.color||''); if(color===null) return;
+  const kg=prompt(`Rollo ${r.codigo} — peso con el que ENTRÓ (${un}).\nSi es un sobrante del stock inicial, es lo que pesaba ese día:`, String(tsNum(r.inicial)).replace('.',',')); if(kg===null) return;
   const nuevoIni=tsNum(kg); if(!(nuevoIni>0)){ showToast('Peso inválido'); return; }
-  const nr={...r,color:color.trim()||r.color,inicial:nuevoIni};
+  const base={...r,color:color.trim()||r.color,inicial:nuevoIni,ajuste:0};
+  const calc=tsRestanteDe(base);
+  const hoy=prompt(`Con eso, hoy le quedarían ${tsFmt(calc,2)} ${un}.\nSi lo pesaron y queda otra cantidad, escribila (si no, dejalo así):`, String(calc).replace('.',','));
+  if(hoy===null) return;
+  const ajuste=Math.round((tsNum(hoy)-calc)*100)/100;
+  const nr={...base,ajuste};
   const rest=tsRestanteDe(nr);
-  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,restante:rest,estado:tsEstadoDe(nr,rest),editadoPor:currentUser,editadoEn:Date.now()});
-  logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · ${r.inicial} → ${nuevoIni}`);
-  showToast(`✓ ${r.codigo} actualizado`);
-}
-// Desde Telas: anotar que un rollo se usó en un N° de corte (sin abrir el corte). Se guarda con el
-// mismo identificador que usa el modal de rollos de ese corte, así no se cuenta dos veces.
-function tsAsignarACorte(id){
-  if(!tsPuedeCargar()) return;
-  const r=tsData.rollos[id]; if(!r) return;
-  const num=prompt(`¿En qué N° de corte se usó el rollo ${r.codigo}?`); if(!num||!num.trim()) return;
-  const numero=num.trim().replace(/^corte\s*/i,'');
-  const ck=corteKeyFrom(numero); if(!ck){ showToast('N° de corte inválido'); return; }
-  const f=cmpFind(numero);
-  if(!f&&!confirm(`No encuentro el corte ${numero} en la app. ¿Anotarlo igual?`)) return;
-  const disp=tsRestanteDe(r);
-  const q=prompt(`Rollo ${r.codigo}: tiene ${tsFmt(disp,2)} ${tsUnidadTxt(r.unidad)}.\n¿Cuánto QUEDÓ después del corte ${numero}? (dejá 0 si se usó entero)`,'0');
-  if(q===null) return;
-  const quedo=Math.max(0,tsNum(q));
-  if(quedo>disp){ showToast('Quedó más de lo que tenía el rollo'); return; }
-  const ctx='c_'+ck;
-  const otros=Object.entries(r.usos||{}).filter(([k,u])=>u&&k!==ctx);
-  const previo=(r.usos||{})[ctx];
-  const pendiente=otros.length>0&&!(previo&&!previo.pendiente);
-  const uso={corte:numero,code:f?f.item.code||'':'',usado:Math.round((disp+(previo&&!previo.pendiente?tsNum(previo.usado):0)-quedo)*100)/100,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente,manual:true};
-  const nr={...r,usos:{...(r.usos||{}),[ctx]:uso}}; const rest=tsRestanteDe(nr);
-  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({[`usos/${ctx}`]:uso,restante:rest,estado:tsEstadoDe(nr,rest)});
-  logActivity('Asignó rollo a corte',`${r.codigo} → corte ${numero} · queda ${tsFmt(rest,2)}`);
-  showToast(pendiente?`${r.codigo}: ya estaba en otro corte — queda para revisión`:`✓ ${r.codigo} anotado en el corte ${numero} · queda ${tsFmt(rest,2)} ${tsUnidadTxt(r.unidad)}`);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,ajuste:ajuste||null,restante:rest,estado:tsEstadoDe(nr,rest),editadoPor:currentUser,editadoEn:Date.now()});
+  logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · entró ${r.inicial} → ${nuevoIni} · queda ${rest}`);
+  showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${un}`);
 }
 function tsRollosDeRemitoHtml(remId){
   const rs=Object.entries(tsData.rollos).filter(([,x])=>x&&x.remitoId===remId).sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));

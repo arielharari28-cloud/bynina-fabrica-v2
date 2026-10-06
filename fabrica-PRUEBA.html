@@ -12159,7 +12159,9 @@ function cmpCrear(secId,itemId){
   if(!letra){ showToast('No quedan letras libres para complementos de este corte'); return; }
   const numero=base+letra;
   // copia los datos del artículo, sin nada de la etapa ni de cantidades del corte base
-  const NO=/^(rollos|grilla|orden|fecha|tiza|encimado|taller_(ficha|muestra|ninox)|retirad|capas|liquid|cortad|unidades|pasos|ajust|pago|entreg|recib|mov|complementos|sin_complemento|aprobado|control_|en_ninox|avios|estampa)/i;
+  // Lo de la tizada del complemento nunca es igual a la del corte base: ficha, curva, ancho, peso,
+  // largo de capa, control de piezas, tela y proveedor quedan vacíos para que Peque los complete.
+  const NO=/^(rollos|grilla|orden|fecha|tiza|encimado|taller_(ficha|muestra|ninox)|retirad|capas|liquid|cortad|unidades|pasos|ajust|pago|entreg|recib|mov|complementos|sin_complemento|aprobado|control_|en_ninox|avios|estampa|ficha|curva|ancho|peso|largo|consumo|molde|tela|proveedor|precio|costo|cargado_ninox|ninox|stock|bajado)/i;
   const nuevo={};
   Object.entries(item).forEach(([k,v])=>{ if(!NO.test(k)) nuevo[k]=v; });
   Object.assign(nuevo,{

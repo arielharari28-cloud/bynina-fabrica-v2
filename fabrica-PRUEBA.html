@@ -11794,14 +11794,20 @@ function tsEditarRollo(id){
   const color=prompt(`Rollo ${r.codigo} — color:`, r.color||''); if(color===null) return;
   const kg=prompt(`Rollo ${r.codigo} — peso con el que ENTRÓ (${un}).\nSi es un sobrante del stock inicial, es lo que pesaba ese día:`, String(tsNum(r.inicial)).replace('.',',')); if(kg===null) return;
   const nuevoIni=tsNum(kg); if(!(nuevoIni>0)){ showToast('Peso inválido'); return; }
-  const base={...r,color:color.trim()||r.color,inicial:nuevoIni,ajuste:0};
+  let cargadoComo=r.cargadoComo||null;
+  if(!Object.values(r.usos||{}).some(Boolean)){
+    const act=r.estado==='sobrante'?'S':'E';
+    const e=prompt(`Rollo ${r.codigo} — ¿cómo está?\nE = rollo entero · S = sobrante`, act); if(e===null) return;
+    cargadoComo=/^s/i.test(e.trim())?'sobrante':'entero';
+  }
+  const base={...r,color:color.trim()||r.color,inicial:nuevoIni,ajuste:0,cargadoComo};
   const calc=tsRestanteDe(base);
   const hoy=prompt(`Con eso, hoy le quedarían ${tsFmt(calc,2)} ${un}.\nSi lo pesaron y queda otra cantidad, escribila (si no, dejalo así):`, String(calc).replace('.',','));
   if(hoy===null) return;
   const ajuste=Math.round((tsNum(hoy)-calc)*100)/100;
   const nr={...base,ajuste};
   const rest=tsRestanteDe(nr);
-  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,ajuste:ajuste||null,restante:rest,estado:tsEstadoDe(nr,rest),editadoPor:currentUser,editadoEn:Date.now()});
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:nr.color,inicial:nuevoIni,ajuste:ajuste||null,restante:rest,estado:tsEstadoDe(nr,rest),cargadoComo:cargadoComo||null,editadoPor:currentUser,editadoEn:Date.now()});
   logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · entró ${r.inicial} → ${nuevoIni} · queda ${rest}`);
   showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${un}`);
 }
@@ -11812,8 +11818,8 @@ function tsQuitarUso(id,ctx){
   if(!confirm(`¿Sacar el uso del corte ${u.corte||''} del rollo ${r.codigo}? Vuelven ${tsFmt(tsNum(u.usado),2)} ${tsUnidadTxt(r.unidad)} al stock.`)) return;
   const usos={...r.usos}; delete usos[ctx];
   const sinUsos=!Object.values(usos).some(Boolean);
-  const nr={...r,usos,ajuste:sinUsos?0:r.ajuste}; const rest=tsRestanteDe(nr);
-  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({[`usos/${ctx}`]:null,restante:rest,estado:tsEstadoDe(nr,rest),...(sinUsos&&r.ajuste?{ajuste:null}:{})});
+  const nr={...r,usos,ajuste:sinUsos?0:r.ajuste,tuvoUsos:true}; const rest=tsRestanteDe(nr);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({[`usos/${ctx}`]:null,restante:rest,estado:tsEstadoDe(nr,rest),...(r.cargadoComo?{}:{cargadoComo:'entero'}),...(sinUsos&&r.ajuste?{ajuste:null}:{})});
   logActivity('Quitó uso de rollo',`${r.codigo} · corte ${u.corte||''}`);
   showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${tsUnidadTxt(r.unidad)}`);
 }
@@ -11940,7 +11946,7 @@ async function tsGuardarRemito(){
       const q=tsNum(x); if(q<=0) return;
       n++; const rid=db.ref('fabrica_v5/telas_stock/rollos').push().key;
       upd[`rollos/${rid}`]={codigo:'T-'+String(n).padStart(4,'0'),remitoId:remId,numeroRemito:f.numero.trim(),tela:f.tela,proveedor:f.proveedor,color:c.color.trim(),
-        unidad:f.unidad,moneda:f.moneda,precio:tsNum(f.precio),inicial:q,restante:q,estado:c.sobrante?'sobrante':'entero',fechaIngreso:f.fecha,deInventario:f.inicial||null};
+        unidad:f.unidad,moneda:f.moneda,precio:tsNum(f.precio),inicial:q,restante:q,estado:c.sobrante?'sobrante':'entero',cargadoComo:c.sobrante?'sobrante':'entero',fechaIngreso:f.fecha,deInventario:f.inicial||null};
     }));
     await db.ref('fabrica_v5/telas_stock').update(upd);
     logActivity(f.inicial?'Cargó stock inicial de tela':'Ingresó remito de tela',`${f.inicial?'':f.numero+' · '}${f.tela} · ${t.rollos} rollos`);
@@ -11983,8 +11989,12 @@ function tsEstadoDe(r,restante){
   if(usos.some(u=>u.pendiente)) return 'revision';
   if(restante<=0.05) return usos.length?'usado':'entero';
   if(usos.length) return 'sobrante';
-  // sin usos: un rollo de remito vuelve a "entero"; uno del stock inicial conserva lo que se cargó (entero o sobrante)
-  return r.deInventario&&r.estado==='sobrante'?'sobrante':'entero';
+  // sin usos: vuelve a como ENTRÓ. Un rollo de remito siempre entra entero; uno del stock inicial
+  // pudo cargarse como sobrante (cargadoComo). Rollos viejos sin ese dato: se usa el estado guardado
+  // solo si nunca se usó (si tuvo usos, el "sobrante" venía del uso y vuelve a entero).
+  if(r.cargadoComo) return r.cargadoComo;
+  if(!r.deInventario||r.tuvoUsos) return 'entero';
+  return r.estado==='sobrante'?'sobrante':'entero';
 }
 // Solo rollos de la TELA de este corte (comparación sin mayúsculas ni acentos).
 function tsNorm(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
@@ -12083,8 +12093,9 @@ function tsAplicarConsumo(ctx,rows,info){
       const usos={...r.usos}; delete usos[ctx];
       // sin ningún uso, un ajuste de pesada anterior ya no aplica: el rollo vuelve a lo que entró
       const sinUsos=!Object.values(usos).some(Boolean);
-      const nr={...r,usos,ajuste:sinUsos?0:r.ajuste}; const rest=tsRestanteDe(nr);
+      const nr={...r,usos,ajuste:sinUsos?0:r.ajuste,tuvoUsos:true}; const rest=tsRestanteDe(nr);
       upd[`rollos/${id}/usos/${ctx}`]=null; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest);
+      if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]='entero';
       if(sinUsos&&r.ajuste) upd[`rollos/${id}/ajuste`]=null;
     }
   });
@@ -12099,6 +12110,7 @@ function tsAplicarConsumo(ctx,rows,info){
     const uso={corte:info.corte||'',code:info.code||'',usado:Math.round(usado*100)/100,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente};
     const nr={...r,usos:{...(r.usos||{}),[ctx]:uso}}; const rest=tsRestanteDe(nr);
     upd[`rollos/${id}/usos/${ctx}`]=uso; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest);
+    if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]=(!otros.length&&!previo&&r.deInventario&&r.estado==='sobrante')?'sobrante':'entero';
   });
   if(Object.keys(upd).length) db.ref('fabrica_v5/telas_stock').update(upd);
   return {compartidos,sinMedidas};

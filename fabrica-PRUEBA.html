@@ -9188,10 +9188,28 @@ function telaNoSon(gi){ const g=telasGruposRepetidas()[gi]; if(!g) return; const
 async function telaRenombrarUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); const n=prompt('Nuevo nombre para "'+t+'":',t); if(n===null) return; const nuevo=n.trim().replace(/\s+/g,' '); if(!nuevo||nuevo===t) return;
   const otra=(telasList||[]).find(x=>x!==t&&telaNorm(x)===telaNorm(nuevo)); const dest=otra||nuevo;
   if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Ahora es "${dest}"`); }
-async function telaUnificarConUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); const otras=(telasList||[]).filter(x=>x!==t);
-  const n=prompt(`¿Con qué tela unificar "${t}"? Escribí el nombre que queda:\n\n${otras.join('\n')}`,''); if(n===null) return;
-  const dest=otras.find(x=>telaNorm(x)===telaNorm(n)); if(!dest){ showToast('No encontré esa tela en la lista'); return; }
-  if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Unificado en "${dest}"`); }
+// Selector con buscador (en vez de prompt): escribís y se filtra la lista; tocás la tela.
+function telaPicker(titulo,opciones,onPick){
+  const prev=document.getElementById('tela-picker'); if(prev) prev.remove();
+  const w=document.createElement('div'); w.id='tela-picker';
+  w.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px';
+  w.innerHTML=`<div style="background:var(--surface,#fff);border-radius:14px;width:100%;max-width:420px;max-height:75vh;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(0,0,0,.2)">
+    <div style="padding:14px 16px 8px;font-weight:700">${tsEsc(titulo)}</div>
+    <div style="padding:0 16px 8px"><input id="tp-q" type="text" placeholder="Buscar tela…" autocomplete="off" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;font:inherit"></div>
+    <div id="tp-l" style="overflow:auto;padding:0 8px 8px"></div>
+    <div style="padding:8px 16px 14px;text-align:right"><button class="ts-btn-out" id="tp-x">Cancelar</button></div></div>`;
+  document.body.appendChild(w);
+  const pinta=()=>{const q=telaNorm(document.getElementById('tp-q').value);const l=opciones.filter(o=>!q||telaNorm(o).includes(q));
+    document.getElementById('tp-l').innerHTML=l.length?l.map(o=>`<button data-tp="${encodeURIComponent(o)}" style="display:block;width:100%;text-align:left;padding:9px 10px;border:0;border-radius:8px;background:none;font:inherit;cursor:pointer">${tsEsc(o)} <span class="ts-sub">${telaUsosTxt(o)}</span></button>`).join(''):'<div class="ts-sub" style="padding:10px">No hay telas con ese nombre</div>';
+    w.querySelectorAll('[data-tp]').forEach(b=>{b.onmouseenter=()=>b.style.background='var(--surface2,#f3f0ea)';b.onmouseleave=()=>b.style.background='none';b.onclick=()=>{w.remove();onPick(decodeURIComponent(b.dataset.tp))}});};
+  document.getElementById('tp-q').oninput=pinta;
+  document.getElementById('tp-q').onkeydown=e=>{if(e.key==='Enter'){const f=w.querySelector('[data-tp]');if(f)f.click()}if(e.key==='Escape')w.remove()};
+  document.getElementById('tp-x').onclick=()=>w.remove();
+  w.onclick=e=>{if(e.target===w)w.remove()};
+  pinta();setTimeout(()=>document.getElementById('tp-q').focus(),0);
+}
+function telaUnificarConUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); const otras=(telasList||[]).filter(x=>x!==t);
+  telaPicker(`Unificar "${t}" con…`,otras,async dest=>{ if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Unificado en "${dest}"`); }); }
 function telaBorrarUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); if(telaUsosTxt(t)!=='sin uso'){ showToast('Esa tela está en uso'); return; } if(!confirm(`¿Borrar "${t}" de la lista?`)) return;
   db.ref('fabrica_v5/telas').set((telasList||[]).filter(x=>x!==t)); logActivity('Borró tela de la lista',t); }
 function openRollosModal(secId,itemId){

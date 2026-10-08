@@ -9292,7 +9292,7 @@ function saveRollos(){
     logActivity('Rollos utilizados',`${item.code}: ${Object.keys(rollosObj).length} rollo(s)`);
   }
   document.getElementById('modal-rollos').classList.add('hidden');
-  showToast(consumo.compartidos?`📦 Rollos guardados · ${consumo.compartidos} rollo${consumo.compartidos>1?'s':''} compartido${consumo.compartidos>1?'s':''} queda${consumo.compartidos>1?'n':''} para revisión de Ariel`:'📦 Rollos guardados');
+  showToast(consumo.compartidos?`📦 Rollos guardados · ${consumo.compartidos} rollo${consumo.compartidos>1?'s':''} queda${consumo.compartidos>1?'n':''} para revisión de Ariel (no baja del stock hasta que lo apruebe)`:'📦 Rollos guardados');
 }
 document.getElementById('close-modal-rollos').onclick=()=>document.getElementById('modal-rollos').classList.add('hidden');
 document.getElementById('cancel-modal-rollos').onclick=()=>document.getElementById('modal-rollos').classList.add('hidden');
@@ -11667,7 +11667,7 @@ function renderTelasStock(){
         ${tsPuedeCargar()?`<button class="ts-btn-out" onclick="tsNuevoRemito(true)">Cargar stock inicial</button><button class="ts-btn" onclick="tsNuevoRemito()">+ Ingresar remito</button>`:''}
       </div>
     </div>
-    ${tsPendientesRevision().length?`<button class="ts-aviso" onclick="tsVista.modo='revision';renderTelasStock()">🔁 ${tsPendientesRevision().length} rollo${tsPendientesRevision().length>1?'s':''} compartido${tsPendientesRevision().length>1?'s':''} para revisar ›</button>`:''}
+    ${tsPendientesRevision().length?`<button class="ts-aviso" onclick="tsVista.modo='revision';renderTelasStock()">🔁 ${tsPendientesRevision().length} rollo${tsPendientesRevision().length>1?'s':''} para revisar ›</button>`:''}
     <div class="ts-plata">
       <div class="ts-plata-t">Plata en tela (stock × precio de compra)</div>
       <div class="ts-plata-grid">
@@ -11733,9 +11733,11 @@ function renderTsTela(){
       return `<div class="ts-card" style="padding:10px 12px">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px"><b style="font-size:14.5px">${tsEsc(color)}</b><b>${tsFmt(sub,1)} ${u}</b></div>
         ${arr.map(([id,r])=>{ const e=est[r.estado]||['','']; const rest=tsRestanteDe(r);
-          return `<div class="ts-fila" style="grid-template-columns:.8fr 1fr 1fr 1.2fr;cursor:default">
+          const ed=currentUser==='ariel';
+          return `<div class="ts-fila" style="grid-template-columns:.7fr ${ed?'1.4fr ':''}1fr 1fr 1.1fr;cursor:default;align-items:center">
             <span style="font-weight:700">${tsEsc(r.codigo)}</span>
-            <span><b>${tsFmt(rest,1)} ${u}</b>${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
+            ${ed?`<input class="ts-in" value="${tsEsc(r.color||'')}" aria-label="Color de ${tsEsc(r.codigo)}" onchange="tsInlineColor('${id}',this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;min-width:0">`:''}
+            <span>${ed?`<input class="ts-in" inputmode="decimal" value="${String(rest).replace('.',',')}" aria-label="Kilos de ${tsEsc(r.codigo)}" onchange="tsInlineKg('${id}',this.value)" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;text-align:right"> ${u}`:`<b>${tsFmt(rest,1)} ${u}</b>`}${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
             <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
             <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}</span>
           </div>${tsUsosHtml(id,r)}`; }).join('')}
@@ -11755,7 +11757,7 @@ function renderTsColor(){
   const disp=todos.filter(([,r])=>r.estado==='entero'||r.estado==='sobrante');
   const tot=disp.reduce((s,[,r])=>s+tsRestanteDe(r),0);
   const chip=(k,t)=>`<button class="ts-chip ${f===k?'on':''}" onclick="tsVista.filtroEstado='${k}';renderTelasStock()">${t}</button>`;
-  const est={entero:['Entero','ok'],sobrante:['Sobrante','sobr'],revision:['Compartido · en revisión','rev'],usado:['Usado','usado']};
+  const est={entero:['Entero','ok'],sobrante:['Sobrante','sobr'],revision:['En revisión','rev'],usado:['Usado','usado']};
   cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
     <div class="ts-title">${tsEsc(tsVista.tela)} · ${tsEsc(tsVista.color)}</div>
     <div class="ts-sub" style="margin-bottom:10px">${tsFmt(tot,1)} ${u} disponibles en ${disp.length} rollo${disp.length!==1?'s':''}</div>
@@ -11786,12 +11788,22 @@ function renderTsRemitos(){
         <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)} · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}</div>
         ${tsRollosDeRemitoHtml(id)}
         <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
-          ${tsPuedeCargar()&&!usados?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="tsBorrarRemito('${id}')">Borrar remito</button>`:''}
+          ${tsPuedeCargar()&&(!usados||currentUser==='ariel')?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="tsBorrarRemito('${id}')">Borrar remito${usados?' (tiene rollos usados)':''}</button>`:''}
         </div>
       </div>`; }).join(''):'<div class="empty-state">Todavía no hay remitos cargados.</div>'}`;
 }
 // Un rollo se considera usado si cambió desde que entró (un sobrante cargado en el inventario no cuenta).
 function tsRolloTocado(x){ return x.estado==='usado'||x.estado==='revision'||tsNum(x.restante)!==tsNum(x.inicial); }
+// Edición en la fila (Ariel): color y kilos. Si el rollo nunca se usó, los kilos son con los que entró;
+// si ya se usó, son lo que queda hoy (se guarda como ajuste, igual que "pesado").
+function tsInlineColor(id,v){ if(currentUser!=='ariel') return; const r=tsData.rollos[id]; const c=String(v||'').trim(); if(!r||!c||c===r.color) return;
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:c,editadoPor:currentUser,editadoEn:Date.now()}); logActivity('Editó rollo de tela',`${r.codigo}: color ${r.color} → ${c}`); showToast(`✓ ${r.codigo}: ${c}`); }
+function tsInlineKg(id,v){ if(currentUser!=='ariel') return; const r=tsData.rollos[id]; if(!r) return; const n=tsNum(v); if(!(n>=0)){ showToast('Peso inválido'); renderTelasStock(); return; }
+  const usado=Object.values(r.usos||{}).some(Boolean); let nr,upd;
+  if(!usado){ nr={...r,inicial:n,ajuste:0}; const rest=tsRestanteDe(nr); upd={inicial:n,ajuste:null,restante:rest,estado:tsEstadoDe(nr,rest)}; }
+  else { const sin=tsRestanteDe({...r,ajuste:0}); const aj=Math.round((n-sin)*100)/100; nr={...r,ajuste:aj}; const rest=tsRestanteDe(nr); upd={ajuste:aj||null,restante:rest,estado:tsEstadoDe(nr,rest)}; }
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({...upd,editadoPor:currentUser,editadoEn:Date.now()});
+  logActivity('Editó rollo de tela',`${r.codigo}: ${usado?'queda':'entró con'} ${tsFmt(n,1)}`); showToast(`✓ ${r.codigo}: ${tsFmt(n,1)} ${tsUnidadTxt(r.unidad)}`); }
 function tsEditarRollo(id){
   if(currentUser!=='ariel') return;
   const r=tsData.rollos[id]; if(!r) return;
@@ -11844,11 +11856,19 @@ function tsRollosDeRemitoHtml(remId){
 }
 function tsBorrarRemito(id){
   const r=tsData.remitos[id]; if(!r) return;
-  if(Object.values(tsData.rollos).some(x=>x&&x.remitoId===id&&tsRolloTocado(x))){ showToast('Ese remito ya tiene rollos usados: no se puede borrar'); return; }
-  if(!confirm(`¿Borrar ${r.inicial?'esta carga de stock inicial':'el remito '+r.numero}? Se sacan del stock sus ${r.rollos} rollos.`)) return;
+  const propios=Object.entries(tsData.rollos).filter(([,x])=>x&&x.remitoId===id);
+  const tocados=propios.filter(([,x])=>tsRolloTocado(x));
+  if(tocados.length&&currentUser!=='ariel'){ showToast('Ese remito ya tiene rollos usados: solo Ariel lo puede borrar'); return; }
+  const usos=[];propios.forEach(([,x])=>Object.values(x.usos||{}).forEach(u=>{ if(u) usos.push(`${x.codigo} · corte ${u.corte||'—'} · ${tsFmt(tsNum(u.usado),1)} ${tsUnidadTxt(x.unidad)}`); }));
+  if(!confirm(`¿Borrar ${r.inicial?'esta carga de stock inicial':'el remito '+r.numero}? Se sacan del stock sus ${r.rollos} rollos.`+(usos.length?`\n\n⚠️ Ya se usaron en cortes:\n${usos.join('\n')}\n\nEn esos cortes quedan como "Fuera de la app". Cuando cargues el remito bien, los volvés a elegir.`:''))) return;
   const upd={}; upd[`remitos/${id}`]=null;
-  Object.entries(tsData.rollos).forEach(([rid,x])=>{ if(x&&x.remitoId===id) upd[`rollos/${rid}`]=null; });
+  propios.forEach(([rid])=>{ upd[`rollos/${rid}`]=null; });
   db.ref('fabrica_v5/telas_stock').update(upd);
+  // En los cortes que usaban esos rollos, la fila queda como "fuera de la app" (no se pierden capas ni kg).
+  const ids=new Set(propios.map(([rid])=>rid)),up2={};
+  Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>Object.entries((it&&it.rollos)||{}).forEach(([k,row])=>{ if(row&&ids.has(row.stockId)){ const b=`fabrica_v5/sections/${sid}/items/${iid}/rollos/${k}`; up2[b+'/stockId']=null; up2[b+'/codigo']=null; up2[b+'/sobranteReal']=null; } })));
+  Object.entries(typeof gruposCorteData!=='undefined'&&gruposCorteData||{}).forEach(([ck,g])=>Object.entries((g&&g.rollos)||{}).forEach(([k,row])=>{ if(row&&ids.has(row.stockId)){ const b=`fabrica_v5/grupos_corte/${ck}/rollos/${k}`; up2[b+'/stockId']=null; up2[b+'/codigo']=null; up2[b+'/sobranteReal']=null; } }));
+  if(Object.keys(up2).length) db.ref().update(up2);
   logActivity('Borró remito de tela', r.numero);
 }
 
@@ -12110,7 +12130,11 @@ function tsAplicarConsumo(ctx,rows,info){
     const otros=Object.entries(r.usos||{}).filter(([k,u])=>u&&k!==ctx);
     const previo=(r.usos||{})[ctx];
     // compartido = otro corte ya usó este rollo. El uso nuevo espera la revisión de Ariel.
-    const pendiente=otros.length>0&&!(previo&&!previo.pendiente);
+    // Todo uso que no carga Ariel queda pendiente hasta que él lo revise (si ya estaba aprobado y no
+    // cambió la cantidad, se mantiene aprobado). Lo que carga Ariel se toma como ya revisado.
+    const usadoR=Math.round(usado*100)/100;
+    const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-usadoR)<0.01;
+    const pendiente=currentUser==='ariel'?false:!yaAprobado;
     if(pendiente) compartidos++;
     const uso={corte:info.corte||'',code:info.code||'',usado:Math.round(usado*100)/100,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente};
     const nr={...r,usos:{...(r.usos||{}),[ctx]:uso}}; const rest=tsRestanteDe(nr);
@@ -12126,8 +12150,8 @@ function renderTsRevision(){
   const cont=document.getElementById('telas-content');
   const lista=tsPendientesRevision();
   cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
-    <div class="ts-title">Rollos compartidos para revisar</div>
-    <div class="ts-sub" style="margin-bottom:12px">Rollos usados en más de un corte. Hasta que los apruebes, lo de los cortes nuevos no se descuenta del stock. Si sabés cuánto quedó de verdad (porque lo pesaron), ponelo antes de aprobar.</div>
+    <div class="ts-title">Rollos para revisar</div>
+    <div class="ts-sub" style="margin-bottom:12px">Usos de rollos cargados en los cortes. Hasta que los apruebes, no se descuentan del stock. Si sabés cuánto quedó de verdad (porque lo pesaron), ponelo antes de aprobar.</div>
     ${lista.length?lista.map(([id,r])=>{
       const u=tsUnidadTxt(r.unidad);
       const usos=Object.entries(r.usos||{}).filter(([,x])=>x).sort((a,b)=>(a[1].fecha||0)-(b[1].fecha||0));
@@ -12136,12 +12160,12 @@ function renderTsRevision(){
       return `<div class="ts-card">
         <div class="ts-card-head"><div><div class="ts-tela">${tsEsc(r.codigo)} · ${tsEsc(r.tela)} · ${tsEsc(r.color)}</div>
           <div class="ts-sub">Entró con ${tsFmt(tsNum(r.inicial),1)} ${u}</div></div></div>
-        ${usos.map(([,x])=>`<div class="ts-fila" style="grid-template-columns:1.6fr 1fr;cursor:default"><span>Corte ${tsEsc(x.corte||'—')} · ${tsEsc(x.code||'')}${x.pendiente?' <span class="ts-rev">pendiente</span>':''}</span><span class="ts-c-total">${tsFmt(tsNum(x.usado),2)} ${u}</span></div>`).join('')}
+        ${usos.map(([,x])=>`<div class="ts-fila" style="grid-template-columns:1.6fr 1fr;cursor:default"><span>Corte ${tsEsc(x.corte||'—')} · ${tsEsc(x.code||'')}${x.por?` <small style="color:var(--text2)">· cargó ${tsEsc((typeof USER_DISPLAY!=='undefined'&&USER_DISPLAY[x.por])||x.por)}</small>`:''}${x.pendiente?' <span class="ts-rev">pendiente</span>':''}</span><span class="ts-c-total">${tsFmt(tsNum(x.usado),2)} ${u}</span></div>`).join('')}
         <div class="ts-fila" style="grid-template-columns:1.6fr 1fr;cursor:default"><b>Quedaría según los cortes</b><b class="ts-c-total">${tsFmt(calc,2)} ${u}</b></div>
         ${currentUser==='ariel'?`<div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;flex-wrap:wrap">
           <label class="ts-sub" style="display:flex;flex-direction:column;gap:4px">Quedó de verdad (opcional)<input id="ts-real-${id}" type="text" inputmode="decimal" placeholder="${tsFmt(calc,2)}" style="padding:8px;border:1px solid var(--border);border-radius:8px;width:120px;font-family:inherit"></label>
           <button class="ts-btn" onclick="tsAprobarCompartido('${id}')">Aprobar</button></div>`:'<div class="ts-sub" style="margin-top:8px">Lo aprueba Ariel.</div>'}
-      </div>`; }).join(''):'<div class="empty-state">No hay rollos compartidos pendientes.</div>'}`;
+      </div>`; }).join(''):'<div class="empty-state">No hay rollos pendientes de revisar.</div>'}`;
 }
 function tsAprobarCompartido(id){
   if(currentUser!=='ariel') return;

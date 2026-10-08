@@ -2486,11 +2486,8 @@ function pasarABaseAprobada(secId,itemId){
   if(!destId){ showToast('No encontré la sección "Pendiente armar tizada" en Fábrica — revisá que exista con ese nombre'); return; }
   // La tela en Diseño es texto libre (tela_nombre); en Fábrica es un desplegable controlado (telasList) —
   // si el nombre no está en la lista, lo agregamos para no perderlo.
-  const telaNombre=(item.tela_nombre||'').trim();
-  if(telaNombre&&!telasList.includes(telaNombre)){
-    telasList=[...telasList,telaNombre].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-    db.ref('fabrica_v5/telas').set(telasList);
-  }
+  let telaNombre=(item.tela_nombre||'').trim();
+  if(telaNombre){ const r=telaResolver(telaNombre); if(r) telaNombre=r; }
   const newItem={
     code:item.code,
     name:item.name||'',
@@ -2700,11 +2697,8 @@ function onTelaChange(secId,itemId,sel){
   if(sel.value==='__nueva__'){
     const nombre=prompt('Nombre de la tela nueva:');
     if(!nombre||!nombre.trim()){ sel.value=item.tela||''; return; }
-    const limpio=nombre.trim();
-    if(!telasList.includes(limpio)){
-      telasList=[...telasList,limpio].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-      db.ref('fabrica_v5/telas').set(telasList);
-    }
+    const limpio=telaResolver(nombre);
+    if(!limpio){ sel.value=item.tela||item.tela_nombre||''; return; }
     assignTela(secId,itemId,limpio);
   } else {
     assignTela(secId,itemId,sel.value);
@@ -3717,6 +3711,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     if(v){ telasList=(Array.isArray(v)?v.filter(Boolean):Object.values(v)).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); }
     renderSections('diseno');renderSections('fabrica');
   });
+  db.ref('fabrica_v5/telas_no_iguales').on('value',snap=>{ telasNoIguales=snap.val()||{}; if(typeof tsVista!=='undefined'&&tsVista.modo==='nombres') renderTelasStock(); });
   db.ref('fabrica_v5/telas_colores').on('value',snap=>{
     telasColoresData=snap.val()||{};
     if(!document.getElementById('colores-tela-panel').classList.contains('hidden')) renderColoresTelaLista();
@@ -4077,11 +4072,8 @@ function onTelaBaseChange(secId,itemId,sel){
   if(sel.value==='__nueva__'){
     const nombre=prompt('Nombre de la tela nueva:');
     if(!nombre||!nombre.trim()){ sel.value=item.tela_nombre||''; return; }
-    const limpio=nombre.trim();
-    if(!telasList.includes(limpio)){
-      telasList=[...telasList,limpio].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-      db.ref('fabrica_v5/telas').set(telasList);
-    }
+    const limpio=telaResolver(nombre);
+    if(!limpio){ sel.value=item.tela||item.tela_nombre||''; return; }
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(limpio);
     checkPasosNuevoDesarrollo(secId,itemId,{tela_nombre:limpio});
     logActivity('Editó nombre de tela',limpio);
@@ -4132,8 +4124,9 @@ function onProveedorTelaChange(secId,itemId,sel){
 
 function editTelaNombre(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const val=prompt('Nombre de la tela:',item.tela_nombre||'');
+  let val=prompt('Nombre de la tela:',item.tela_nombre||'');
   if(val===null) return;
+  if(val.trim()){ const r=telaResolver(val); if(!r) return; val=r; }
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/tela_nombre`).set(val.trim());
   logActivity('Editó nombre de tela',val.trim()||'(vacío)');
   showToast('✓ Tela guardada');
@@ -9119,6 +9112,88 @@ document.getElementById('save-modal-orden-corte').onclick=saveOrdenCorte;
 // ---- ROLLOS UTILIZADOS: color x kg/mts x capas -> usado/sobrante ----
 let rollosCtx={};
 function sanitizeStr(s){ return String(s).replace(/[^a-zA-Z0-9]/g,'_'); }
+// ===== Nombres de telas: un solo nombre por tela =====
+// telaNorm: misma tela aunque cambie mayúscula, tilde, espacios o puntuación.
+function telaNorm(s){ return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function telaLev(a,b){ if(Math.abs(a.length-b.length)>2) return 9; const d=Array.from({length:a.length+1},(_,i)=>[i]); for(let j=1;j<=b.length;j++) d[0][j]=j;
+  for(let i=1;i<=a.length;i++) for(let j=1;j<=b.length;j++) d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1)); return d[a.length][b.length]; }
+function telaParecidas(a,b){ const x=telaNorm(a),y=telaNorm(b); if(!x||!y) return false; if(x===y) return true; const m=Math.min(x.length,y.length); return m>=4&&telaLev(x,y)<=(m<7?1:2); }
+let telasNoIguales={};
+// Devuelve el nombre a usar (el existente si es la misma tela) y agrega a la lista si es nueva. null = canceló.
+function telaResolver(nombre){
+  const limpio=String(nombre||'').trim().replace(/\s+/g,' '); if(!limpio) return null;
+  const igual=(telasList||[]).find(t=>telaNorm(t)===telaNorm(limpio));
+  if(igual){ if(igual!==limpio) showToast(`Ya existe "${igual}": se usa esa`); return igual; }
+  const par=(telasList||[]).find(t=>telaParecidas(t,limpio)&&!telasNoIguales[telaParKey(t,limpio)]);
+  if(par&&confirm(`"${limpio}" se parece a "${par}".\n\n¿Es la misma tela?\nAceptar = usar "${par}"\nCancelar = es otra tela`)) return par;
+  if(par) db.ref(`fabrica_v5/telas_no_iguales/${telaParKey(par,limpio)}`).set(true);
+  telasList=[...telasList,limpio].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+  db.ref('fabrica_v5/telas').set(telasList);
+  return limpio;
+}
+function telaParKey(a,b){ return [telaNorm(a),telaNorm(b)].sort().join('__').replace(/[^a-z0-9_]/g,'_'); }
+// Dónde se usa cada tela (para mostrar cantidades y para renombrar/unificar en todos lados).
+function telaUsos(nombre){
+  const u={cortes:0,rollos:0,otros:0};
+  Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{ if(it&&(it.tela===nombre||it.tela_nombre===nombre)) u.cortes++; }));
+  Object.values((typeof tsData!=='undefined'&&tsData.rollos)||{}).forEach(r=>{ if(r&&r.tela===nombre) u.rollos++; });
+  Object.values(costeosData||{}).forEach(c=>{ if(c&&c.tela===nombre) u.otros++; });
+  return u;
+}
+function telaUsosTxt(n){ const u=telaUsos(n); const p=[]; if(u.cortes) p.push(`${u.cortes} corte${u.cortes>1?'s':''}`); if(u.rollos) p.push(`${u.rollos} rollo${u.rollos>1?'s':''}`); if(u.otros) p.push(`${u.otros} costeo${u.otros>1?'s':''}`); return p.join(' · ')||'sin uso'; }
+// Reemplaza el nombre viejo por el nuevo en todos lados y junta los colores de ambas telas.
+async function telaRenombrar(viejos,nuevo){
+  const up={},en=new Set(viejos);
+  Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{ if(!it) return; const b=`fabrica_v5/sections/${sid}/items/${iid}/`; if(en.has(it.tela)) up[b+'tela']=nuevo; if(en.has(it.tela_nombre)) up[b+'tela_nombre']=nuevo; }));
+  Object.entries(gruposCorteData||{}).forEach(([k,g])=>{ if(g&&en.has(g.tela)) up[`fabrica_v5/grupos_corte/${k}/tela`]=nuevo; });
+  Object.entries(costeosData||{}).forEach(([k,c])=>{ if(c&&en.has(c.tela)) up[`fabrica_v5/costeos/${k}/tela`]=nuevo; });
+  Object.entries(estampadosData||{}).forEach(([k,e])=>{ if(e&&en.has(e.tela)) up[`fabrica_v5/estampados/${k}/tela`]=nuevo; });
+  Object.entries(pmData||{}).forEach(([m,bs])=>Object.entries(bs||{}).forEach(([bk,b])=>Object.entries((b&&b.items)||{}).forEach(([ik,x])=>{ if(x&&en.has(x.tela)) up[`fabrica_v5/productos_mes/${m}/${bk}/items/${ik}/tela`]=nuevo; })));
+  Object.entries(tsData.remitos||{}).forEach(([k,r])=>{ if(r&&en.has(r.tela)) up[`fabrica_v5/telas_stock/remitos/${k}/tela`]=nuevo; });
+  Object.entries(tsData.rollos||{}).forEach(([k,r])=>{ if(r&&en.has(r.tela)) up[`fabrica_v5/telas_stock/rollos/${k}/tela`]=nuevo; });
+  // colores: se juntan sin perder ninguno
+  const kN=sanitizeStr(nuevo),cN=telasColoresData[kN]||{},col=new Set(cN.colores||[]),eli=new Set(cN.eliminados||[]);
+  viejos.forEach(v=>{ const k=sanitizeStr(v),c=telasColoresData[k]; if(!c) return; (c.colores||[]).forEach(x=>col.add(x)); (c.eliminados||[]).forEach(x=>eli.add(x)); if(k!==kN) up[`fabrica_v5/telas_colores/${k}`]=null; });
+  if(col.size||eli.size) up[`fabrica_v5/telas_colores/${kN}`]={nombre:nuevo,colores:[...col],eliminados:[...eli].filter(x=>!col.has(x))};
+  const lista=[...new Set((telasList||[]).filter(t=>!en.has(t)).concat(nuevo))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+  up['fabrica_v5/telas']=lista;
+  await db.ref().update(up);
+  logActivity('Unificó/renombró tela',`${viejos.join(', ')} → ${nuevo}`);
+  return Object.keys(up).length;
+}
+function telasGruposRepetidas(){
+  const l=telasList||[],usadas=new Set(),grupos=[];
+  l.forEach((a,i)=>{ if(usadas.has(a)) return; const g=[a]; l.slice(i+1).forEach(b=>{ if(!usadas.has(b)&&telaParecidas(a,b)&&!telasNoIguales[telaParKey(a,b)]){ g.push(b); } }); if(g.length>1){ g.forEach(x=>usadas.add(x)); grupos.push(g); } });
+  return grupos;
+}
+function renderTsNombres(){
+  const cont=document.getElementById('telas-content');
+  const grupos=telasGruposRepetidas();
+  cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
+    <div class="ts-title">Nombres de telas</div>
+    <div class="ts-sub" style="margin-bottom:12px">Al unificar o renombrar, el nombre se cambia en todos lados: cortes, nuevos desarrollos, costeo, stock, remitos, estampas y colores.</div>
+    ${grupos.length?`<div class="ts-card" style="border-color:#f59e0b"><div class="ts-tela" style="margin-bottom:6px">Posibles repetidas</div>
+      ${grupos.map((g,gi)=>`<div style="padding:8px 0;border-top:1px solid var(--border)">${g.map((t,i)=>`<label style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;cursor:pointer"><span><input type="radio" name="tg${gi}" value="${tsEsc(t)}" ${i===0?'checked':''}> ${tsEsc(t)}</span><span class="ts-sub">${telaUsosTxt(t)}</span></label>`).join('')}
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><button class="ts-btn-out" onclick="telaNoSon(${gi})">No son la misma</button><button class="ts-btn" onclick="telaUnificarGrupo(${gi})">Unificar</button></div></div>`).join('')}</div>`:'<div class="ts-sub" style="margin-bottom:12px">No hay telas que parezcan repetidas.</div>'}
+    <div class="ts-card"><div class="ts-tela" style="margin-bottom:6px">Todas las telas (${(telasList||[]).length})</div>
+      ${(telasList||[]).map(t=>{const u=telaUsosTxt(t);return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)"><span>${tsEsc(t)}</span><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="ts-sub">${u}</span>
+        <button class="ts-link" onclick="telaRenombrarUI('${encodeURIComponent(t)}')">Renombrar</button><button class="ts-link" onclick="telaUnificarConUI('${encodeURIComponent(t)}')">Unificar con…</button>${u==='sin uso'?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="telaBorrarUI('${encodeURIComponent(t)}')">Borrar</button>`:''}</span></div>`}).join('')}</div>`;
+}
+function telaConfirmarCambio(viejos,nuevo){ const n=viejos.reduce((s,v)=>{const u=telaUsos(v);return s+u.cortes+u.rollos+u.otros},0);
+  return confirm(`Cambiar ${viejos.map(v=>`"${v}"`).join(', ')} por "${nuevo}" en todos lados (${n} registro${n!==1?'s':''} entre cortes, rollos y costeos, más estampas, remitos y colores).\n\nNo se puede deshacer automáticamente. ¿Seguir?`); }
+async function telaUnificarGrupo(gi){ if(currentUser!=='ariel') return; const g=telasGruposRepetidas()[gi]; if(!g) return;
+  const sel=document.querySelector(`input[name="tg${gi}"]:checked`); const nuevo=sel?sel.value:g[0]; const viejos=g.filter(t=>t!==nuevo);
+  if(!telaConfirmarCambio(viejos,nuevo)) return; await telaRenombrar(viejos,nuevo); showToast(`✓ Unificado en "${nuevo}"`); }
+function telaNoSon(gi){ const g=telasGruposRepetidas()[gi]; if(!g) return; const up={}; g.forEach((a,i)=>g.slice(i+1).forEach(b=>{ up[telaParKey(a,b)]=true; })); db.ref('fabrica_v5/telas_no_iguales').update(up); }
+async function telaRenombrarUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); const n=prompt('Nuevo nombre para "'+t+'":',t); if(n===null) return; const nuevo=n.trim().replace(/\s+/g,' '); if(!nuevo||nuevo===t) return;
+  const otra=(telasList||[]).find(x=>x!==t&&telaNorm(x)===telaNorm(nuevo)); const dest=otra||nuevo;
+  if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Ahora es "${dest}"`); }
+async function telaUnificarConUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); const otras=(telasList||[]).filter(x=>x!==t);
+  const n=prompt(`¿Con qué tela unificar "${t}"? Escribí el nombre que queda:\n\n${otras.join('\n')}`,''); if(n===null) return;
+  const dest=otras.find(x=>telaNorm(x)===telaNorm(n)); if(!dest){ showToast('No encontré esa tela en la lista'); return; }
+  if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Unificado en "${dest}"`); }
+function telaBorrarUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); if(telaUsosTxt(t)!=='sin uso'){ showToast('Esa tela está en uso'); return; } if(!confirm(`¿Borrar "${t}" de la lista?`)) return;
+  db.ref('fabrica_v5/telas').set((telasList||[]).filter(x=>x!==t)); logActivity('Borró tela de la lista',t); }
 function openRollosModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   // En "Cortes próximos a sacar" los rollos se comparten por N° de corte (misma tela física
@@ -11605,7 +11680,8 @@ db.ref('fabrica_v5/telas_stock').on('value', snap => {
 function tsEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function tsPuedeCargar(){ return currentUser==='ariel'||currentUser==='emir'; }
 function tsNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isFinite(n)?n:0; }
-function tsFmt(n,dec){ return (Math.round(n*Math.pow(10,dec||0))/Math.pow(10,dec||0)).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:dec||0}); }
+// En Telas los kilos/metros se muestran siempre con 2 decimales (82,50); los pesos sin decimales.
+function tsFmt(n,dec){ const d=dec?2:0; return (Math.round((Number(n)||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 function tsMoneda(m,n){ return (m==='USD'?'US$ ':'$ ')+tsFmt(n,m==='USD'?2:0); }
 function tsHoyISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function tsFechaCorta(iso){ if(!iso) return '—'; const [y,m,d]=iso.split('-'); return `${d}/${m}/${y.slice(2)}`; }
@@ -11656,6 +11732,7 @@ function renderTelasStock(){
   if(tsVista.modo==='color') return renderTsColor();
   if(tsVista.modo==='remitos') return renderTsRemitos();
   if(tsVista.modo==='revision') return renderTsRevision();
+  if(tsVista.modo==='nombres') return renderTsNombres();
   if(tsVista.modo==='tela') return renderTsTela();
   const val=tsValor(), dolar=tsNum(tsData.config.dolarHoy);
   const totalPesos=val.ARS+(dolar?val.USD*dolar:0);
@@ -11665,6 +11742,7 @@ function renderTelasStock(){
       <div class="ts-title">Stock de telas</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ts-btn-out" onclick="tsVista.modo='remitos';renderTelasStock()">Remitos</button>
+        ${currentUser==='ariel'?`<button class="ts-btn-out" onclick="tsVista.modo='nombres';renderTelasStock()">Nombres de telas${telasGruposRepetidas().length?` <b style="color:#b45309">(${telasGruposRepetidas().length})</b>`:''}</button>`:''}
         ${tsPuedeCargar()?`<button class="ts-btn-out" onclick="tsNuevoRemito(true)">Cargar stock inicial</button><button class="ts-btn" onclick="tsNuevoRemito()">+ Ingresar remito</button>`:''}
       </div>
     </div>
@@ -11738,7 +11816,7 @@ function renderTsTela(){
           return `<div class="ts-fila" style="grid-template-columns:.7fr ${ed?'1.4fr ':''}1fr 1fr 1.1fr;cursor:default;align-items:center">
             <span style="font-weight:700">${tsEsc(r.codigo)}</span>
             ${ed?`<input class="ts-in" value="${tsEsc(r.color||'')}" aria-label="Color de ${tsEsc(r.codigo)}" onchange="tsInlineColor('${id}',this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;min-width:0">`:''}
-            <span>${ed?`<input class="ts-in" inputmode="decimal" value="${String(rest).replace('.',',')}" aria-label="Kilos de ${tsEsc(r.codigo)}" onchange="tsInlineKg('${id}',this.value)" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;text-align:right"> ${u}`:`<b>${tsFmt(rest,1)} ${u}</b>`}${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
+            <span>${ed?`<input class="ts-in" inputmode="decimal" value="${(Number(rest)||0).toFixed(2).replace('.',',')}" aria-label="Kilos de ${tsEsc(r.codigo)}" onchange="tsInlineKg('${id}',this.value)" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;text-align:right"> ${u}`:`<b>${tsFmt(rest,1)} ${u}</b>`}${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
             <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
             <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}</span>
           </div>${tsUsosHtml(id,r)}`; }).join('')}
@@ -11946,8 +12024,8 @@ function tsElegirLista(sel,campo){
   if(sel.value!=='__nuevo'){ tsForm[campo]=sel.value; return; }
   const n=prompt(campo==='tela'?'Nombre de la tela nueva':'Nombre del proveedor nuevo');
   if(!n||!n.trim()){ sel.value=tsForm[campo]||''; return; }
-  const limpio=n.trim();
-  if(campo==='tela'){ if(!telasList.includes(limpio)){ telasList=[...telasList,limpio].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); db.ref('fabrica_v5/telas').set(telasList); } }
+  let limpio=n.trim();
+  if(campo==='tela'){ limpio=telaResolver(limpio); if(!limpio){ sel.value=tsForm[campo]||''; return; } }
   else { if(!proveedoresList.includes(limpio)){ proveedoresList=[...proveedoresList,limpio]; db.ref('fabrica_v5/proveedores').set(proveedoresList); } }
   tsForm[campo]=limpio; renderTsForm();
 }

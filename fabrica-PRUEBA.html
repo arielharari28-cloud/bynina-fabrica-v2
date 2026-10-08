@@ -12922,7 +12922,9 @@ function logiAbrirNuevaEntregaCorte(){
   // recién salido de costura (sFIN), en Taller de Estampado, o en Taller de Terminación. Antes
   // solo miraba sFIN, así que un corte que ya había pasado a Estampado/Terminación con el botón
   // manual "Entregado" quedaba sin forma de abrirle el conteo (nunca aparecía en esta lista).
-  const secsIds=['sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION];
+  // Después de la primera entrega el corte pasa a Revisión Final (o Mejora / Producto perfecto),
+  // pero puede seguir teniendo prendas en el taller (entrega parcial): también se buscan ahí.
+  const secsIds=['sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION,...['revision_final','mejora','producto_perfecto'].map(getSectionIdByTipo)].filter(Boolean);
   const SEC_TAG={[SEC_ESTAMPADO_TALLER]:' · en Estampado',[SEC_TALLER_TERMINACION]:' · en Terminación'};
   let candidatos=[];
   secsIds.forEach(secId=>{
@@ -12938,7 +12940,10 @@ function logiAbrirNuevaEntregaCorte(){
       // cambia cada vez que el corte pasa de etapa (ej: al tocar "Entregado" y pasar de
       // Revisión Final a Estampado), así que compararlo por id dejaba de reconocer una
       // entrega ya abierta apenas el corte avanzaba, y permitía duplicarla por error.
-      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.numero_corte===it.numero_corte&&lit.code===it.code&&!lit.proceso&&lit.estado!=='cerrado');
+      // Solo bloquea si la entrega abierta todavía se está contando o controlando. Si ya está en
+      // "Pendiente dividir", lo contado ya es definitivo y el saldo que falta se puede abrir como
+      // otra entrega (el taller trajo el resto mientras se dividía la primera tanda).
+      const tieneEntregaAbierta=Object.values(logiItemsData||{}).some(lit=>lit.numero_corte===it.numero_corte&&lit.code===it.code&&!lit.proceso&&lit.estado!=='cerrado'&&['conteo','control'].includes(logiEstadoColumna(lit)));
       if(tieneEntregaAbierta) return;
       const resumen=resumenEntregasFabrica(it,id);
       if(resumen.enTaller>0) candidatos.push({id,it,secId,resumen});

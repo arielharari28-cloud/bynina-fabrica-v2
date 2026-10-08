@@ -9135,8 +9135,9 @@ function openRollosModal(secId,itemId){
     coloresDisponibles,
     requeridoPorColor,
     liquidar:!!(grupo&&grupo.liquidar_tela),
-    largo:numAr(item.largo_capa),
-    peso:numAr(item.peso_metro),
+    // Igual que en la tarjeta: si el corte tiene largo/peso cargados a nivel corte (grupo), se usan esos.
+    largo:numAr(getLargoCapaEfectivo(item)),
+    peso:numAr(getPesoMetroEfectivo(item)),
     curvaSum:Object.values(item.curva_valores||{}).reduce((s,v)=>s+(parseInt(v)||0),0)
   };
   const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||'',stockId:r.stockId||'',codigo:r.codigo||'',sobranteReal:(r.sobranteReal===undefined||r.sobranteReal===null)?'':String(r.sobranteReal)}));
@@ -16753,7 +16754,11 @@ function renderCosteoDetail(){
   const fila=(l,mid,der)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--border)"><span style="color:var(--text2);flex:1;min-width:0">${l}</span><span style="white-space:nowrap">${mid||''}</span><b style="min-width:90px;text-align:right;white-space:nowrap">${der||''}</b></div>`;
 
   // --- Tela del corte ---
-  const largo=numAr2(e.largo_capa!=null&&e.largo_capa!==''?e.largo_capa:''), pesoM=numAr2(e.peso_metro!=null&&e.peso_metro!==''?e.peso_metro:'');
+  // Si en Costeo no se cargó a mano, se trae del corte en Fábrica (ítem o grupo del corte), como antes.
+  const itV=e.numero_corte?(estadoCorteVinculado(e.numero_corte)||{}).item:null;
+  const lcVal=(e.largo_capa!=null&&e.largo_capa!=='')?e.largo_capa:(itV?(getLargoCapaEfectivo(itV)||''):'');
+  const pmVal=(e.peso_metro!=null&&e.peso_metro!=='')?e.peso_metro:(itV?(getPesoMetroEfectivo(itV)||''):'');
+  const largo=numAr2(lcVal), pesoM=numAr2(pmVal);
   const rollos=Object.entries(e.rollos||{}).filter(([,x])=>x&&(x.color||x.kgmts));
   const sinSob=rollos.some(([,x])=>x.sobrante==null||x.sobrante==='');
   const rollosHtml=costeoRollosAbierto?(rollos.length?`<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -16767,8 +16772,8 @@ function renderCosteoDetail(){
         <td style="padding:4px 6px;text-align:right;font-weight:700">${carg?costeoKg(Math.max(0,carg-sob)):'—'}</td></tr>`}).join('')}
     </table></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px">
-      <span>Largo capa ${canEdit?inp(e.largo_capa,`setCosteoLargoCapa('${key}',this.value)`,60):'<b>'+(e.largo_capa||'—')+'</b>'}</span>
-      <span>Peso x m ${canEdit?inp(e.peso_metro,`setCosteoPesoMetro('${key}',this.value)`,60):'<b>'+(e.peso_metro||'—')+'</b>'}</span>
+      <span>Largo capa ${canEdit?inp(lcVal,`setCosteoLargoCapa('${key}',this.value)`,60):'<b>'+(lcVal||'—')+'</b>'}</span>
+      <span>Peso x m ${canEdit?inp(pmVal,`setCosteoPesoMetro('${key}',this.value)`,60):'<b>'+(pmVal||'—')+'</b>'}</span>
       <span style="font-size:11px;color:var(--text3)">Calculado = capas × largo × peso, solo de referencia.</span>
     </div>`:'<div style="font-size:12px;color:var(--text3);margin-top:6px">Sin rollos cargados</div>'):'';
   const telaHtml=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:10px">
@@ -16906,8 +16911,10 @@ function backfillCosteosExistentes(){
       g.piezas_totales+=Object.values(item.capas||{}).reduce((s,r)=>s+Object.values(r.cant||{}).reduce((s2,v)=>s2+(parseInt(v)||0),0),0);
       Object.values(item.avios||{}).forEach(a=>{ if(a) g.avios.push({nombre:a.nombre||'',proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||''}); });
       if(!Object.keys(g.rollos).length&&item.rollos) g.rollos=item.rollos;
-      if(!g.largo_capa&&item.largo_capa) g.largo_capa=item.largo_capa;
-      if(!g.peso_metro&&item.peso_metro) g.peso_metro=item.peso_metro;
+      // Largo/peso pueden estar cargados a nivel corte (grupo) y no en el ítem: se usa el efectivo.
+      const lcEf=getLargoCapaEfectivo(item),pmEf=getPesoMetroEfectivo(item);
+      if(!g.largo_capa&&lcEf) g.largo_capa=lcEf;
+      if(!g.peso_metro&&pmEf) g.peso_metro=pmEf;
       if(!g.tela&&(item.tela||item.tela_nombre)) g.tela=item.tela||item.tela_nombre;
       if(!g.proveedor&&(item.proveedor||item.tela_proveedor)) g.proveedor=item.proveedor||item.tela_proveedor;
     });

@@ -16759,6 +16759,9 @@ function renderCosteoDetail(){
   const lcVal=(e.largo_capa!=null&&e.largo_capa!=='')?e.largo_capa:(itV?(getLargoCapaEfectivo(itV)||''):'');
   const pmVal=(e.peso_metro!=null&&e.peso_metro!=='')?e.peso_metro:(itV?(getPesoMetroEfectivo(itV)||''):'');
   const largo=numAr2(lcVal), pesoM=numAr2(pmVal);
+  // Lo traído del corte se guarda en Costeo la primera vez, así queda fijo aunque el corte después se borre o cambie de lugar.
+  {const up={};if((e.largo_capa==null||e.largo_capa==='')&&lcVal!=='')up.largo_capa=String(lcVal);if((e.peso_metro==null||e.peso_metro==='')&&pmVal!=='')up.peso_metro=String(pmVal);
+   if(Object.keys(up).length)db.ref(`fabrica_v5/costeos/${key}`).update(up);}
   const rollos=Object.entries(e.rollos||{}).filter(([,x])=>x&&(x.color||x.kgmts));
   const sinSob=rollos.some(([,x])=>x.sobrante==null||x.sobrante==='');
   const rollosHtml=costeoRollosAbierto?(rollos.length?`<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">

@@ -1001,6 +1001,7 @@
           </div>
           <div class="ld-side">
             <div id="logi-detail-plata"></div>
+            <div id="logi-detail-medidas"></div>
             <div id="logi-detail-web"></div>
             <div id="logi-detail-extra"></div>
             <details class="ld-card ld-mas" id="logi-detail-mas">
@@ -15734,6 +15735,10 @@ function logiRenderDetail(id){
     ? '<span class="ld-chip" style="background:#e8f4ef;color:#2d6a4f">✓ Conteo cerrado</span>'
     : `<span class="ld-chip" style="background:#fff3d6;color:#7a5200">${{conteo:'Pendiente de conteo',control:'Pendiente de control',dividir:'Pendiente dividir'}[logiEstadoColumna(it)]||'En curso'}</span>`;
   logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle);
+  // Medidas: se cargan desde el detalle apenas hay talles (cualquier etapa, también antes de
+  // dividir), así Noemí/Nahuel/Emir las completan desde Logística sin pasar por la pestaña Web.
+  const medEl=document.getElementById('logi-detail-medidas');
+  if(medEl){ const mh=buildMedidasHtml(id,it,true); medEl.innerHTML=mh?`<div class="ld-card">${mh}</div>`:''; }
   let html = '';
 
   if(cerrado){

@@ -9175,6 +9175,10 @@ function rollosRefreshRow(rowId){
   const s=document.getElementById(`rol-sobrante-${rowId}`);
   if(u) u.textContent=usado?usado.toFixed(2):'—';
   if(s) s.textContent=row.kgmts?sobrante.toFixed(2):'—';
+  // Filas de rollos del stock: el sobrante es un input (para cargar lo pesado) cuyo valor sugerido
+  // (placeholder) también tiene que actualizarse al cambiar capas o kg, si no queda el kg inicial.
+  const sr=document.getElementById(`rol-sobreal-${rowId}`);
+  if(sr) sr.placeholder=row.kgmts?sobrante.toFixed(2):'—';
 }
 function rollosCargadoPorColor(color){
   return rollosCtx.rows.filter(r=>r.color===color).reduce((s,r)=>s+(parseFloat(r.capas)||0),0);
@@ -9229,7 +9233,7 @@ function renderRollosModal(){
       <td><span class="oc-cell-calc" id="rol-usado-${row.id}">${usado?usado.toFixed(2):'—'}</span></td>
       <td>${rStock
         ? `<div style="display:flex;flex-direction:column;gap:3px;align-items:center">
-            <input type="number" min="0" step="0.01" value="${row.sobranteReal??''}" placeholder="${row.kgmts?sobrante.toFixed(2):'—'}" title="Si lo pesaron, poné lo que quedó de verdad. Vacío = se calcula por capas." oninput="rollosUpdateField('${row.id}','sobranteReal',this.value)" style="width:64px;padding:4px;font-size:12px;text-align:center;border:1px solid ${row.sobranteReal!==''&&row.sobranteReal!=null?'var(--accent)':'var(--border)'};border-radius:6px">
+            <input type="number" min="0" step="0.01" id="rol-sobreal-${row.id}" value="${row.sobranteReal??''}" placeholder="${row.kgmts?sobrante.toFixed(2):'—'}" title="Si lo pesaron, poné lo que quedó de verdad. Vacío = se calcula por capas." oninput="rollosUpdateField('${row.id}','sobranteReal',this.value)" style="width:64px;padding:4px;font-size:12px;text-align:center;border:1px solid ${row.sobranteReal!==''&&row.sobranteReal!=null?'var(--accent)':'var(--border)'};border-radius:6px">
             <button type="button" class="btn-sm" style="font-size:10.5px;padding:2px 6px;${String(row.sobranteReal)==='0'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="rollosUsadoEntero('${row.id}')">${String(row.sobranteReal)==='0'?'✓ Entero':'Se usó entero'}</button>
           </div>`
         : `<span class="oc-cell-calc" id="rol-sobrante-${row.id}">${row.kgmts?sobrante.toFixed(2):'—'}</span>`}</td>

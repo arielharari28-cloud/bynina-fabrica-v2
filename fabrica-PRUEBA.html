@@ -15149,7 +15149,12 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
     if(it.origen==='proveedor'&&it.precio_costo) costo='$ '+Number(it.precio_costo).toLocaleString('es-AR')+' / prenda';
     const u=totalOk+totalDetalle;
     plata.innerHTML=`<div class="ld-card"><div class="ld-title">Plata</div>
-      ${it.origen==='proveedor'?'':`<div class="ld-row"><span>Precio taller</span><span>$ <input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.</span></div>
+      ${it.origen==='proveedor'?(()=>{const inp=(campo,ph)=>`<input type="number" value="${it[campo]||''}" placeholder="${ph}" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="setLogiPrecioVenta('${id}','${campo}',this.value)">`;
+        return `<div class="ld-row"><span>Costo proveedor</span><span>$ ${inp('precio_costo','0')} / u.</span></div>
+      <div class="ld-row"><span>Se le debe al proveedor</span><b style="color:var(--accent)">${it.precio_costo?'$ '+(it.precio_costo*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>
+      <div class="ld-row"><span>Lista local</span><span>$ ${inp('precio_lista_local','—')}</span></div>
+      <div class="ld-row"><span>TN minorista</span><span>$ ${inp('precio_tn_minorista','—')}</span></div>
+      <div class="ld-row"><span>TN mayorista</span><span>$ ${inp('precio_tn_mayorista','—')}</span></div>`})():`<div class="ld-row"><span>Precio taller</span><span>$ <input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.</span></div>
       <div class="ld-row"><span>Se le debe al taller</span><b style="color:var(--accent)">${it.precio_taller?'$ '+(it.precio_taller*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>`}
       <div class="ld-row"><span>Costo por prenda</span><b>${costo}${it.costo_confirmado?'':' <small style="font-weight:500;color:var(--text2)">· sin confirmar</small>'}</b></div>
       ${it.origen==='proveedor'?'':costoConfirmadoCheckboxHtml(id,it.costo_confirmado)}

@@ -812,6 +812,43 @@
   .ld-mas summary::after{content:" ＋";color:var(--text2);font-weight:400}
   .ld-mas[open] summary::after{content:" －"}
   .logi-count-table.hide-esp .c-esp,.logi-count-table.hide-pc .c-pc,.logi-count-table.hide-ft .c-ft,.logi-count-table.hide-saldo .c-saldo{display:none}
+
+  /* Recorrido (etapas) y tarjeta de Talleres — oct 2026 */
+  .rc-box{margin-top:8px;background:var(--surface2);border-radius:10px;padding:10px 12px}
+  .rc-h,.tc-h{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);margin-bottom:6px}
+  .rc-route{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
+  .rc-ar{align-self:center;color:var(--text3)}
+  .rc-stp{border:1px solid var(--border2);background:var(--surface);border-radius:8px;padding:6px 9px;font-size:12px;min-width:0;max-width:100%}
+  .rc-stp .rc-s{font-size:10.5px;color:var(--text2);margin-top:1px}
+  .rc-stp.now{background:#ede9fe;border-color:#c4b5fd;color:#4c1d95}
+  .rc-stp.now .rc-s{color:#5b21b6}
+  .rc-stp.done{background:var(--accent-bg);border-color:transparent;color:var(--accent)}
+  .rc-stp.done .rc-s{color:var(--accent)}
+  .rc-btns{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:4px}
+  .rc-btns .btn-sm{font-size:11px;padding:2px 7px}
+  .rc-x{color:var(--danger)}
+  .rc-precio input{width:62px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:11px}
+  .rc-form{margin-top:8px}
+  .rc-form summary{display:inline-block;cursor:pointer;list-style:none}
+  .rc-form summary::-webkit-details-marker{display:none}
+  .rc-fields{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:8px}
+  .rc-fields label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--text2);font-weight:600}
+  .rc-fields select,.rc-fields input[type=text]{border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px;background:var(--surface);color:var(--text)}
+  .rc-fields label.rc-chk{flex-direction:row;align-items:center;gap:5px;font-size:12px;color:var(--text)}
+  .tc{display:flex;flex-direction:column;gap:10px;padding:4px 2px}
+  .tc-acl{font-size:12.5px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 10px}
+  .tc-avio{font-size:12px;font-weight:600;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:6px 10px}
+  .tc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+  .tc-blk{background:var(--surface2);border-radius:10px;padding:10px 12px;min-width:0}
+  .tc-kv{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-top:4px}
+  .tc-kv>span:first-child{color:var(--text2)}
+  .tc-sub{font-size:12.5px;color:var(--text2)}
+  .tc-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .tc-fold>summary{cursor:pointer;font-size:12.5px;color:var(--text2);border:1px dashed var(--border2);border-radius:8px;padding:7px 10px;list-style:none}
+  .tc-fold>summary::-webkit-details-marker{display:none}
+  .tc-fold[open]>summary{margin-bottom:8px}
+  .ut-flag{display:inline-block;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:20px;padding:0 6px;margin-left:4px;vertical-align:middle}
+  .ut-chip{display:inline-block;font-size:11px;font-weight:600;border-radius:20px;padding:2px 8px;background:var(--accent-bg);color:var(--accent);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -4345,15 +4382,15 @@ function buildTelaBaseLineHtml(item){
 function buildPasosExtraHtml(secId,itemId,item,canEdit){
   const pasos=Object.entries(item.pasos_extra||{});
   const canDel=(currentUser==='ariel'||currentUser==='stef');
+  if(!pasos.length) return ''; // lo nuevo se carga como etapas del Recorrido
   const rows=pasos.map(([pasoId,p])=>`<div class="avio-item">
       <div class="c-check ${p.hecho?'checked':''}" style="cursor:${canEdit?'pointer':'default'}" onclick="${canEdit?`togglePasoExtra('${secId}','${itemId}','${pasoId}')`:''}">${p.hecho?'✓':''}</div>
       <span class="avio-name" style="${p.hecho?'text-decoration:line-through;color:var(--text3)':''}">${p.nombre}${p.taller?` — <span style="color:var(--accent)">${p.taller}</span>`:''}</span>
       ${canDel?`<button class="avio-btn" onclick="deletePasoExtra('${secId}','${itemId}','${pasoId}')">🗑</button>`:''}
     </div>`).join('');
   return `<div style="margin-top:6px">
-    <span class="modelista-label">Pasos extra (plancha, ojal, broche...):</span>
-    ${rows||`<div style="font-size:12px;color:var(--text3);font-style:italic;margin-top:2px">Sin pasos extra cargados</div>`}
-    ${canEdit?`<button class="btn-sm" style="margin-top:4px" onclick="addPasoExtra('${secId}','${itemId}')">+ Agregar paso</button>`:''}
+    <span class="modelista-label">Pasos extra (forma anterior — lo nuevo va en Recorrido):</span>
+    ${rows}
   </div>`;
 }
 
@@ -4478,6 +4515,7 @@ function movExtraControlar(secId,itemId,movId){
 
 function buildMovimientosExtraHtml(secId,itemId,item){
   const movs=Object.entries(item.movimientos_extra||{}).sort((a,b)=>(a[1].fecha_salida||0)-(b[1].fecha_salida||0));
+  if(!movs.length) return ''; // lo nuevo se carga como etapas del Recorrido
   const rows=movs.map(([movId,m])=>{
     const info=MOV_EXTRA_TIPOS[m.tipo]||{label:m.tipo,emoji:'📦'};
     let estadoHtml;
@@ -4496,9 +4534,8 @@ function buildMovimientosExtraHtml(secId,itemId,item){
     </div>`;
   }).join('');
   return `<div style="margin-top:6px">
-    <span class="modelista-label">Movimientos a talleres extra (Plancha, Estampado, Bordado):</span>
-    ${rows||`<div style="font-size:12px;color:var(--text3);font-style:italic;margin-top:2px">Sin movimientos cargados</div>`}
-    ${puedeGestionarMovExtra()?`<button class="btn-sm" style="margin-top:4px" onclick="abrirSalidaMovExtra('${secId}','${itemId}')">📤 Sacar a taller extra</button>`:''}
+    <span class="modelista-label">Movimientos a talleres extra (forma anterior):</span>
+    ${rows}
   </div>`;
 }
 
@@ -4882,6 +4919,260 @@ function editFaltanteCorte(secId,itemId){
 }
 
 // --- CORTES FINALIZADOS → REVISIÓN FINAL (+ registro espejo en Logística) ---
+// ===== ETAPAS DEL RECORRIDO (oct 2026) =====
+// Una sola forma de mandar un corte a otro taller: estampado, bordado o plancha (ojal, botón, broche…),
+// antes o después de confección. Reemplaza, para lo nuevo, a "pasos extra" y "movimientos a talleres
+// extra" (lo ya cargado de esas dos formas se sigue mostrando y funcionando hasta que se cierre).
+// - Antes de confección: se entrega mientras el corte espera taller; el retiro de confección queda
+//   bloqueado hasta que vuelvan todas.
+// - Después de confección: el corte pasa a "En terminación" cuando entrega el de confección; cada
+//   etapa se entrega en orden; la última es la que, al cerrarse el control en Logística, lo lleva a
+//   Estampado DTF o a Revisión Final.
+// - Cada entrega de etapa abre su entrega en Logística a nombre de ese taller (proceso 'terminacion')
+//   para contar, controlar y, si corresponde, facturar.
+// - Estampado después de confección en "Nina (interno)" = el circuito de estampado DTF de siempre.
+// item.etapas/{id} = {tipo, momento:'antes'|'despues', taller, detalle, factura, precio, orden,
+//                     estado:'pendiente'|'en_taller'|'hecho', cantidad_salida, fecha_salida, fecha_entrega}
+// talleres_config/{taller} = {nombre, factura} — si a ese taller se le factura (default al elegirlo).
+const ETAPA_TIPOS={estampado:{label:'Estampado',emoji:'🎨'},bordado:{label:'Bordado',emoji:'🪡'},plancha:{label:'Plancha',emoji:'🧺'}};
+const TALLER_INTERNO='Nina (interno)';
+let talleresConfigData={};
+db.ref('fabrica_v5/talleres_config').on('value',s=>{ talleresConfigData=s.val()||{}; });
+const recorridoFormAbierto=new Set();
+const tcFoldAbierto=new Set();
+function etEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function etapasDe(item,momento){
+  return Object.entries((item&&item.etapas)||{}).filter(([,e])=>e&&(!momento||e.momento===momento)).sort((a,b)=>(a[1].orden||0)-(b[1].orden||0));
+}
+function etapasPendientes(item,momento){ return etapasDe(item,momento).filter(([,e])=>e.estado!=='hecho'); }
+function etapaLabel(e){ const t=ETAPA_TIPOS[e.tipo]||{label:e.tipo||'Etapa',emoji:'📦'}; return `${t.emoji} ${t.label}${e.detalle?' ('+e.detalle+')':''}`; }
+function tallerFactura(t){
+  if(!t) return true;
+  const c=talleresConfigData[sanitizeStr(t)];
+  if(c&&c.factura!=null) return !!c.factura;
+  return t!==TALLER_INTERNO;
+}
+function etapasAntesHabilitadas(secId,item){ return ['s4','s5','sLT','s6'].includes(secId)||(secId==='sFIN'&&!item.retirado_taller); }
+function etapasDespuesHabilitadas(secId){ return secId===SEC_TALLER_TERMINACION; }
+function etapaPuedeGestionar(){ return puedeGestionarMovExtra(); }
+function etapaEnTallerAntes(item){ return etapasDe(item,'antes').find(([,e])=>e.estado==='en_taller'); }
+
+// Estado de la confección dentro del recorrido.
+function recorridoEstadoConfeccion(secId,item){
+  if(secId==='sFIN'&&item.retirado_taller) return 'now';
+  if(secId===SEC_TALLER_TERMINACION||secId===SEC_ESTAMPADO_TALLER) return 'done';
+  return '';
+}
+function buildRecorridoHtml(secId,itemId,item){
+  if(!item) return '';
+  if(item.es_complemento) return ''; // el complemento va con el corte base
+  const puede=etapaPuedeGestionar();
+  const step=(cls,titulo,sub,extra='')=>`<div class="rc-stp ${cls}"><div class="rc-t">${titulo}</div>${sub?`<div class="rc-s">${sub}</div>`:''}${extra}</div>`;
+  const arrow='<span class="rc-ar">›</span>';
+  const etapaStep=([id,e])=>{
+    const hab=e.momento==='antes'?etapasAntesHabilitadas(secId,item):etapasDespuesHabilitadas(secId);
+    const sub=[];
+    let cls='';
+    if(e.estado==='hecho'){ cls='done'; sub.push(`✓ entregó ${etEsc(e.fecha_entrega||'')}`); }
+    else if(e.estado==='en_taller'){ cls='now'; sub.push(`salieron ${etEsc(e.cantidad_salida||'?')}${e.fecha_salida?' el '+fmtFecha(e.fecha_salida):''}`); }
+    else sub.push(e.momento==='antes'?'antes de confección':'después de confección');
+    sub.push(e.factura?'se factura':'sin facturar');
+    let extra='';
+    if(e.estado!=='hecho'){
+      const btns=[];
+      if(puede&&hab&&e.estado!=='en_taller') btns.push(`<button class="btn-sm" onclick="event.stopPropagation();etapaSalida('${secId}','${itemId}','${id}')">📤 Salió</button>`);
+      if(puede&&hab) btns.push(`<button class="btn-sm" onclick="event.stopPropagation();etapaEntrega('${secId}','${itemId}','${id}')">📥 Entregó</button>`);
+      if(puede&&e.estado!=='en_taller') btns.push(`<button class="btn-sm rc-x" title="Quitar etapa" onclick="event.stopPropagation();etapaQuitar('${secId}','${itemId}','${id}')">✕</button>`);
+      if(e.factura&&utPuedeEditarTaller()) btns.push(`<span class="rc-precio">$ <input type="number" min="0" step="0.01" value="${e.precio||''}" placeholder="/u" onclick="event.stopPropagation()" onchange="etapaPrecio('${secId}','${itemId}','${id}',this.value)"></span>`);
+      if(btns.length) extra=`<div class="rc-btns">${btns.join('')}</div>`;
+    }
+    return step(cls,`${etEsc(etapaLabel(e))} · <b>${etEsc(e.taller||'sin taller')}</b>`,sub.join(' · '),extra);
+  };
+  const partes=[];
+  etapasDe(item,'antes').forEach(x=>partes.push(etapaStep(x)));
+  const ec=recorridoEstadoConfeccion(secId,item);
+  partes.push(step(ec,`🧵 Confección · <b>${etEsc(item.taller_corte||'sin taller')}</b>`,ec==='done'?'✓ entregó':ec==='now'?'en el taller':''));
+  // Lo cargado a la forma vieja (pasos extra) se muestra en su lugar del recorrido.
+  Object.values(item.pasos_extra||{}).forEach(p=>{ if(p) partes.push(step(p.hecho?'done':'',`🧺 ${etEsc(p.nombre)}${p.taller?` · <b>${etEsc(p.taller)}</b>`:''}`,p.hecho?'✓ hecho':'paso extra (forma anterior)')); });
+  etapasDe(item,'despues').forEach(x=>partes.push(etapaStep(x)));
+  if(item.estampado_dtf){
+    const est=item.estampado_taller_entregado?'done':secId===SEC_ESTAMPADO_TALLER?'now':'';
+    partes.push(step(est,`🎨 Estampado DTF · <b>${TALLER_INTERNO}</b>`,`${est==='done'?'✓ entregó · ':''}sin facturar · en Estampas`));
+  }
+  partes.push(step('','✅ Revisión final',''));
+  // Formulario para agregar etapa
+  let form='';
+  if(puede){
+    const k=secId+'/'+itemId;
+    const opts=[...(talleresCorteList||[])].filter(t=>t!==TALLER_INTERNO).map(t=>`<option value="${etEsc(t)}">${etEsc(t)}</option>`).join('');
+    form=`<details class="rc-form" ${recorridoFormAbierto.has(k)?'open':''} ontoggle="event.stopPropagation();this.open?recorridoFormAbierto.add('${k}'):recorridoFormAbierto.delete('${k}')" onclick="event.stopPropagation()">
+      <summary class="btn-sm">+ Agregar etapa (estampado, bordado, plancha)</summary>
+      <div class="rc-fields">
+        <label>Qué<select data-k="q"><option value="estampado">🎨 Estampado</option><option value="bordado">🪡 Bordado</option><option value="plancha">🧺 Plancha (ojal, botón…)</option></select></label>
+        <label>Cuándo<select data-k="m"><option value="despues">Después de confección</option><option value="antes">Antes de confección</option></select></label>
+        <label>Taller<select data-k="t" onchange="if(this.value!=='__nuevo__'){this.closest('.rc-form').querySelector('[data-k=f]').checked=tallerFactura(this.value);}"><option value="">Elegí…</option>${opts}<option value="${TALLER_INTERNO}">${TALLER_INTERNO}</option><option value="__nuevo__">+ Otro taller…</option></select></label>
+        <label>Detalle<input data-k="d" type="text" placeholder="ej. ojal + botón, logo pecho"></label>
+        <label class="rc-chk"><input data-k="f" type="checkbox" checked> Se factura</label>
+        <button class="btn-advance" onclick="etapaAgregar('${secId}','${itemId}',this)">Agregar</button>
+      </div>
+    </details>`;
+  }
+  // Lo viejo con conteo propio (movimientos) se sigue mostrando con sus botones hasta cerrarse.
+  const legacyMov=Object.keys(item.movimientos_extra||{}).length&&item.numero_corte?buildMovimientosExtraHtml(secId,itemId,item):'';
+  return `<div class="rc-box" onclick="event.stopPropagation()">
+    <div class="rc-h">Recorrido</div>
+    <div class="rc-route">${partes.join(arrow)}</div>
+    ${form}
+    ${legacyMov}
+  </div>`;
+}
+function etapaAgregar(secId,itemId,btn){
+  if(!etapaPuedeGestionar()) return;
+  const f=btn.closest('.rc-form');
+  const q=f.querySelector('[data-k=q]').value, m=f.querySelector('[data-k=m]').value;
+  let t=f.querySelector('[data-k=t]').value;
+  const d=f.querySelector('[data-k=d]').value.trim();
+  let fac=f.querySelector('[data-k=f]').checked;
+  if(t==='__nuevo__'){
+    const n=prompt('Nombre del taller:');
+    if(!n||!n.trim()) return;
+    t=n.trim();
+    if(t!==TALLER_INTERNO&&!(talleresCorteList||[]).includes(t)){ talleresCorteList=[...(talleresCorteList||[]),t]; db.ref('fabrica_v5/talleres_corte').set(talleresCorteList); }
+  }
+  if(!t){ showToast('Elegí el taller'); return; }
+  const item=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!item) return;
+  if(q==='estampado'&&m==='despues'&&t===TALLER_INTERNO){
+    if(item.estampado_dtf){ showToast('Ya está marcado para estampado DTF de Nina'); return; }
+    irAEstampado(secId,itemId);
+    logActivity('Agregó etapa al recorrido',`${item.code||''}: Estampado DTF Nina`);
+    return;
+  }
+  const up={};
+  const key=sanitizeStr(t);
+  if(!talleresConfigData[key]||talleresConfigData[key].factura==null) up[`fabrica_v5/talleres_config/${key}`]={nombre:t,factura:fac};
+  const id='e'+Date.now();
+  up[`fabrica_v5/sections/${secId}/items/${itemId}/etapas/${id}`]={tipo:q,momento:m,taller:t,detalle:d||null,factura:fac,orden:Date.now(),estado:'pendiente',creado_por:currentUser};
+  db.ref().update(up);
+  recorridoFormAbierto.delete(secId+'/'+itemId);
+  logActivity('Agregó etapa al recorrido',`${item.code||''}: ${(ETAPA_TIPOS[q]||{}).label||q}${d?' ('+d+')':''} · ${t} · ${m==='antes'?'antes':'después'} de confección${fac?'':' · sin facturar'}`);
+  showToast('✓ Etapa agregada al recorrido');
+}
+function etapaQuitar(secId,itemId,id){
+  const item=sectionsData[secId].items[itemId], e=(item.etapas||{})[id]; if(!e) return;
+  if(!confirm(`¿Quitar ${etapaLabel(e)} · ${e.taller} del recorrido?`)) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/etapas/${id}`).remove();
+  logActivity('Quitó etapa del recorrido',`${item.code||''}: ${etapaLabel(e)} · ${e.taller}`);
+}
+function etapaPrecio(secId,itemId,id,val){
+  const n=parseFloat(String(val).replace(',','.'));
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/etapas/${id}/precio`).set(n>0?n:null);
+}
+function etapaSalida(secId,itemId,id){
+  const item=sectionsData[secId].items[itemId], e=(item.etapas||{})[id]; if(!e) return;
+  let tot=''; try{ tot=resumenEntregasFabrica(item,itemId).totalEsperado||''; }catch(err){}
+  const r=prompt(`¿Cuántas prendas salen a ${etapaLabel(e)} · ${e.taller}?`,tot);
+  if(r===null) return;
+  const n=parseInt(r,10);
+  if(!(n>0)){ showToast('Cantidad inválida'); return; }
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/etapas/${id}`).update({estado:'en_taller',cantidad_salida:n,fecha_salida:Date.now(),salida_por:currentUser});
+  logActivity('Salida a etapa del recorrido',`${item.code||''}: ${n}u a ${etapaLabel(e)} · ${e.taller}`);
+  showToast(`📤 Salió a ${e.taller}`);
+}
+function etapaEntrega(secId,itemId,id){
+  const item=sectionsData[secId].items[itemId], e=(item.etapas||{})[id]; if(!e) return;
+  const hab=e.momento==='antes'?etapasAntesHabilitadas(secId,item):etapasDespuesHabilitadas(secId);
+  if(!hab){ showToast(e.momento==='antes'?'Esta etapa va antes de confección':'Esta etapa se entrega cuando el corte vuelve de confección'); return; }
+  if(e.momento==='despues'){
+    const primera=etapasPendientes(item,'despues')[0];
+    if(primera&&primera[0]!==id&&!confirm(`Antes en el recorrido está ${etapaLabel(primera[1])} · ${primera[1].taller}, que todavía no entregó. ¿Cargar igual esta entrega?`)) return;
+  }
+  const fecha=pedirFechaEntrega(`¿Qué fecha entregó ${e.taller} (${etapaLabel(e)})?`);
+  if(fecha===null) return;
+  const extra={taller:e.taller,proceso:'terminacion',proceso_detalle:etapaLabel(e).replace(/^\S+\s/,''),etapa_tipo:e.tipo,etapa_momento:e.momento};
+  if(e.factura){ if(e.precio) extra.precio_taller=e.precio; } else extra.no_facturar=true;
+  const hecho={...e,estado:'hecho',fecha_entrega:fecha,entregado_por:currentUser};
+  const restantes=etapasPendientes(item,'despues').filter(([k])=>k!==id);
+  if(e.momento==='despues'&&!restantes.length){
+    // Última etapa: esta entrega es la que, al cerrarse el control en Logística, lo lleva a
+    // Estampado DTF o a Revisión Final (igual que la entrega de un taller de terminación).
+    const bloqueo=(item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item);
+    if(bloqueo){ showToast(`⏳ Falta cerrar: ${(item.estampado_dtf&&!item.estampado_taller_entregado)?nombresMovimientosAbiertos(item):nombresMovimientosSinContar(item)}`); return; }
+    if(Object.values(item.pasos_extra||{}).some(p=>p&&!p.hecho)){ showToast('Faltan pasos extra (forma anterior) por tildar'); return; }
+    item.etapas={...(item.etapas||{}),[id]:hecho};
+    // crearEntregaLogisticaConAvance pone el precio de confección si el taller coincide; acá manda el de la etapa.
+    if(!extra.precio_taller) extra.precio_taller=null;
+    continuarDespuesDeTaller(secId,itemId,fecha,extra);
+    logActivity('Entregó última etapa del recorrido',`${item.code||''}: ${etapaLabel(e)} · ${e.taller} — ${fecha}`);
+    return;
+  }
+  // Etapa intermedia (o antes de confección): se abre su entrega en Logística y el corte sigue acá.
+  const grillaObj={}; calcularGrillaEsperada(item).forEach((f,i)=>{ grillaObj['f'+i]=f; });
+  const reg={code:item.code||'',name:item.name||'',foto:item.foto||'',numero_corte:item.numero_corte||'',
+    fecha_entregado:fecha,fecha_creado:Date.now(),estado:'pendiente_conteo',categoria:item.categoria||'',grilla:grillaObj,abierta_por:currentUser,...extra};
+  Object.keys(reg).forEach(k=>{ if(reg[k]==null) delete reg[k]; });
+  db.ref('fabrica_v5/logistica/items').push(reg);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/etapas/${id}`).set(hecho);
+  logActivity('Entregó etapa del recorrido',`${item.code||''}: ${etapaLabel(e)} · ${e.taller} — ${fecha}`);
+  showToast(`📦 ${e.taller} entregó — queda en Logística para contar y controlar`);
+}
+
+// ===== Tarjeta de Talleres (oct 2026) =====
+// Lo que se usa en taller arriba (aclaración, taller, entregas, recorrido, acciones); todo lo
+// demás (datos del artículo y todas las opciones de siempre) plegado en "Tarjeta completa".
+function tcFoldToggle(k,open){ if(open) tcFoldAbierto.add(k); else tcFoldAbierto.delete(k); }
+function buildTallerCardHtml(f,idx,total){
+  const {secId,itemId,item:it,sec}=f;
+  const k=secId+'/'+itemId;
+  const puedeT=utPuedeEditarTaller();
+  const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
+  const fotos=it.fotos_prueba&&Object.keys(it.fotos_prueba).length?`<div class="diseno-fotos-grid" style="margin-top:6px">${Object.values(it.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}</div>`:'';
+  const aclaracion=it.nota?`<div class="tc-acl">📝 <b>Aclaración de diseño:</b> ${it.nota}${fotos}</div>`:'';
+  let full=''; window.__sinRecorrido=true;
+  try{ full=(f.estado==='retiro'?buildResumenTalleresHtml(secId,[[itemId,it]]):'')+buildItem(secId,itemId,it,sec,idx,total); }catch(err){ console.error(err); } finally{ window.__sinRecorrido=false; }
+  const fold=`<details class="tc-fold" ${tcFoldAbierto.has(k)?'open':''} ontoggle="tcFoldToggle('${k}',this.open)"><summary>▸ Tarjeta completa (datos del artículo y todas las opciones)</summary>${full}</details>`;
+  const retiroBtn=(secId==='sFIN'&&!it.retirado_taller&&puedeT)?`<button class="btn-advance" onclick="event.stopPropagation();confirmarRetiroTaller('${secId}','${itemId}')">✓ ${etEsc(it.taller_corte||'El taller')} ya lo retiró</button>`:'';
+  if(it.es_complemento){
+    const comb=(typeof colOrdenLineaHtml==='function')?colOrdenLineaHtml(it):'';
+    const base=it.complemento_de||{};
+    return `<div class="tc">
+      ${aclaracion}
+      <div class="tc-sub">🧩 ${etEsc(base.que||'Complemento')} del corte <b>${etEsc(base.numero||'')}</b> · se paga dentro del precio del ${etEsc(base.numero||'base')}</div>
+      ${comb||'<div class="tc-sub" style="color:var(--warn-text)">Falta cargar si va a tono o combinado (orden de corte del complemento).</div>'}
+      <div class="tc-acts">${retiroBtn}${it.retirado_taller?`<span class="tc-sub">✓ Retirado${it.fecha_retiro_confirmado?' el '+fmtFecha(it.fecha_retiro_confirmado):''}</span>`:''}</div>
+      ${fold}
+    </div>`;
+  }
+  const avPend=Object.values(it.avios||{}).filter(a=>a&&!a.recibido);
+  const avioBanner=avPend.length?`<div class="tc-avio">⚠️ Avío pendiente: ${avPend.map(a=>etEsc(a.nombre)).join(', ')}</div>`:'';
+  let retiroInfo='';
+  if(secId==='sFIN'&&it.retirado_taller) retiroInfo=`<div class="tc-kv"><span>Retiró</span><span><b>${it.fecha_retiro_confirmado?fmtFecha(it.fecha_retiro_confirmado):'—'}</b> ${puedeT?`<button class="btn-sm" onclick="event.stopPropagation();editFechaRetiroTaller('${secId}','${itemId}')">Editar</button>`:''}</span></div>`;
+  else if(secId==='sFIN') retiroInfo=`<div class="tc-kv"><span>Asignado</span><span><b>${it.fecha_salida_taller?fmtFecha(it.fecha_salida_taller):'—'}</b> · pendiente de retiro</span></div>`;
+  const entregaFechas=(secId==='sFIN'&&it.retirado_taller)?buildEntregaTallerCardHtml(secId,itemId,it,puedeT):'';
+  let entregas=''; try{ entregas=buildEntregasFabricaHtml(secId,itemId,it)||''; }catch(err){}
+  const acts=[];
+  if(retiroBtn) acts.push(retiroBtn);
+  if(secId==='sLT'&&(canEdit||currentUser==='emir')) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();sacarATaller('${secId}','${itemId}')">📦 Sacar a taller</button>`);
+  if(secId===SEC_ESTAMPADO_TALLER&&canEdit) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoEstampadoTaller('${secId}','${itemId}')">✅ Estampado entregado → Revisión Final</button>`);
+  else if(secId===SEC_TALLER_TERMINACION){
+    if(canEdit&&!etapasDe(it,'despues').length) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoTerminacion('${secId}','${itemId}')">✅ Entregado (pasos extra)</button>`);
+  } else if(canEdit) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`);
+  const mv=buildMoveOpts(secId); if(mv) acts.push(`<span onclick="event.stopPropagation()">${mv}</span>`);
+  return `<div class="tc">
+    ${aclaracion}
+    ${avioBanner}
+    <div class="tc-grid">
+      <div class="tc-blk"><div class="tc-h">En el taller</div>
+        ${puedeT?`<div onclick="event.stopPropagation()">${buildTallerCorteHtml(secId,itemId,it)}</div>`:`<div class="tc-kv"><span>Taller</span><b>${etEsc(it.taller_corte||'Sin taller')}</b></div>`}
+        ${retiroInfo}${entregaFechas}
+      </div>
+      ${entregas?`<div class="tc-blk">${entregas}</div>`:''}
+    </div>
+    ${buildRecorridoHtml(secId,itemId,it)}
+    ${acts.length?`<div class="tc-acts">${acts.join('')}</div>`:''}
+    ${fold}
+  </div>`;
+}
+
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   // El precio pactado con el taller es obligatorio antes de marcar la entrega: sin él, la
@@ -4900,9 +5191,10 @@ function marcarEntregadoCorte(secId,itemId){
   // Si tiene pasos extra sin terminar (plancha, ojal, broche...), va primero al taller de
   // terminación en vez de a Estampado/Revisión — recién cuando estén todos tildados sigue.
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
-  if(pasosPendientes.length){
+  const etapasDesp=etapasPendientes(item,'despues');
+  if(pasosPendientes.length||etapasDesp.length){
     if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
-    const nombres=pasosPendientes.map(p=>p.nombre+(p.taller?` (${p.taller})`:'')).join(', ');
+    const nombres=pasosPendientes.map(p=>p.nombre+(p.taller?` (${p.taller})`:'')).concat(etapasDesp.map(([,e])=>`${etapaLabel(e)} (${e.taller})`)).join(', ');
     const fechaFinal=pedirFechaEntrega(`¿Qué fecha entregó el taller de costura? (pasa a terminación: ${nombres})`);
     if(fechaFinal===null) return;
     const newItem={...item,fecha_entregado:fechaFinal,fecha_entregado_taller_armado:Date.now(),fecha_etapa:Date.now()};
@@ -4976,6 +5268,7 @@ function continuarDespuesDeTaller(secId,itemId,fechaFinal,extra){
 // todos los pasos tildados; recién ahí sigue a Estampado o Revisión Final. ---
 function marcarEntregadoTerminacion(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(etapasDe(item,'despues').length){ showToast('Este corte tiene etapas en el Recorrido: cargá la entrega de cada una con “📥 Entregó”'); return; }
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
   if(pasosPendientes.length){
     showToast(`⏳ Faltan pasos: ${pasosPendientes.map(p=>p.nombre).join(', ')}`);
@@ -5791,7 +6084,10 @@ function confirmarRetiroTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   // El requisito real (Ficha entregada / Muestra entregada / Salida en Ninox) se pide justo
   // acá, en el momento del retiro — ya no antes, al sacarlo del taller nuestro.
-  const faltan=[!item.taller_ficha_entregada?'Ficha entregada':null,!item.taller_muestra_entregada?'Muestra entregada':null,!item.taller_ninox_salida?'Salida en Ninox':null].filter(Boolean);
+  const antesPend=etapasPendientes(item,'antes');
+  if(antesPend.length){ showToast(`Antes de confección falta que vuelva: ${antesPend.map(([,e])=>`${etapaLabel(e)} (${e.taller})`).join(', ')}`); return; }
+  // El complemento no lleva ficha/muestra/Ninox propios: va con su corte base.
+  const faltan=item.es_complemento?[]:[!item.taller_ficha_entregada?'Ficha entregada':null,!item.taller_muestra_entregada?'Muestra entregada':null,!item.taller_ninox_salida?'Salida en Ninox':null].filter(Boolean);
   if(faltan.length){ showToast(`Falta completar antes de confirmar el retiro: ${faltan.join(', ')}`); return; }
   // Complementos: el corte base puede salir sin ellos (queda el aviso); el complemento va sí o sí
   // al mismo taller que su corte base.
@@ -5860,6 +6156,7 @@ const ESTADO_PIPELINE_COLOR={
 // (con todos sus botones), así los cambios de etapa siguen pasando por la lógica existente.
 const UT_ESTADOS=[
   {id:'por_sacar',  label:'Por sacar a taller',       fg:'#166534',bg:'#dcfce7',dot:'#16a34a'},
+  {id:'previo',     label:'Bordado/estampado (antes)',fg:'#155e75',bg:'#cffafe',dot:'#0891b2'},
   {id:'retiro',     label:'Pendiente retiro',         fg:'#9a3412',bg:'#ffedd5',dot:'#ea580c'},
   {id:'confeccion', label:'En taller · confección',   fg:'#4c1d95',bg:'#ede9fe',dot:'#6d28d9'},
   {id:'terminacion',label:'En terminación',           fg:'#854d0e',bg:'#fef9c3',dot:'#ca8a04'},
@@ -5878,6 +6175,7 @@ try{ utOrden=localStorage.getItem('talleres_ut_orden')||'etapa'; }catch(e){}
 const utExpandidos=new Set();
 function utEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function utEstadoDe(secId,item){
+  if(etapasAntesHabilitadas(secId,item)&&etapaEnTallerAntes(item)) return 'previo';
   if(['s4','s5','sLT'].includes(secId)) return 'por_sacar';
   if(secId==='sFIN') return item.retirado_taller?'confeccion':'retiro';
   if(secId==='s6') return 'confeccion';
@@ -5915,7 +6213,7 @@ function renderResumenPipelineTalleres(){
       const {totalEsperado}=resumenEntregasFabrica(item,itemId);
       const estado=utEstadoDe(secId,item);
       const ts=(secId==='sFIN'&&item.retirado_taller&&item.fecha_retiro_confirmado)?item.fecha_retiro_confirmado:item.fecha_etapa;
-      filas.push({secId,itemId,item,sec,estado,avio:utAvioDe(secId,item),cantidad:totalEsperado||0,dias:diasEntre(ts)});
+      filas.push({secId,itemId,item,sec,estado,avio:item.es_complemento?null:utAvioDe(secId,item),cantidad:totalEsperado||0,dias:diasEntre(ts)});
     });
   });
   if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
@@ -5967,7 +6265,9 @@ function renderResumenPipelineTalleres(){
     prev=k;
     const abierto=utExpandidos.has(f.secId+'/'+f.itemId);
     const it=f.item;
-    const art=(it.code?it.code+' — ':'')+(it.name||'(sin nombre)');
+    const art=it.es_complemento&&it.complemento_de
+      ? `🧩 ${it.complemento_de.que||'Complemento'} · complemento del ${it.complemento_de.numero}`
+      : (it.code?it.code+' — ':'')+(it.name||'(sin nombre)');
     const late=f.dias!=null&&f.dias>=7;
     let avisoRetiro='';
     if(f.estado==='retiro'){
@@ -5994,12 +6294,18 @@ function renderResumenPipelineTalleres(){
     const puede=utPuedeEditarTaller();
     const stop='onclick="event.stopPropagation()"';
     let precioHtml='';
-    if(puede){
+    if(puede&&!it.es_complemento){
       const tiene=!!it.precio_taller;
       precioHtml=`<span style="${tiene?'':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tiene?'':'Falta precio'}</span>$ <input class="ut-in${tiene?'':' falta'}" ${stop} type="number" min="0" value="${it.precio_taller||''}" placeholder="/u" style="width:62px" onchange="setPrecioTallerCorte('${f.secId}','${f.itemId}',this.value)">`;
     }
     let entregaHtml;
-    if(f.estado==='por_sacar'||f.estado==='retiro'){
+    if(it.es_complemento){
+      const modo=it.combinacion&&it.combinacion.modo==='comb'?'Combinado':it.combinacion?'A tono':'';
+      entregaHtml=modo?`<span class="ut-chip">${modo}</span>`:'<span class="ut-muted">falta a tono / combinado</span>';
+    } else if(f.estado==='previo'){
+      const en=etapaEnTallerAntes(it);
+      entregaHtml=en?`<span>${utEsc(etapaLabel(en[1]))} · ${utEsc(en[1].taller)}</span>`:'—';
+    } else if(f.estado==='por_sacar'||f.estado==='retiro'){
       entregaHtml=`<span style="${late?'color:#9a3412;font-weight:700':''}">${f.dias!=null?f.dias+' d en esta etapa':'—'}</span>`;
     } else {
       const hoyE=new Date(); hoyE.setHours(0,0,0,0);
@@ -6014,15 +6320,15 @@ function renderResumenPipelineTalleres(){
     }
     return head+`<div class="ut-row${abierto?' ut-open':''}" onclick="toggleUtFila('${f.secId}','${f.itemId}')">
       <div class="c-foto">${it.foto?`<img class="ut-foto" src="${utEsc(it.foto)}" loading="lazy" alt="">`:'<div class="ut-foto"></div>'}</div>
-      <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}</div>
+      <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}${it.nota?'<div><span class="ut-flag" style="margin-left:0" title="Tiene aclaración de diseño">📝 Aclaración</span></div>':''}</div>
       <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
       <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
       <div class="c-precio">${precioHtml}</div>
-      <div class="c-taller">${it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>'}${avisoRetiro}${diasTallerHtml}</div>
+      <div class="c-taller">${(()=>{const et=f.secId===SEC_TALLER_TERMINACION&&etapasPendientes(it,'despues')[0];return et?`${utEsc(etapaLabel(et[1]))} · <b>${utEsc(et[1].taller)}</b>`:(it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>');})()}${avisoRetiro}${diasTallerHtml}</div>
       <div class="c-dias">${entregaHtml}</div>
       <div class="c-avio">${avioHtml}</div>
       <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
-    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='retiro'?buildResumenTalleresHtml(f.secId,[[f.itemId,it]]):''}${buildItem(f.secId,f.itemId,it,f.sec,idx,vis.length)}</div>`:''}`;
+    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${buildTallerCardHtml(f,idx,vis.length)}</div>`:''}`;
   }).join('');
   const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
   cont.innerHTML=`<div class="rt-box">
@@ -7877,7 +8183,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
           </div>
           ${aviosTermHtml}
           ${buildPasosExtraHtml(secId,itemId,item,canEdit)}
-          ${buildMovimientosExtraHtml(secId,itemId,item)}
+          ${window.__sinRecorrido?'':buildRecorridoHtml(secId,itemId,item)}
           <div class="item-actions">
             ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoTerminacion('${secId}','${itemId}')" ${(pasosPendientes.length||((item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item)))?'title="Faltan pasos o movimientos por cerrar"':''}>✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
             ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar (avíos y más)</button>`:''}
@@ -8339,13 +8645,12 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
         ${aviosHtml}
         ${checklistPreTallerHtml}
         ${stockBajadoHtml}
-        ${buildPasosExtraHtml(secId,itemId,item,canFicha)}
-        ${item.numero_corte?buildMovimientosExtraHtml(secId,itemId,item):''}
+        ${window.__sinRecorrido?'':buildRecorridoHtml(secId,itemId,item)}
         </div>
         <div class="item-actions">
           ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
-          ${canEntregarRevision?`<button class="btn-advance" ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||(item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item))?'title="Faltan movimientos a talleres extra por cerrar"':''} onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${Object.values(item.pasos_extra||{}).some(p=>!p.hecho)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
+          ${canEntregarRevision?`<button class="btn-advance" ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||(item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item))?'title="Faltan movimientos a talleres extra por cerrar"':''} onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||etapasPendientes(item,'despues').length)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
           ${(canFicha&&!esArmarTizada)?`<button class="btn-sm" onclick="editNotaCorte('${secId}','${itemId}')">📝 ${item.nota?'Editar nota':'Agregar nota'}</button>`:''}
           ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
@@ -9634,6 +9939,14 @@ function marcarCorteRealizado(secId,itemId){
     let targetSec;
     if(avList.length===0) targetSec='sLT';
     else targetSec='s4';
+    // Complemento: si el corte base ya salió a un taller, va directo a "Pendiente retiro" con ese taller.
+    if(mItem.es_complemento&&mItem.complemento_de){
+      const pb=cmpFind(mItem.complemento_de.numero);
+      if(pb&&pb.item.taller_corte&&!['s4','s5','sLT'].includes(pb.secId)){
+        targetSec='sFIN';
+        newItem.taller_corte=pb.item.taller_corte; newItem.fecha_salida_taller=Date.now(); newItem.retirado_taller=false;
+      }
+    }
     ensureSeccionCorte(targetSec);
     db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
     dbUpdates[`fabrica_v5/sections/${secId}/items/${mId}`]=null;
@@ -9780,6 +10093,15 @@ function sacarATaller(secId,itemId){
   db.ref(`fabrica_v5/sections/${targetSec}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Corte asignado a taller, pendiente de retiro',`${item.code} → ${item.taller_corte}${avioPendiente?' (avío pendiente)':''}`);
+  if(!item.es_complemento) Object.values(item.complementos||{}).forEach(c=>{
+    const pc=c&&cmpFind(c.numero);
+    if(!pc||pc.secId!=='sLT') return;
+    const ni={...pc.item,taller_corte:item.taller_corte,fecha_salida_taller:tsSalida,fecha_etapa:Date.now(),retirado_taller:false};
+    ensureSeccionCorte('sFIN');
+    db.ref('fabrica_v5/sections/sFIN/items').push(ni);
+    db.ref(`fabrica_v5/sections/sLT/items/${pc.itemId}`).remove();
+    logActivity('Complemento asignado a taller con su base',`${pc.item.numero_corte} → ${item.taller_corte}`);
+  });
   showToast(avioPendiente?`📦 ${item.code} asignado a ${item.taller_corte} — el avío queda pendiente`:`📦 ${item.code} asignado a ${item.taller_corte}, pendiente de retiro`);
 }
 
@@ -13360,7 +13682,7 @@ function avanzarCorteAlAbrirPrimeraEntrega(secId,itemId,fechaEntrega){
   const fechaFinal=fechaEntrega||new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
   let targetSec,fechaField,msg,logMsg,esDestinoFinal=false;
-  if(pasosPendientes.length){
+  if(pasosPendientes.length||etapasPendientes(item,'despues').length){
     targetSec=SEC_TALLER_TERMINACION; fechaField='fecha_entregado_taller_armado';
     msg=`🧵 ${item.code} pasó a taller de terminación (entrega abierta en Logística)`;
     logMsg='Entrega abierta en Logística — pasa a taller de terminación';

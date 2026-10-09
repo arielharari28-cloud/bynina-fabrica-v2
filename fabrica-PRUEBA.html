@@ -9452,6 +9452,21 @@ function saveRollos(){
   } else {
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/rollos`).set(rollosObj);
     logActivity('Rollos utilizados',`${item.code}: ${Object.keys(rollosObj).length} rollo(s)`);
+    // Rollos cargados después de marcar cortado: también van a Costeo (que se armó al cortar con los
+    // rollos de ese momento). Solo si Costeo no tiene rollos o los que tiene vinieron de los artículos.
+    const ckC=corteKeyFrom(item.numero_corte), ce=ckC?costeosData[ckC]:null;
+    if(ce){
+      const actuales=Object.entries(ce.rollos||{}).filter(([,x])=>x);
+      if(actuales.every(([,x])=>x.deItem)){
+        const up={};
+        actuales.forEach(([k,x])=>{ if(x.deItem===itemId) up[`fabrica_v5/costeos/${ckC}/rollos/${k}`]=null; });
+        Object.entries(rollosObj).forEach(([rid,x])=>{
+          up[`fabrica_v5/costeos/${ckC}/rollos/${itemId}_${rid}`]={color:x.color,kgmts:x.kgmts,capas:x.capas,nota:x.nota,
+            sobrante:x.sobranteReal!=null?x.sobranteReal:'',deItem:itemId};
+        });
+        if(Object.keys(up).length) db.ref().update(up);
+      }
+    }
   }
   document.getElementById('modal-rollos').classList.add('hidden');
   showToast(consumo.compartidos?`📦 Rollos guardados · ${consumo.compartidos} rollo${consumo.compartidos>1?'s':''} queda${consumo.compartidos>1?'n':''} para revisión de Ariel (no baja del stock hasta que lo apruebe)`:'📦 Rollos guardados');
@@ -11800,13 +11815,33 @@ function tsResumen(){
   });
   return Object.values(telas).sort((a,b)=>(b.ultima?.fecha||'').localeCompare(a.ultima?.fecha||'')||a.tela.localeCompare(b.tela,'es'));
 }
-// Plata en tela: lo que queda de cada rollo × el precio al que se compró, separado por moneda.
+// Remitos con precio de una tela, del más viejo al más nuevo (por fecha; si empatan, el cargado después).
+function tsRemitosDeTela(tela){
+  const n=tsNorm(tela); if(!n) return [];
+  return Object.values(tsData.remitos||{}).filter(rm=>rm&&tsNorm(rm.tela)===n&&tsNum(rm.precio)>0)
+    .sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||'')||(tsNum(a.creadoEn)-tsNum(b.creadoEn)));
+}
+// Última compra de la tela (el precio que se usa para valuar el stock y para Costeo).
+function tsUltimaCompra(tela){ const l=tsRemitosDeTela(tela); return l.length?l[l.length-1]:null; }
+// Un ingreso anterior (en la misma moneda) más caro que la última compra: se avisa para revisar el precio.
+function tsCompraMasCara(tela){
+  const ult=tsUltimaCompra(tela); if(!ult) return null;
+  let max=null;
+  tsRemitosDeTela(tela).forEach(rm=>{ if(rm!==ult&&(rm.moneda||'ARS')===(ult.moneda||'ARS')&&tsNum(rm.precio)>tsNum(ult.precio)&&(!max||tsNum(rm.precio)>tsNum(max.precio))) max=rm; });
+  return max;
+}
+// Plata en tela: lo que queda de cada rollo × el precio de la ÚLTIMA compra de esa tela, separado por moneda.
+// Si la tela no tiene ningún remito con precio, se usa el precio con el que entró el rollo.
 function tsValor(){
   const v={ARS:0,USD:0,kg:0,m:0};
+  const ultCache={};
   Object.values(tsData.rollos).forEach(r=>{
     if(!r||r.estado==='usado') return;
     const q=tsRestanteDe(r);
-    v[r.moneda==='USD'?'USD':'ARS']+=q*tsNum(r.precio);
+    if(!(r.tela in ultCache)) ultCache[r.tela]=tsUltimaCompra(r.tela);
+    const ult=ultCache[r.tela];
+    const moneda=ult?ult.moneda:r.moneda, precio=ult?tsNum(ult.precio):tsNum(r.precio);
+    v[moneda==='USD'?'USD':'ARS']+=q*precio;
     v[r.unidad==='m'?'m':'kg']+=q;
   });
   return v;
@@ -11835,7 +11870,7 @@ function renderTelasStock(){
     </div>
     ${tsPendientesRevision().length?`<button class="ts-aviso" onclick="tsVista.modo='revision';renderTelasStock()">🔁 ${tsPendientesRevision().length} rollo${tsPendientesRevision().length>1?'s':''} para revisar ›</button>`:''}
     <div class="ts-plata">
-      <div class="ts-plata-t">Plata en tela (stock × precio de compra)</div>
+      <div class="ts-plata-t">Plata en tela (stock × precio de la última compra)</div>
       <div class="ts-plata-grid">
         <div><span>Comprada en pesos</span><b>${tsMoneda('ARS',val.ARS)}</b></div>
         <div><span>Comprada en dólares</span><b>${tsMoneda('USD',val.USD)}</b></div>
@@ -11851,9 +11886,12 @@ function renderTelasStock(){
   if(/^\s*(corte\s*)?\d+[a-z]?\s*$/i.test(tsVista.busca)){
     const n=tsVista.busca.trim().replace(/^corte\s*/i,'');
     const ck=corteKeyFrom(n);
-    const usados=Object.entries(tsData.rollos).filter(([,r])=>r&&r.usos&&r.usos['c_'+ck]);
+    // El uso se anota por corte (c_200) si los rollos se cargaron en "Cortes próximos a sacar", o por
+    // artículo (i_200_código) si se cargaron después de marcarlo cortado: se buscan los dos.
+    const usosDelCorte=r=>Object.entries(r.usos||{}).filter(([k,x])=>x&&(k==='c_'+ck||corteKeyFrom(String(x.corte||''))===ck)).map(([,x])=>x);
+    const usados=Object.entries(tsData.rollos).filter(([,r])=>r&&usosDelCorte(r).length);
     html+=`<div class="ts-card"><div class="ts-tela">Rollos usados en el corte ${tsEsc(n)}</div>
-      ${usados.length?`<div class="ts-fila ts-fila-head" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr"><span>Rollo</span><span>Tela · color</span><span>Entró con</span><span>Usó</span><span class="ts-c-total">Queda</span></div>`+usados.map(([rid,r])=>{ const u=r.usos['c_'+ck], un=tsUnidadTxt(r.unidad); return `<div class="ts-fila" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr;cursor:default">
+      ${usados.length?`<div class="ts-fila ts-fila-head" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr"><span>Rollo</span><span>Tela · color</span><span>Entró con</span><span>Usó</span><span class="ts-c-total">Queda</span></div>`+usados.map(([rid,r])=>{ const us=usosDelCorte(r), u={usado:us.reduce((a,x)=>a+tsNum(x.usado),0),pendiente:us.some(x=>x.pendiente)}, un=tsUnidadTxt(r.unidad); return `<div class="ts-fila" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr;cursor:default">
         <b>${tsEsc(r.codigo)}</b><span>${tsEsc(r.tela)} · ${tsEsc(r.color)}</span><span>${tsFmt(tsNum(r.inicial),2)} ${un}</span><span>${tsFmt(tsNum(u.usado),2)} ${un}${u.pendiente?' (pendiente)':''}</span><span class="ts-c-total">${tsFmt(tsRestanteDe(r),2)} ${un}</span></div>`; }).join('')
       :'<div class="ts-sub" style="margin-top:6px">Ningún rollo del stock está anotado en ese corte.</div>'}</div>`;
   }
@@ -11876,6 +11914,7 @@ function renderTelasStock(){
         ${ult?`<span class="ts-edad ${vieja?'vieja':''}">${tsHace(ult.fecha)}</span>`:''}
       </div>
       ${ult?`<div class="ts-ult">Última compra: <b>${tsFechaCorta(ult.fecha)}</b> · Precio: <b>${tsMoneda(ult.moneda,tsNum(ult.precio))} por ${u}</b></div>`:''}
+      ${(()=>{const mc=tsCompraMasCara(t.tela),uc=tsUltimaCompra(t.tela); return mc&&uc?`<div class="ts-ult" style="background:var(--warn-bg);color:var(--warn-text);border-radius:8px;padding:6px 8px;margin-top:4px">⚠️ El ingreso del ${tsFechaCorta(mc.fecha)}${mc.numero?` (remito ${tsEsc(mc.numero)})`:''} se pagó ${tsMoneda(mc.moneda,tsNum(mc.precio))} por ${u}, más caro que la última compra (${tsMoneda(uc.moneda,tsNum(uc.precio))}). Revisá si el último precio está bien cargado.</div>`:'';})()}
       <div class="ts-fila ts-fila-head"><span>Color</span><span>Rollos enteros</span><span>Sobrantes</span><span class="ts-c-total">Total</span></div>
       ${filas}
     </div>`;
@@ -15396,7 +15435,7 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
     const ck=corteKeyFrom(it.numero_corte);
     const ce=ck?(costeosData[ck]||null):null;
     let costo='—';
-    try{ if(ce&&ce.precio_kg){ const tot=costeoTotales(ce); costo='$ '+Math.round(tot.costoPrenda).toLocaleString('es-AR')+' / prenda'; } }catch(e){}
+    try{ if(ce&&costeoPrecio(ce).kg){ const tot=costeoTotales(ce); costo='$ '+Math.round(tot.costoPrenda).toLocaleString('es-AR')+' / prenda'; } }catch(e){}
     if(it.origen==='proveedor'&&it.precio_costo) costo='$ '+Number(it.precio_costo).toLocaleString('es-AR')+' / prenda';
     const u=totalOk+totalDetalle;
     plata.innerHTML=`<div class="ld-card"><div class="ld-title">Plata</div>
@@ -15455,7 +15494,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
       // (costeosData[key] undefined) — pero eso es justo lo que se quiere ver/cargar apenas
       // se cierra, así que se trata como entrada vacía en vez de no mostrar nada.
       const costeoEntry=corteKeyCosteo?(costeosData[corteKeyCosteo]||{}):null;
-      const costoBadge = (!costeoEntry||costeoEntry.precio_kg) ? '' : `<span class="logi-badge" style="background:#fef3c7;color:#92400e">💰 Pendiente hacer costo</span>`;
+      const costoBadge = (!costeoEntry||costeoPrecio(costeoEntry).kg) ? '' : `<span class="logi-badge" style="background:#fef3c7;color:#92400e">💰 Pendiente hacer costo</span>`;
       // Precios de venta y costo por prenda — mismos datos que en la solapa Costeo, y editables
       // directo desde acá (se guardan en la misma entrada de Costeo, la crea si todavía no existe).
       const campoPrecioLogi=(campo,label,val)=>`<span style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
@@ -15480,7 +15519,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
       const artCosteo=artIdxCosteo>=0?articulosCosteo[artIdxCosteo]:null;
       const costeoPrendaReal=costeoArticuloCalc?costeoArticuloCalc.costoPrenda:(costeoEntry?costeoTotales(costeoEntry).costoPrenda:0);
       const preciosVentaHtml = puedeVerPlata ? (corteKeyCosteo ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
-        <span>💲 Costo: <strong>${costeoEntry.precio_kg?'$'+costeoPrendaReal.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
+        <span>💲 Costo: <strong>${costeoPrecio(costeoEntry).kg?'$'+costeoPrendaReal.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
         ${campoPrecioLogi('precio_lista_local','Lista local',costeoEntry?costeoPrecioArt(costeoEntry,artCosteo,'precio_lista_local'):'')}
         ${campoPrecioLogi('precio_tn_minorista','TN minorista',costeoEntry?costeoPrecioArt(costeoEntry,artCosteo,'precio_tn_minorista'):'')}
         ${campoPrecioLogi('precio_tn_mayorista','TN mayorista',costeoEntry?costeoPrecioArt(costeoEntry,artCosteo,'precio_tn_mayorista'):'')}
@@ -16621,7 +16660,7 @@ function costeoTotales(entry){
   // Si no repartiste nada por artículo todavía, se sigue usando lo cargado por rollo, como antes.
   const sumKgArticulos=(entry.articulos||[]).reduce((s,a)=>s+numAr2(a.kg),0);
   const kgTotal=sumKgArticulos>0?sumKgArticulos:kgTotalRollos;
-  const precioKg=numAr2(entry.precio_kg);
+  const precioKg=costeoPrecio(entry).kg;
   const costoTela=precioKg?kgTotal*precioKg:0;
   // Avíos: cantidad = consumo POR PRENDA (ej. 0,72 m) y precio = por unidad (metro, botón…).
   const aviosPorPrenda=(entry.avios||[]).reduce((s,a)=>s+(numAr2(a.cantidad)*numAr2(a.precio)),0);
@@ -16776,11 +16815,12 @@ function renderCosteoTabViejo(){
   cont.innerHTML=botonBackfill+ordenHtml+buscadorHtml+buildPrendasPorMesHtml(todasLasEntries)+entries.map(([key,e])=>{
     const t=costeoTotales(e);
     const articulosTxt=(e.articulos||[]).map(a=>a.code||a.name||'').filter(Boolean).join(', ');
-    const faltaPrecio=!e.precio_kg;
+    const precioInfo=costeoPrecio(e);
+    const faltaPrecio=!precioInfo.kg;
     return `<div class="item" style="cursor:pointer;flex-direction:column;align-items:stretch" onclick="openCosteoDetail('${key}')">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
         <div style="font-weight:700;font-size:14px">✂️ Corte N° ${e.numero_corte||'—'}</div>
-        ${faltaPrecio?`<span style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:2px 8px">⚠️ Falta precio x kg</span>`:`<span style="font-size:11px;color:var(--green-text);background:var(--green-bg,#dcfce7);border-radius:6px;padding:2px 8px">✅ Costeado</span>`}
+        ${faltaPrecio?`<span style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:2px 8px">⚠️ ${precioInfo.faltaCoti?'Falta cotización del dólar':'Falta precio x kg'}</span>`:`<span style="font-size:11px;color:var(--green-text);background:var(--green-bg,#dcfce7);border-radius:6px;padding:2px 8px">✅ Costeado</span>`}
       </div>
       <div style="font-size:12px;color:var(--text2);margin-top:2px">${articulosTxt||'(sin artículos)'}</div>
       <div style="font-size:11px;color:var(--text3);margin-top:2px">✂️ Cortado: ${e.fecha_corte||'—'} · ${t.kgTotal.toFixed(2)} kg · ${t.piezas} prendas</div>
@@ -16856,7 +16896,7 @@ function costeoArtCalc(e,i,mapa){
     const libre=Math.max(0,kgCorte-sumManual);
     kg=arts.length===1?kgCorte:(piezasSinManual?libre*piezas/piezasSinManual:0);
   }
-  const precioKg=numAr2(e.precio_kg);
+  const precioKg=costeoPrecio(e).kg;
   const costoTela=kg*precioKg;
   // Avíos: cantidad = consumo por prenda, precio = por unidad (metro, botón…).
   // Cada artículo lleva los suyos; los que no tienen artículo asignado los llevan todos.
@@ -16983,6 +17023,47 @@ function renderCosteoTab(){
   if(hadFocus){ const n=document.getElementById('costeo-search-input'); if(n){ n.focus(); if(selStart!=null) n.setSelectionRange(selStart,selStart); } }
 }
 
+// Precio x kg de Costeo: si se cargó a mano, ese; si no, el de la última compra de la tela (stock de telas).
+// Si la última compra fue en dólares, hace falta la cotización que se carga en el corte para pasarlo a pesos.
+function costeoPrecio(e){
+  e=e||{};
+  const manual=numAr2(e.precio_kg);
+  const ult=e.tela&&typeof tsUltimaCompra==='function'?tsUltimaCompra(e.tela):null;
+  const usd=!!(ult&&ult.moneda==='USD');
+  const coti=numAr2(e.cotizacion_usd);
+  const auto=ult?(usd?(coti?tsNum(ult.precio)*coti:0):tsNum(ult.precio)):0;
+  return {kg:manual||auto, manual:!!manual, ult, usd, coti, auto, faltaCoti:!manual&&usd&&!coti};
+}
+// Detalle del precio en Costeo: de qué compra sale, cotización si es en dólares, aviso si antes fue más caro y opción de pisarlo a mano.
+function costeoPrecioHtml(e,key,canEdit,inp){
+  const p=costeoPrecio(e), ult=p.ult, u=ult?tsUnidadTxt(ult.unidad):'kg';
+  if(!ult){
+    return `<div style="margin-top:6px;font-size:12px;color:var(--text3)">No hay remitos con precio de esta tela en el stock: el precio x kg se carga a mano.</div>`;
+  }
+  const mc=tsCompraMasCara(e.tela);
+  const origen=`Última compra: <b>${tsFechaCorta(ult.fecha)}</b>${ult.numero?` · remito ${costeoEsc(ult.numero)}`:''} · <b>${tsMoneda(ult.moneda,tsNum(ult.precio))} por ${u}</b>`;
+  const coti=p.usd?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+      <span>Dólar del día</span>${canEdit?`<input type="date" value="${costeoEsc(e.cotizacion_fecha||'')}" style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:12px" onchange="setCosteoCotizacion('${key}','cotizacion_fecha',this.value)">`:(e.cotizacion_fecha?`<b>${tsFechaCorta(e.cotizacion_fecha)}</b>`:'')}
+      <span>$</span>${canEdit?inp(e.cotizacion_usd,`setCosteoCotizacion('${key}','cotizacion_usd',this.value)`,90,'cotización'):`<b>${p.coti?costeoPesos(p.coti):'—'}</b>`}
+      ${p.coti?`<span>= <b>${costeoPesos(p.auto)}</b> por ${u}</span>`:'<span style="color:var(--warn-text)">Cargá la cotización para ver el costo en pesos</span>'}
+      ${ult.cotizacionIngreso?`<span style="color:var(--text3)">· dólar del ingreso: ${costeoPesos(tsNum(ult.cotizacionIngreso))}</span>`:''}
+    </div>`:'';
+  const manual=canEdit?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px">
+      <span style="color:var(--text3)">Pisar a mano $</span>${inp(e.precio_kg,`setCosteoPrecioKg('${key}',this.value)`,90,'—')}
+      ${p.manual?`<span style="color:var(--text3)">calculado: ${p.auto?costeoPesos(p.auto):'—'}</span> <button class="btn-sm" onclick="setCosteoPrecioKg('${key}','')">Volver al de la última compra</button>`:''}
+    </div>`:'';
+  return `<div style="margin-top:8px;font-size:12px;color:var(--text2)">${origen}${coti}
+    ${mc?`<div style="background:var(--warn-bg);color:var(--warn-text);border-radius:8px;padding:6px 8px;margin-top:6px">⚠️ El ingreso del ${tsFechaCorta(mc.fecha)}${mc.numero?` (remito ${costeoEsc(mc.numero)})`:''} se pagó ${tsMoneda(mc.moneda,tsNum(mc.precio))} por ${u}, más caro que la última compra. Revisá si el precio está bien cargado.</div>`:''}
+    ${manual}</div>`;
+}
+function setCosteoCotizacion(key,campo,val){
+  const e=costeosData[key]||{};
+  if(campo==='cotizacion_fecha'){ db.ref(`fabrica_v5/costeos/${key}/cotizacion_fecha`).set(val||null); return; }
+  const n=parseFloat(String(val).replace(',','.'));
+  if(isNaN(n)||n<=0){ db.ref(`fabrica_v5/costeos/${key}/cotizacion_usd`).remove(); return; }
+  db.ref(`fabrica_v5/costeos/${key}/cotizacion_usd`).set(n);
+  logActivity('Cargó cotización del dólar (Costeo)',`Corte ${e.numero_corte}: $${n}`);
+}
 function costeoToggleArt(i){ costeoArtAbiertos[i]=!costeoArtAbiertos[i]; renderCosteoDetail(); }
 function renderCosteoDetail(){
   const key=costeoDetailKey;
@@ -17033,9 +17114,10 @@ function renderCosteoDetail(){
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Tela del corte</b>
         ${canEdit?txt(e.tela||'',`setCosteoTela('${key}',this.value)`,'Tela')+txt(e.proveedor||'',`setCosteoProveedor('${key}',this.value)`,'Proveedor'):`<span style="color:var(--text2)">${costeoEsc(e.tela||'Sin especificar')}${e.proveedor?' · '+costeoEsc(e.proveedor):''}</span>`}</div>
-      <div style="display:flex;gap:6px;align-items:center">Precio x kg $ ${canEdit?inp(e.precio_kg,`setCosteoPrecioKg('${key}',this.value)`,90):'<b>'+(e.precio_kg?costeoPesos(e.precio_kg):'—')+'</b>'}
+      <div style="display:flex;gap:6px;align-items:center">${(()=>{const p=costeoPrecio(e);return p.ult||p.manual?`Precio x kg <b>${p.kg?costeoPesos(p.kg):'—'}</b>${p.manual?tag('manual','var(--warn-bg)','var(--warn-text)'):tag('última compra')}`:`Precio x kg $ ${canEdit?inp(e.precio_kg,`setCosteoPrecioKg('${key}',this.value)`,90):'<b>—</b>'}`;})()}
         <button class="btn-sm" onclick="costeoRollosAbierto=!costeoRollosAbierto;renderCosteoDetail()">${costeoRollosAbierto?'Ocultar rollos ▴':'Ver rollos ▾'}</button></div>
     </div>
+    ${costeoPrecioHtml(e,key,canEdit,inp)}
     <div style="margin-top:6px;font-size:12px;color:var(--text2)">${rollos.length} rollo${rollos.length!==1?'s':''} · ${costeoKg(r0.kgCarg)} kg cargados · ${costeoKg(r0.kgSob)} kg sobrante · <b style="color:var(--text)">${costeoKg(r0.kgCorte)} kg a distribuir</b>${r0.piezasTot?` entre ${r0.piezasTot.toLocaleString('es-AR')} prendas · ${costeoKg(r0.kgCorte/r0.piezasTot,3)} kg/u promedio`:''}</div>
     ${sinSob&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Hay rollos sin sobrante cargado: el consumo puede estar inflado.</div>':''}
     ${!e.precio_kg?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Falta el precio x kg: sin él no se puede calcular el costo.</div>':''}
@@ -17373,7 +17455,7 @@ function renderCosteoDetailViejo(){
     </tr>`;
   }).join('');
   const articulos=e.articulos||[];
-  const precioKgRef=numAr2(e.precio_kg);
+  const precioKgRef=costeoPrecio(e).kg;
   const kgArticulosHtml=articulos.length>1?(()=>{
     const sumKg=articulos.reduce((s,a)=>s+numAr2(a.kg),0);
     const dif=Math.abs(sumKg-t.kgTotal);

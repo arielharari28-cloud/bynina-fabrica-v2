@@ -814,11 +814,12 @@
   .logi-count-table.hide-esp .c-esp,.logi-count-table.hide-pc .c-pc,.logi-count-table.hide-ft .c-ft,.logi-count-table.hide-saldo .c-saldo{display:none}
 
   /* Recorrido (etapas) y tarjeta de Talleres — oct 2026 */
-  .rc-box{margin-top:8px;background:var(--surface2);border-radius:10px;padding:10px 12px}
+  .rc-box{margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  .tc .rc-box{margin-top:0}
   .rc-h,.tc-h{font-size:10.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2);margin-bottom:6px}
   .rc-route{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
   .rc-ar{align-self:center;color:var(--text3)}
-  .rc-stp{border:1px solid var(--border2);background:var(--surface);border-radius:8px;padding:6px 9px;font-size:12px;min-width:0;max-width:100%}
+  .rc-stp{border:1px solid var(--border);background:var(--surface2);border-radius:8px;padding:6px 9px;font-size:12px;min-width:0;max-width:100%}
   .rc-stp .rc-s{font-size:10.5px;color:var(--text2);margin-top:1px}
   .rc-stp.now{background:#ede9fe;border-color:#c4b5fd;color:#4c1d95}
   .rc-stp.now .rc-s{color:#5b21b6}
@@ -838,8 +839,13 @@
   .tc{display:flex;flex-direction:column;gap:10px;padding:4px 2px}
   .tc-acl{font-size:12.5px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 10px}
   .tc-avio{font-size:12px;font-weight:600;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:6px 10px}
-  .tc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
-  .tc-blk{background:var(--surface2);border-radius:10px;padding:10px 12px;min-width:0}
+  .tc-grid{display:grid;grid-template-columns:minmax(240px,1fr) minmax(280px,1.3fr);gap:10px;align-items:start}
+  .tc-grid>*{min-width:0}
+  .tc-grid>div>div:first-child{margin-top:0!important}
+  @media (max-width:720px){.tc-grid{grid-template-columns:1fr}}
+  .tc-blk{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;min-width:0}
+  .tc-blk .modelista-row{margin:0}
+  .tc-ent>div{background:var(--surface);margin:0!important}
   .tc-kv{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;margin-top:4px}
   .tc-kv>span:first-child{color:var(--text2)}
   .tc-sub{font-size:12.5px;color:var(--text2)}
@@ -847,7 +853,7 @@
   .tc-fold>summary{cursor:pointer;font-size:12.5px;color:var(--text2);border:1px dashed var(--border2);border-radius:8px;padding:7px 10px;list-style:none}
   .tc-fold>summary::-webkit-details-marker{display:none}
   .tc-fold[open]>summary{margin-bottom:8px}
-  .ut-flag{display:inline-block;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:20px;padding:0 6px;margin-left:4px;vertical-align:middle}
+  .ut-flag{display:inline-block;font-size:10px;font-weight:700;background:#fef3c7;color:#92400e;border-radius:20px;padding:0 6px;margin-left:4px;vertical-align:middle;white-space:nowrap}
   .ut-chip{display:inline-block;font-size:11px;font-weight:600;border-radius:20px;padding:2px 8px;background:var(--accent-bg);color:var(--accent);white-space:nowrap}
 </style>
 </head>
@@ -4993,7 +4999,9 @@ function buildRecorridoHtml(secId,itemId,item){
   const ec=recorridoEstadoConfeccion(secId,item);
   partes.push(step(ec,`🧵 Confección · <b>${etEsc(item.taller_corte||'sin taller')}</b>`,ec==='done'?'✓ entregó':ec==='now'?'en el taller':''));
   // Lo cargado a la forma vieja (pasos extra) se muestra en su lugar del recorrido.
-  Object.values(item.pasos_extra||{}).forEach(p=>{ if(p) partes.push(step(p.hecho?'done':'',`🧺 ${etEsc(p.nombre)}${p.taller?` · <b>${etEsc(p.taller)}</b>`:''}`,p.hecho?'✓ hecho':'paso extra (forma anterior)')); });
+  Object.entries(item.pasos_extra||{}).forEach(([pid,p])=>{ if(!p) return;
+    const tilde=(puede&&secId===SEC_TALLER_TERMINACION)?`<div class="rc-btns"><button class="btn-sm" onclick="event.stopPropagation();togglePasoExtra('${secId}','${itemId}','${pid}')">${p.hecho?'↩ Destildar':'✓ Hecho'}</button></div>`:'';
+    partes.push(step(p.hecho?'done':'',`🧺 ${etEsc(p.nombre)}${p.taller?` · <b>${etEsc(p.taller)}</b>`:''}`,p.hecho?'✓ hecho':'paso extra (forma anterior)',tilde)); });
   etapasDe(item,'despues').forEach(x=>partes.push(etapaStep(x)));
   if(item.estampado_dtf){
     const est=item.estampado_taller_entregado?'done':secId===SEC_ESTAMPADO_TALLER?'now':'';
@@ -5161,11 +5169,11 @@ function buildTallerCardHtml(f,idx,total){
     ${aclaracion}
     ${avioBanner}
     <div class="tc-grid">
-      <div class="tc-blk"><div class="tc-h">En el taller</div>
+      <div class="tc-blk"><div class="tc-h">${(secId===SEC_TALLER_TERMINACION||secId===SEC_ESTAMPADO_TALLER)?'Confección':'En el taller'}</div>
         ${puedeT?`<div onclick="event.stopPropagation()">${buildTallerCorteHtml(secId,itemId,it)}</div>`:`<div class="tc-kv"><span>Taller</span><b>${etEsc(it.taller_corte||'Sin taller')}</b></div>`}
         ${retiroInfo}${entregaFechas}
       </div>
-      ${entregas?`<div class="tc-blk">${entregas}</div>`:''}
+      ${entregas?`<div class="tc-ent">${entregas}</div>`:''}
     </div>
     ${buildRecorridoHtml(secId,itemId,it)}
     ${acts.length?`<div class="tc-acts">${acts.join('')}</div>`:''}
@@ -10883,9 +10891,33 @@ function moveItem(secId,itemId,targetSecId){
   showToast('Ítem movido');
 }
 
+// Saca un complemento del corte base (ej. se cargó complemento cuando era collareta). Si el corte del
+// complemento todavía existe, pregunta si borrarlo también.
+function cmpQuitarDelBase(secId,itemId,L){
+  if(!(currentUser==='ariel'||currentUser==='peque')) return;
+  const item=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!item) return;
+  const c=(item.complementos||{})[L]; if(!c) return;
+  const f=cmpFind(c.numero);
+  if(!confirm(f?`¿Quitar el complemento ${c.numero} (${c.que}) del corte ${item.numero_corte}?\nEl corte ${c.numero} también se elimina.`:`¿Quitar el complemento ${c.numero} (${c.que}) del corte ${item.numero_corte}?`)) return;
+  const up={};
+  up[`fabrica_v5/sections/${secId}/items/${itemId}/complementos/${L}`]=null;
+  up[`fabrica_v5/sections/${secId}/items/${itemId}/sin_complemento/${L}`]=null;
+  if(f) up[`fabrica_v5/sections/${f.secId}/items/${f.itemId}`]=null;
+  db.ref().update(up);
+  logActivity('Quitó complemento',`${item.numero_corte}: ${c.numero} (${c.que})`);
+  showToast(`✓ Se quitó el ${c.numero}`);
+}
 function deleteItem(secId,itemId){
   if(!confirm('¿Eliminar?'))return;
   const item=sectionsData[secId]?.items?.[itemId];
+  // Si es un complemento, se saca también el enlace del corte base (si no, queda "No encontrado").
+  if(item&&item.es_complemento&&item.complemento_de){
+    const p=cmpFind(item.complemento_de.numero);
+    if(p){
+      const L=Object.entries(p.item.complementos||{}).find(([,c])=>c&&corteKeyFrom(String(c.numero))===corteKeyFrom(String(item.numero_corte||'')));
+      if(L) db.ref().update({[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/complementos/${L[0]}`]:null,[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/sin_complemento/${L[0]}`]:null});
+    }
+  }
   deleteItemUndoable(secId,itemId);
   logActivity('Eliminó ítem',item?.code||item?.name||'');
   showToast('Eliminado');
@@ -12825,7 +12857,9 @@ function cmpStripHtml(secId,itemId,item,sec){
   const filas=comps.map(([L,c])=>{
     const f=cmpFind(c.numero);
     const est=!f?'No encontrado':cmpEntregado(f)?'✓ En taller':cmpCortado(f)?'Cortado':!cortado?`Esperando que termine el ${cmpEsc(item.numero_corte)}`:'Pendiente de corte';
-    return `<button class="btn-sm" ${f?`onclick="irAItem('${f.secId}','${f.itemId}')"`:'disabled'} style="margin:2px 6px 2px 0">🧩 ${cmpEsc(c.numero)} · ${cmpEsc(c.que)} — ${est}</button>`;
+    const quitar=(currentUser==='ariel'||currentUser==='peque')
+      ?`<button class="btn-sm" title="Quitar complemento" style="margin:2px 6px 2px -4px;color:var(--danger)" onclick="cmpQuitarDelBase('${secId}','${itemId}','${L}')">✕</button>`:'';
+    return `<button class="btn-sm" ${f?`onclick="irAItem('${f.secId}','${f.itemId}')"`:'disabled'} style="margin:2px 6px 2px 0">🧩 ${cmpEsc(c.numero)} · ${cmpEsc(c.que)} — ${est}</button>${quitar}`;
   }).join('');
   return caja(pendSin.length?'#fdecea':'#f3efe7',`${pendSin.length?`<div style="color:#9a3412;font-weight:800;margin-bottom:6px">SE CORTÓ SIN COMPLEMENTO — ESPERANDO ENTREGAR A TALLER (${pendSin.map(L=>cmpEsc(String(item.numero_corte).trim()+L)).join(', ')})</div>`:''}
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">${comps.length?'<span style="font-weight:700;margin-right:6px">Complementos:</span>':''}${filas}

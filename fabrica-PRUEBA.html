@@ -8595,6 +8595,9 @@ function setOrdenCorteCargada(secId,itemId,val){
 let ordenCtx={};
 // Arma el contexto (colores, capas, curva, etc.) compartido entre el modal de edición
 // (solo Ariel) y el de solo-ver (todos los demás que pueden entrar a Cortes próximos a sacar).
+// Colores con rollos disponibles en stock para una tela: {color:{n,kg}}
+function ocStockColores(tela){ const m={}; if(!tela||typeof tsData==='undefined') return m;
+  Object.values(tsData.rollos||{}).forEach(r=>{ if(!r||r.tela!==tela||r.estado==='usado'||!r.color) return; const c=r.color.trim(); const x=m[c]||(m[c]={n:0,kg:0}); x.n++; x.kg+=tsRestanteDe(r); }); return m; }
 function buildOrdenCtx(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
@@ -8602,6 +8605,10 @@ function buildOrdenCtx(secId,itemId){
   const corteKey=corteKeyFrom(item.numero_corte);
   const ctx={secId,itemId,talles,curvaValores,corteKey};
   ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor);
+  // Sumar también los colores que hay en el stock de esa tela (aunque nunca se hayan usado en un corte).
+  { const tela=item.tela||item.tela_nombre||'',stock=ocStockColores(tela),ya=new Set(ctx.coloresSugeridos.map(c=>telaNorm(c)));
+    Object.keys(stock).forEach(c=>{ if(!ya.has(telaNorm(c))){ ctx.coloresSugeridos.push(c); ya.add(telaNorm(c)); } });
+    ctx.coloresSugeridos.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); ctx.stockColores=stock; }
   const grupo=gruposCorteData[corteKey];
   const capasGrupo=grupo?grupo.capas:(item.capas||null);
   const filasExistentes=Object.entries(capasGrupo||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
@@ -8892,7 +8899,7 @@ function renderOrdenCorteModal(){
   const sugeridosHtml=sugeridosDisponibles.length?`<div style="margin-top:8px">
     <div style="font-size:11px;color:var(--text2);margin-bottom:4px">🎨 Ya usados con esta tela — tocá para agregar:</div>
     <div class="chip-box" style="background:var(--surface2);cursor:default">
-      ${sugeridosDisponibles.map(c=>`<span class="chip" style="cursor:pointer;background:var(--accent-bg);color:var(--accent)" onclick="ordenCorteAddColor('${c.replace(/'/g,"\\'")}')">+ ${c.replace(/</g,'&lt;')}</span>`).join('')}
+      ${sugeridosDisponibles.map(c=>`<span class="chip" style="cursor:pointer;background:var(--accent-bg);color:var(--accent)" onclick="ordenCorteAddColor('${c.replace(/'/g,"\\'")}')">+ ${c.replace(/</g,'&lt;')}${(()=>{const x=(ordenCtx.stockColores||{})[c];return x?` <small style="opacity:.75">· ${x.n} rollo${x.n>1?'s':''} ${tsFmt(x.kg,2)} kg</small>`:''})()}</span>`).join('')}
     </div>
     ${sugeridosDisponibles.length>1?`<button class="btn-sm" style="margin-top:6px" onclick="ordenCorteAddTodosSugeridos()">+ Agregar los ${sugeridosDisponibles.length} de una</button>`:''}
   </div>`:'';

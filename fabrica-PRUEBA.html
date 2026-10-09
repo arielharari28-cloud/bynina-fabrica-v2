@@ -11379,6 +11379,11 @@ const TAB_VISIBILITY={
   // de Logística, para no exponerle datos operativos que no necesita.
   meli:['tab-btn-logistica','tab-btn-facturacion'],
 };
+// Oct 2026: Facturación (ahora se hace en la app de egresos) y Productos del mes no se usan más:
+// se ocultan para todos. Los datos quedan guardados (egresos los usa para "Traer cortes anteriores").
+const TABS_OCULTAS=['tab-btn-facturacion','tab-btn-prodmes'];
+Object.keys(TAB_VISIBILITY).forEach(u=>{ TAB_VISIBILITY[u]=TAB_VISIBILITY[u].filter(t=>!TABS_OCULTAS.includes(t)); });
+TABS_OCULTAS.forEach(t=>{ const i=TAB_ORDER_DEFAULT.indexOf(t); if(i>=0) TAB_ORDER_DEFAULT.splice(i,1); });
 function applyTabVisibility(user){
   const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT;
   TAB_ORDER_DEFAULT.forEach(id=>{

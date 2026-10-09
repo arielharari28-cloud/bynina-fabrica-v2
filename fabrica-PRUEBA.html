@@ -7066,6 +7066,71 @@ function compactChipTexto(secId,item){
   if(!partes.length){ const d=diasEntre(item.fecha_etapa); if(d!=null) partes.push(d+'d en esta etapa'); }
   return partes.join(' · ');
 }
+
+// ===== Fecha objetivo y confirmación POR CORTE (oct 2026) =====
+// Un N° de corte puede tener varios artículos: la fecha objetivo y la confirmación se aplican a todos
+// los artículos de ese corte en "Cortes próximos a sacar". La fecha se edita directo en la fila (sin popup).
+function s3HermanosCorte(item){
+  const ck=corteKeyFrom(String((item&&item.numero_corte)||''));
+  const items=((sectionsData.s3||{}).items)||{};
+  if(!ck) return [];
+  return Object.entries(items).filter(([,it])=>it&&corteKeyFrom(String(it.numero_corte||''))===ck);
+}
+function fechaArAIso(txt){ const ts=logiParseFechaEntregado(txt); if(!ts) return ''; const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function isoAFechaAr(iso){ const [y,m,d]=String(iso).split('-'); return (y&&m&&d)?`${d}/${m}/${y}`:''; }
+function puedeFechaObjetivoCorte(){ return currentUser==='ariel'||currentUser==='stef'; }
+function setFechaObjetivoCorteIso(secId,itemId,iso){
+  const item=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!item) return;
+  const txt=iso?isoAFechaAr(iso):null;
+  const targets=(secId==='s3'&&item.numero_corte)?s3HermanosCorte(item):[[itemId,item]];
+  const up={}; targets.forEach(([k])=>{ up[`fabrica_v5/sections/${secId}/items/${k}/fecha_objetivo_corte`]=txt; });
+  db.ref().update(up);
+  logActivity('Fecha objetivo de corte',`${item.numero_corte?'Corte '+item.numero_corte:item.code}: ${txt||'sin fecha'}${targets.length>1?` (${targets.length} artículos)`:''}`);
+  showToast(txt?`🎯 Cortar para el ${txt}${targets.length>1?` · ${targets.length} artículos`:''}`:'Fecha quitada');
+}
+// Confirma (o vuelve a cola) todos los artículos del corte de una vez.
+function confirmarCorteCompleto(secId,itemId){
+  const item=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!item) return;
+  const her=item.numero_corte?s3HermanosCorte(item):[[itemId,item]];
+  const fecha=her.map(([,it])=>it.fecha_objetivo_corte).find(f=>f&&logiParseFechaEntregado(f));
+  if(!fecha){ showToast('Primero poné la fecha de corte'); return; }
+  const up={};
+  her.forEach(([k,it])=>{ const b=`fabrica_v5/sections/${secId}/items/${k}/`; up[b+'sin_confirmar']=false; up[b+'fecha_objetivo_corte']=fecha; if(!it.fecha_paso_confirmado) up[b+'fecha_paso_confirmado']=Date.now(); });
+  db.ref().update(up);
+  logActivity('Confirmación de corte',`Corte ${item.numero_corte||item.code}: confirmado para cortar el ${fecha}${her.length>1?` (${her.length} artículos)`:''}`);
+  showToast(`✅ Corte ${item.numero_corte||''} confirmado para el ${fecha}`);
+}
+// Campo de fecha en línea, con el color del aviso (vencido / vence hoy / en plazo).
+function fechaObjetivoInputHtml(secId,itemId,item,sec,conAviso){
+  const iso=fechaArAIso(item.fecha_objetivo_corte||'');
+  let bg='var(--surface2)',col='var(--text2)',tit='Fecha objetivo de corte';
+  if(conAviso){ const fl=fechaLimiteTarea(sec,item,secId); if(fl){ bg=fl.aviso.color==='#dc2626'?'#fee2e2':fl.aviso.venceHoy?'#fef3c7':'var(--surface2)'; col=fl.aviso.color==='var(--text3)'?'var(--text2)':fl.aviso.color; tit=textoFechaLimite(fl); } }
+  if(!iso){ bg='#fef3c7'; col='#92400e'; tit='Sin fecha de corte'; }
+  return `<label class="cmp-chip" title="${tit}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:4px;background:${bg};color:${col};max-width:none;font-weight:600">📌<input type="date" value="${iso}" onclick="event.stopPropagation()" onchange="setFechaObjetivoCorteIso('${secId}','${itemId}',this.value)" style="border:0;background:transparent;color:inherit;font:inherit;font-size:11px;padding:0;width:118px"></label>`;
+}
+// Cola agrupada por N° de corte (una fila por corte; al abrirla se ven sus artículos).
+function buildColaPorCorteHtml(secId,items,sec){
+  const grupos=[],idx={};
+  items.forEach(([itemId,it])=>{ const ck=corteKeyFrom(String(it.numero_corte||''))||('_'+itemId); if(!(ck in idx)){ idx[ck]=grupos.length; grupos.push({ck,items:[]}); } grupos[idx[ck]].items.push([itemId,it]); });
+  const puede=puedeFechaObjetivoCorte();
+  return grupos.map(g=>{
+    const [fid,fit]=g.items[0];
+    const k=secId+'/cola:'+g.ck, abierto=compactExpandidos.has(k);
+    const fotos=g.items.slice(0,3).map(([,it])=>it.foto?`<img class="cmp-img" src="${it.foto}" loading="lazy" style="width:40px;height:40px">`:'<div class="cmp-img" style="width:40px;height:40px"></div>').join('');
+    const nombres=g.items.map(([,it])=>`${it.code||''} ${it.name||''}`.trim()).join(' · ');
+    const conFecha=g.items.find(([,it])=>it.fecha_objetivo_corte&&logiParseFechaEntregado(it.fecha_objetivo_corte));
+    const ref=conFecha||g.items[0];
+    return `<div class="cmp-row ${abierto?'cmp-open':''}" onclick="toggleCompactItem('${secId}','cola:${g.ck}')">
+      <div style="display:flex;gap:3px;flex-shrink:0">${fotos}</div>
+      <div class="cmp-txt"><b>${fit.numero_corte?'Corte N° '+fit.numero_corte:(fit.code||'')+' '+(fit.name||'')}</b><small>${g.items.length>1?g.items.length+' artículos · ':''}${nombres}</small></div>
+      ${puede?fechaObjetivoInputHtml(secId,ref[0],ref[1],sec,false)+`<button class="btn-sm" style="flex-shrink:0;background:var(--accent);color:#fff;border-color:var(--accent)" onclick="event.stopPropagation();confirmarCorteCompleto('${secId}','${ref[0]}')">✅ Confirmar</button>`
+        :(fit.fecha_objetivo_corte?`<span class="cmp-chip">📌 ${fit.fecha_objetivo_corte}</span>`:'')}
+      <span style="color:var(--text2);font-size:12px;flex-shrink:0">${abierto?'▲':'▼'}</span>
+    </div>${abierto?`<div style="padding-left:14px;border-left:3px solid var(--warn-bg)">${buildCompactRowsHtml(secId,g.items,sec)}</div>`:''}`;
+  }).join('');
+}
+function contarCortes(items){ return new Set(items.map(([id,it])=>corteKeyFrom(String(it.numero_corte||''))||('_'+id))).size; }
+
 function buildCompactRowsHtml(secId,items,sec){
   if(!items.length) return '<div class="empty-state">No hay nada en esta sección</div>';
   return items.map(([itemId,item],idx)=>{
@@ -7078,7 +7143,7 @@ function buildCompactRowsHtml(secId,items,sec){
       ${prio?`<span title="Prioridad para armar la tizada" style="flex-shrink:0;min-width:30px;text-align:center;font-size:12px;font-weight:800;background:#ede9fe;color:#5b21b6;border-radius:8px;padding:4px 6px">⭐${prio}</span>`:''}
       <div class="cmp-txt"><b>${item.code?item.code+' ':''}${item.name||'(sin nombre)'}</b>${sub?`<small>${sub}</small>`:''}</div>
       ${chip?`<span class="cmp-chip">${chip}</span>`:''}
-      ${(()=>{ const fl=fechaLimiteTarea(sec,item,secId); if(!fl) return '';
+      ${(secId==='s3'&&!item.sin_confirmar&&puedeFechaObjetivoCorte())?fechaObjetivoInputHtml(secId,itemId,item,sec,true):(()=>{ const fl=fechaLimiteTarea(sec,item,secId); if(!fl) return '';
         const bg=fl.aviso.color==='#dc2626'?'#fee2e2':fl.aviso.venceHoy?'#fef3c7':'var(--surface2)';
         return `<span class="cmp-chip" title="Fecha límite de la tarea pendiente (días hábiles)" style="background:${bg};color:${fl.aviso.color==='var(--text3)'?'var(--text2)':fl.aviso.color};font-weight:${fl.aviso.peso}">📌 ${textoFechaLimite(fl)}</span>`; })()}
       <span style="color:var(--text2);font-size:12px;flex-shrink:0">${abierto?'▲':'▼'}</span>
@@ -7221,7 +7286,7 @@ function renderSections(board){
       const colaHtml=enCola.length
         ? `<div class="group-header" style="font-size:12px;font-weight:700;color:var(--warn-text);margin:4px 0 6px;padding-bottom:4px;border-bottom:1px dashed var(--border);cursor:pointer;display:flex;align-items:center;gap:6px" onclick="toggleColaCollapsed()">
             <span style="display:inline-block;transition:transform .15s;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span>
-            🕓 Cortes en cola — pendientes de aprobación de Ari (${enCola.length})
+            🕓 Cortes en cola — pendientes de aprobación de Ari (${contarCortes(enCola)} cortes · ${enCola.length} artículos)
           </div>`
           + (colaCollapsed?'':enCola.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,items.length)).join(''))
         : '';
@@ -7252,10 +7317,10 @@ function renderSections(board){
         const confC=ordenarS3PorFecha(items.filter(([,it])=>!it.sin_confirmar),sec);
         const hdr=(txt,extra)=>`<div style="font-size:12px;font-weight:700;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;${extra||''}">${txt}</div>`;
         itemsHtml=(enColaC.length
-            ? hdr(`<span style="display:inline-block;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span> 🕓 En cola — pendientes de aprobación de Ari (${enColaC.length})`,'color:var(--warn-text);cursor:pointer" onclick="toggleColaCollapsed()')
-              +(colaCollapsed?'':buildCompactRowsHtml(secId,enColaC,sec))
+            ? hdr(`<span style="display:inline-block;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span> 🕓 En cola — pendientes de aprobación de Ari (${contarCortes(enColaC)} corte${contarCortes(enColaC)!==1?'s':''} · ${enColaC.length} artículo${enColaC.length!==1?'s':''})`,'color:var(--warn-text);cursor:pointer" onclick="toggleColaCollapsed()')
+              +(colaCollapsed?'':buildColaPorCorteHtml(secId,enColaC,sec))
             : '')
-          +(confC.length?(enColaC.length?hdr(`✂️ Próximos a sacar (${confC.length})`,'color:var(--text2)'):'')+buildCompactRowsHtml(secId,confC,sec):'');
+          +(confC.length?(enColaC.length?hdr(`✂️ Próximos a sacar (${contarCortes(confC)} corte${contarCortes(confC)!==1?'s':''} · ${confC.length} artículo${confC.length!==1?'s':''})`,'color:var(--text2)'):'')+buildCompactRowsHtml(secId,confC,sec):'');
       } else {
         itemsHtml=buildCompactRowsHtml(secId,items,sec);
       }
@@ -9829,37 +9894,37 @@ function editFechaObjetivoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const txt=pedirFechaObjetivoCorte(item);
   if(!txt) return;
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/fecha_objetivo_corte`).set(txt);
-  logActivity('Fecha objetivo de corte',`${item.code}: ${txt}`);
-  showToast(`🎯 Objetivo: cortar para el ${txt}`);
+  setFechaObjetivoCorteIso(secId,itemId,fechaArAIso(txt));
 }
 function buildObjetivoCorteHtml(secId,itemId,item,canEditar){
   const obj=plazoObjetivoCorte(sectionsData[secId],item,secId);
   if(!obj){
     return `<div class="cortada-row" style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:4px 0">
       <span class="c-label" style="font-weight:600;color:var(--warn-text)">🎯 Sin fecha objetivo de corte</span>
-      ${canEditar?`<button class="btn-sm" onclick="editFechaObjetivoCorte('${secId}','${itemId}')">+ Poner fecha</button>`:''}
+      ${canEditar?`<input type="date" onchange="setFechaObjetivoCorteIso('${secId}','${itemId}',this.value)" style="border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:12px">`:''}
     </div>`;
   }
   const p=avisoPlazo(obj.dias,obj.umbral);
   return `<div class="cortada-row" style="margin:4px 0;gap:8px;flex-wrap:wrap">
     <span class="c-label">🎯 Cortar para el <strong>${item.fecha_objetivo_corte}</strong></span>
     <span style="font-size:11px;color:${p.color};font-weight:${p.peso}">${p.texto}</span>
-    ${canEditar?`<button class="btn-sm" onclick="editFechaObjetivoCorte('${secId}','${itemId}')">✏️</button>`:''}
+    ${canEditar?`<input type="date" value="${fechaArAIso(item.fecha_objetivo_corte)}" onchange="setFechaObjetivoCorteIso('${secId}','${itemId}',this.value)" style="border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:12px">`:''}
   </div>`;
 }
 function toggleCorteSinConfirmar(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const nv=!item.sin_confirmar;
-  const updates={sin_confirmar:nv};
-  // Al confirmar un corte, se le pone la fecha objetivo de corte (obligatoria para confirmar).
+  // Se aplica a todos los artículos del mismo N° de corte.
+  const her=(secId==='s3'&&item.numero_corte)?s3HermanosCorte(item):[[itemId,item]];
+  let txt=null;
+  // Al confirmar se usa la fecha objetivo ya cargada (de cualquiera de sus artículos); si no hay, se pide.
   if(!nv){
-    const txt=pedirFechaObjetivoCorte(item);
+    txt=her.map(([,it])=>it.fecha_objetivo_corte).find(f=>f&&logiParseFechaEntregado(f))||pedirFechaObjetivoCorte(item);
     if(!txt) return;
-    updates.fecha_objetivo_corte=txt;
   }
-  if(!nv&&!item.fecha_paso_confirmado) updates.fecha_paso_confirmado=Date.now();
-  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
+  const up={};
+  her.forEach(([k,it])=>{ const b=`fabrica_v5/sections/${secId}/items/${k}/`; up[b+'sin_confirmar']=nv; if(!nv){ up[b+'fecha_objetivo_corte']=txt; if(!it.fecha_paso_confirmado) up[b+'fecha_paso_confirmado']=Date.now(); } });
+  db.ref().update(up);
   logActivity('Confirmación de corte',`${item.code}: ${nv?'marcado sin confirmar':'confirmado para cortar'}`);
   showToast(nv?'⏳ Marcado como sin confirmar':'✅ Confirmado para cortar');
 }
@@ -12189,6 +12254,8 @@ function tsCompraMasCara(tela){
   tsRemitosDeTela(tela).forEach(rm=>{ if(rm!==ult&&(rm.moneda||'ARS')===(ult.moneda||'ARS')&&tsNum(rm.precio)>tsNum(ult.precio)&&(!max||tsNum(rm.precio)>tsNum(max.precio))) max=rm; });
   return max;
 }
+// Plata en tela y precios de compra en la pestaña Telas: solo los ve Ariel (oct 2026).
+function tsVerPlata(){ return currentUser==='ariel'; }
 // Plata en tela: lo que queda de cada rollo × el precio de la ÚLTIMA compra de esa tela, separado por moneda.
 // Si la tela no tiene ningún remito con precio, se usa el precio con el que entró el rollo.
 function tsValor(){
@@ -12228,6 +12295,7 @@ function renderTelasStock(){
       </div>
     </div>
     ${tsPendientesRevision().length?`<button class="ts-aviso" onclick="tsVista.modo='revision';renderTelasStock()">🔁 ${tsPendientesRevision().length} rollo${tsPendientesRevision().length>1?'s':''} para revisar ›</button>`:''}
+    ${tsVerPlata()?`
     <div class="ts-plata">
       <div class="ts-plata-t">Plata en tela (stock × precio de la última compra)</div>
       <div class="ts-plata-grid">
@@ -12239,7 +12307,7 @@ function renderTelasStock(){
         <div style="text-align:right"><span>Total en pesos</span><b>${dolar||!val.USD?tsMoneda('ARS',totalPesos):'cargá el dólar'}</b></div>
       </div>
       <div class="ts-plata-nota">${tsFmt(val.kg,1)} kg${val.m?` y ${tsFmt(val.m,1)} m`:''} en stock · sobrantes incluidos</div>
-    </div>
+    </div>`:''}
     <input class="ts-search" id="ts-search" type="text" placeholder="Buscar tela, color, proveedor o N° de corte" value="${tsEsc(tsVista.busca)}"
       oninput="tsVista.busca=this.value;renderTelasStock();const e=document.getElementById('ts-search');e.focus();e.setSelectionRange(e.value.length,e.value.length)">`;
   if(/^\s*(corte\s*)?\d+[a-z]?\s*$/i.test(tsVista.busca)){
@@ -12272,8 +12340,8 @@ function renderTelasStock(){
         <div><button class="ts-tela" style="border:0;background:none;padding:0;cursor:pointer;text-align:left;font-family:inherit;color:var(--text)" onclick="tsVerTela(decodeURIComponent('${encodeURIComponent(t.tela).replace(/'/g,'%27')}'))">${tsEsc(t.tela)} <span style="font-size:12px;font-weight:700;color:var(--accent)">Ver todos los rollos ›</span></button><div class="ts-sub">${tsEsc([...t.provs].filter(Boolean).join(', '))} · se mide en ${t.unidad==='m'?'metros':'kilos'}</div></div>
         ${ult?`<span class="ts-edad ${vieja?'vieja':''}">${tsHace(ult.fecha)}</span>`:''}
       </div>
-      ${ult?`<div class="ts-ult">Última compra: <b>${tsFechaCorta(ult.fecha)}</b> · Precio: <b>${tsMoneda(ult.moneda,tsNum(ult.precio))} por ${u}</b></div>`:''}
-      ${(()=>{const mc=tsCompraMasCara(t.tela),uc=tsUltimaCompra(t.tela); return mc&&uc?`<div class="ts-ult" style="background:var(--warn-bg);color:var(--warn-text);border-radius:8px;padding:6px 8px;margin-top:4px">⚠️ El ingreso del ${tsFechaCorta(mc.fecha)}${mc.numero?` (remito ${tsEsc(mc.numero)})`:''} se pagó ${tsMoneda(mc.moneda,tsNum(mc.precio))} por ${u}, más caro que la última compra (${tsMoneda(uc.moneda,tsNum(uc.precio))}). Revisá si el último precio está bien cargado.</div>`:'';})()}
+      ${ult?`<div class="ts-ult">Última compra: <b>${tsFechaCorta(ult.fecha)}</b>${tsVerPlata()?` · Precio: <b>${tsMoneda(ult.moneda,tsNum(ult.precio))} por ${u}</b>`:''}</div>`:''}
+      ${(()=>{if(!tsVerPlata()) return '';const mc=tsCompraMasCara(t.tela),uc=tsUltimaCompra(t.tela); return mc&&uc?`<div class="ts-ult" style="background:var(--warn-bg);color:var(--warn-text);border-radius:8px;padding:6px 8px;margin-top:4px">⚠️ El ingreso del ${tsFechaCorta(mc.fecha)}${mc.numero?` (remito ${tsEsc(mc.numero)})`:''} se pagó ${tsMoneda(mc.moneda,tsNum(mc.precio))} por ${u}, más caro que la última compra (${tsMoneda(uc.moneda,tsNum(uc.precio))}). Revisá si el último precio está bien cargado.</div>`:'';})()}
       <div class="ts-fila ts-fila-head"><span>Color</span><span>Rollos enteros</span><span>Sobrantes</span><span class="ts-c-total">Total</span></div>
       ${filas}
     </div>`;
@@ -12349,7 +12417,7 @@ function renderTsRemitos(){
           <div class="ts-sub">${tsEsc(r.proveedor)} · ${tsFechaCorta(r.fecha)} · cargó ${tsEsc(r.creadoPor||'')}</div></div>
           ${r.inicial?'<span class="ts-edad">Stock inicial</span>':`<span class="ts-edad ${r.facturado?'':'vieja'}">${r.facturado?'Facturado':'Sin facturar'}</span>`}
         </div>
-        <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)} · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}</div>
+        <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)}${tsVerPlata()?` · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}`:''}</div>
         ${tsRollosDeRemitoHtml(id)}
         <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
           ${tsPuedeCargar()&&(!usados||currentUser==='ariel')?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="tsBorrarRemito('${id}')">Borrar remito${usados?' (tiene rollos usados)':''}</button>`:''}

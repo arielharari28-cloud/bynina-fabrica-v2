@@ -8738,6 +8738,8 @@ function ordenCorteAddColorFromInput(){
   // elegir de esa lista — no colores nuevos tipeados a mano. Evita que se cuele un color con
   // otro nombre/escritura para una tela que ya tiene sus colores definidos.
   const sugeridos=ordenCtx.coloresSugeridos||[];
+  const canon=sugeridos.find(c=>telaNorm(c)===telaNorm(val));
+  if(canon){ ordenCorteAddColor(canon); inp.value=''; return; }
   if(sugeridos.length && !sugeridos.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
     showToast(`"${val}" no está en los colores ya usados con esta tela. Elegilo de la lista, o agregalo primero en Colores por tela.`);
     return;
@@ -8749,10 +8751,9 @@ function ordenCorteAddNuevoColor(){
   const item=sectionsData[ordenCtx.secId].items[ordenCtx.itemId];
   const tela=item.tela||item.tela_nombre||'';
   if(!tela.trim()){ showToast('Este ítem no tiene tela cargada todavía'); return; }
-  const nombre=prompt('Nombre del color nuevo:');
-  if(nombre===null) return;
-  const val=nombre.trim();
-  if(!val) return;
+  elegirColor(tela,v=>{ ordenCorteAddColor(v); if(!ordenCtx.coloresSugeridos) ordenCtx.coloresSugeridos=[]; if(!ordenCtx.coloresSugeridos.includes(v)) ordenCtx.coloresSugeridos=[...ordenCtx.coloresSugeridos,v].sort(); });
+  return;
+  const val='';
   const key=sanitizeStr(tela);
   const colores=[...((telasColoresData[key]&&telasColoresData[key].colores)||[])];
   const eliminados=((telasColoresData[key]&&telasColoresData[key].eliminados)||[]).filter(c=>c!==val);
@@ -8864,7 +8865,7 @@ function renderOrdenCorteModalReadOnly(){
     <div class="oc-hint">Total general: <strong>${totalGeneral}</strong> prendas</div>
     ${ordenCortePorArticuloHtml()}
   </div>`:`<div class="oc-hint">Todavía no hay colores cargados.</div>`;
-  document.getElementById('modal-orden-corte-body').innerHTML=`
+  document.getElementById('modal-orden-corte-body').innerHTML=`${(()=>{try{return colOrdenLineaHtml(sectionsData[ordenCtx.secId].items[ordenCtx.itemId]);}catch(e){return ''}})()}
     <div class="oc-field-block" style="margin-bottom:10px">
       <label>Talles y curva</label>
       <div class="chip-box" style="background:var(--surface2)">
@@ -8920,7 +8921,7 @@ function renderOrdenCorteModal(){
     <div class="oc-hint">Total general: <strong id="oc-total-general">${totalGeneral}</strong> prendas${ordenCortePorArticuloInner()?' <span style="color:var(--text2)">(de este artículo)</span>':''}</div>
     ${ordenCortePorArticuloHtml()}
   </div>`:`<div class="oc-hint">Agregá al menos un color para armar la tabla.</div>`;
-  document.getElementById('modal-orden-corte-body').innerHTML=`
+  document.getElementById('modal-orden-corte-body').innerHTML=`${(()=>{try{return colOrdenLineaHtml(sectionsData[ordenCtx.secId].items[ordenCtx.itemId]);}catch(e){return ''}})()}
     <div class="oc-fields-row">
       <div class="oc-field-block">
         <label>Colores de esta tela</label>
@@ -9177,7 +9178,7 @@ function renderTsNombres(){
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><button class="ts-btn-out" onclick="telaNoSon(${gi})">No son la misma</button><button class="ts-btn" onclick="telaUnificarGrupo(${gi})">Unificar</button></div></div>`).join('')}</div>`:'<div class="ts-sub" style="margin-bottom:12px">No hay telas que parezcan repetidas.</div>'}
     <div class="ts-card"><div class="ts-tela" style="margin-bottom:6px">Todas las telas (${(telasList||[]).length})</div>
       ${(telasList||[]).map(t=>{const u=telaUsosTxt(t);return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)"><span>${tsEsc(t)}</span><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="ts-sub">${u}</span>
-        <button class="ts-link" onclick="telaRenombrarUI('${encodeURIComponent(t)}')">Renombrar</button><button class="ts-link" onclick="telaUnificarConUI('${encodeURIComponent(t)}')">Unificar con…</button>${u==='sin uso'?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="telaBorrarUI('${encodeURIComponent(t)}')">Borrar</button>`:''}</span></div>`}).join('')}</div>`;
+        <button class="ts-link" onclick="tsVista={...tsVista,modo:'colores',tela:decodeURIComponent('${encodeURIComponent(t)}')};renderTelasStock()">Colores${colorGruposRepetidos(t).length?` <b style="color:#b45309">(${colorGruposRepetidos(t).length})</b>`:''}</button><button class="ts-link" onclick="telaRenombrarUI('${encodeURIComponent(t)}')">Renombrar</button><button class="ts-link" onclick="telaUnificarConUI('${encodeURIComponent(t)}')">Unificar con…</button>${u==='sin uso'?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="telaBorrarUI('${encodeURIComponent(t)}')">Borrar</button>`:''}</span></div>`}).join('')}</div>`;
 }
 function telaConfirmarCambio(viejos,nuevo){ const n=viejos.reduce((s,v)=>{const u=telaUsos(v);return s+u.cortes+u.rollos+u.otros},0);
   return confirm(`Cambiar ${viejos.map(v=>`"${v}"`).join(', ')} por "${nuevo}" en todos lados (${n} registro${n!==1?'s':''} entre cortes, rollos y costeos, más estampas, remitos y colores).\n\nNo se puede deshacer automáticamente. ¿Seguir?`); }
@@ -9189,19 +9190,23 @@ async function telaRenombrarUI(enc){ if(currentUser!=='ariel') return; const t=d
   const otra=(telasList||[]).find(x=>x!==t&&telaNorm(x)===telaNorm(nuevo)); const dest=otra||nuevo;
   if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Ahora es "${dest}"`); }
 // Selector con buscador (en vez de prompt): escribís y se filtra la lista; tocás la tela.
-function telaPicker(titulo,opciones,onPick){
+function telaPicker(titulo,opciones,onPick,opts){ opts=opts||{};
   const prev=document.getElementById('tela-picker'); if(prev) prev.remove();
   const w=document.createElement('div'); w.id='tela-picker';
   w.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px';
   w.innerHTML=`<div style="background:var(--surface,#fff);border-radius:14px;width:100%;max-width:420px;max-height:75vh;display:flex;flex-direction:column;box-shadow:0 10px 30px rgba(0,0,0,.2)">
     <div style="padding:14px 16px 8px;font-weight:700">${tsEsc(titulo)}</div>
-    <div style="padding:0 16px 8px"><input id="tp-q" type="text" placeholder="Buscar tela…" autocomplete="off" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;font:inherit"></div>
+    <div style="padding:0 16px 8px"><input id="tp-q" type="text" placeholder="${tsEsc(opts.ph||'Buscar tela…')}" autocomplete="off" style="width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;font:inherit"></div>
     <div id="tp-l" style="overflow:auto;padding:0 8px 8px"></div>
     <div style="padding:8px 16px 14px;text-align:right"><button class="ts-btn-out" id="tp-x">Cancelar</button></div></div>`;
   document.body.appendChild(w);
-  const pinta=()=>{const q=telaNorm(document.getElementById('tp-q').value);const l=opciones.filter(o=>!q||telaNorm(o).includes(q));
-    document.getElementById('tp-l').innerHTML=l.length?l.map(o=>`<button data-tp="${encodeURIComponent(o)}" style="display:block;width:100%;text-align:left;padding:9px 10px;border:0;border-radius:8px;background:none;font:inherit;cursor:pointer">${tsEsc(o)} <span class="ts-sub">${telaUsosTxt(o)}</span></button>`).join(''):'<div class="ts-sub" style="padding:10px">No hay telas con ese nombre</div>';
-    w.querySelectorAll('[data-tp]').forEach(b=>{b.onmouseenter=()=>b.style.background='var(--surface2,#f3f0ea)';b.onmouseleave=()=>b.style.background='none';b.onclick=()=>{w.remove();onPick(decodeURIComponent(b.dataset.tp))}});};
+  const subF=opts.sub||telaUsosTxt;
+  const pinta=()=>{const raw=document.getElementById('tp-q').value.trim(),q=telaNorm(raw);const l=opciones.filter(o=>!q||telaNorm(o).includes(q));
+    const exacto=l.some(o=>telaNorm(o)===q);
+    document.getElementById('tp-l').innerHTML=(l.length?l.map(o=>`<button data-tp="${encodeURIComponent(o)}" style="display:block;width:100%;text-align:left;padding:9px 10px;border:0;border-radius:8px;background:none;font:inherit;cursor:pointer">${tsEsc(o)} <span class="ts-sub">${subF(o)}</span></button>`).join(''):'<div class="ts-sub" style="padding:10px">No hay coincidencias</div>')
+      +(opts.nuevo&&raw&&!exacto?`<button data-tpn="1" style="display:block;width:100%;text-align:left;padding:9px 10px;border:0;border-radius:8px;background:none;font:inherit;cursor:pointer;color:var(--accent)">+ Agregar "${tsEsc(raw)}" como nuevo</button>`:'');
+    w.querySelectorAll('[data-tp]').forEach(b=>{b.onmouseenter=()=>b.style.background='var(--surface2,#f3f0ea)';b.onmouseleave=()=>b.style.background='none';b.onclick=()=>{w.remove();onPick(decodeURIComponent(b.dataset.tp))}});
+    const nb=w.querySelector('[data-tpn]'); if(nb) nb.onclick=()=>{w.remove();opts.nuevo(raw)};};
   document.getElementById('tp-q').oninput=pinta;
   document.getElementById('tp-q').onkeydown=e=>{if(e.key==='Enter'){const f=w.querySelector('[data-tp]');if(f)f.click()}if(e.key==='Escape')w.remove()};
   document.getElementById('tp-x').onclick=()=>w.remove();
@@ -9210,6 +9215,62 @@ function telaPicker(titulo,opciones,onPick){
 }
 function telaUnificarConUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); const otras=(telasList||[]).filter(x=>x!==t);
   telaPicker(`Unificar "${t}" con…`,otras,async dest=>{ if(!telaConfirmarCambio([t],dest)) return; await telaRenombrar([t],dest); showToast(`✓ Unificado en "${dest}"`); }); }
+// ===== Colores por tela: elegir siempre de la lista de la tela, sin repetidos =====
+function colorCatalogo(tela){ if(!tela) return []; const set=new Set(coloresParaTela(tela,'')); Object.values(tsData.rollos||{}).forEach(r=>{ if(r&&r.tela===tela&&r.color) set.add(r.color.trim()); });
+  const el=new Set(((telasColoresData[sanitizeStr(tela)]||{}).eliminados)||[]); return [...set].filter(c=>c&&!el.has(c)).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); }
+function colorParecidos(a,b){ if(telaParecidas(a,b)) return true; const x=telaNorm(a),y=telaNorm(b); const [c,l]=x.length<y.length?[x,y]:[y,x]; return c.length>=5&&l.includes(c); }
+function colorAgregarCatalogo(tela,color){ const key=sanitizeStr(tela),d=telasColoresData[key]||{}; const colores=[...(d.colores||[])]; if(!colores.some(c=>telaNorm(c)===telaNorm(color))) colores.push(color);
+  colores.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); const eliminados=(d.eliminados||[]).filter(c=>c!==color);
+  telasColoresData[key]={nombre:tela,colores,eliminados}; db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores,eliminados}); }
+// Devuelve el color a usar: el existente si es el mismo (o parecido y lo confirmás), si no lo agrega al catálogo de la tela.
+function colorResolver(tela,nombre){ const limpio=String(nombre||'').trim().replace(/\s+/g,' '); if(!limpio) return null; const cat=colorCatalogo(tela);
+  const igual=cat.find(c=>telaNorm(c)===telaNorm(limpio)); if(igual){ if(igual!==limpio) showToast(`Ya existe "${igual}" en ${tela}: se usa ese`); return igual; }
+  const par=cat.find(c=>colorParecidos(c,limpio)&&!telasNoIguales[telaParKey(tela+'|'+c,tela+'|'+limpio)]);
+  if(par&&confirm(`"${limpio}" se parece a "${par}" (${tela}).\n\n¿Es el mismo color?\nAceptar = usar "${par}"\nCancelar = es otro color`)) return par;
+  if(par) db.ref(`fabrica_v5/telas_no_iguales/${telaParKey(tela+'|'+par,tela+'|'+limpio)}`).set(true);
+  colorAgregarCatalogo(tela,limpio); return limpio; }
+function colorUsos(tela,color){ let n=0; const tpc=telaPorCorteMapa();
+  Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{ if(!it||(it.tela||it.tela_nombre)!==tela) return; if(it.color===color||it.color_muestra===color) n++;
+    Object.values(it.capas||{}).forEach(c=>{ if(c&&c.color===color) n++; }); Object.values(it.rollos||{}).forEach(r=>{ if(r&&r.color===color) n++; }); }));
+  Object.entries(gruposCorteData||{}).forEach(([k,g])=>{ if(tpc[k]!==tela) return; Object.values((g&&g.capas)||{}).forEach(c=>{ if(c&&c.color===color) n++; }); Object.values((g&&g.rollos)||{}).forEach(r=>{ if(r&&r.color===color) n++; }); });
+  const rol=Object.values(tsData.rollos||{}).filter(r=>r&&r.tela===tela&&r.color===color).length;
+  return {n,rol}; }
+function colorUsosTxt(tela,color){ const u=colorUsos(tela,color),p=[]; if(u.rol) p.push(`${u.rol} rollo${u.rol>1?'s':''} en stock`); if(u.n) p.push(`${u.n} uso${u.n>1?'s':''} en cortes`); return p.join(' · ')||'sin uso'; }
+function telaPorCorteMapa(){ const m={}; Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{ const k=it&&corteKeyFrom(it.numero_corte); if(k&&!m[k]) m[k]=it.tela||it.tela_nombre||''; })); return m; }
+function elegirColor(tela,onPick){ if(!tela){ showToast('Elegí primero la tela'); return; }
+  telaPicker(`Color · ${tela}`,colorCatalogo(tela),onPick,{ph:'Buscar color…',sub:c=>colorUsosTxt(tela,c),nuevo:raw=>{ const r=colorResolver(tela,raw); if(r) onPick(r); }}); }
+// Cambia el color en todos lados de esa tela (no en el conteo de Logística: ahí los tildes de web dependen del nombre).
+async function colorRenombrar(tela,viejos,nuevo){ const up={},en=new Set(viejos),tpc=telaPorCorteMapa();
+  Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{ if(!it||(it.tela||it.tela_nombre)!==tela) return; const b=`fabrica_v5/sections/${sid}/items/${iid}/`;
+    if(en.has(it.color)) up[b+'color']=nuevo; if(en.has(it.color_muestra)) up[b+'color_muestra']=nuevo;
+    Object.entries(it.capas||{}).forEach(([k,c])=>{ if(c&&en.has(c.color)) up[b+`capas/${k}/color`]=nuevo; }); Object.entries(it.rollos||{}).forEach(([k,r])=>{ if(r&&en.has(r.color)) up[b+`rollos/${k}/color`]=nuevo; }); }));
+  Object.entries(gruposCorteData||{}).forEach(([gk,g])=>{ if(tpc[gk]!==tela) return; const b=`fabrica_v5/grupos_corte/${gk}/`;
+    Object.entries((g&&g.capas)||{}).forEach(([k,c])=>{ if(c&&en.has(c.color)) up[b+`capas/${k}/color`]=nuevo; }); Object.entries((g&&g.rollos)||{}).forEach(([k,r])=>{ if(r&&en.has(r.color)) up[b+`rollos/${k}/color`]=nuevo; }); });
+  Object.entries(costeosData||{}).forEach(([ck,c])=>{ if(!c||c.tela!==tela) return; Object.entries(c.rollos||{}).forEach(([k,r])=>{ if(r&&en.has(r.color)) up[`fabrica_v5/costeos/${ck}/rollos/${k}/color`]=nuevo; }); });
+  Object.entries(tsData.rollos||{}).forEach(([k,r])=>{ if(r&&r.tela===tela&&en.has(r.color)) up[`fabrica_v5/telas_stock/rollos/${k}/color`]=nuevo; });
+  const key=sanitizeStr(tela),d=telasColoresData[key]||{}; const colores=[...new Set((d.colores||[]).filter(c=>!en.has(c)).concat(nuevo))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+  up[`fabrica_v5/telas_colores/${key}`]={nombre:tela,colores,eliminados:(d.eliminados||[]).filter(c=>c!==nuevo)};
+  await db.ref().update(up); logActivity('Unificó/renombró color',`${tela}: ${viejos.join(', ')} → ${nuevo}`); }
+function colorGruposRepetidos(tela){ const l=colorCatalogo(tela),usados=new Set(),g=[];
+  l.forEach((a,i)=>{ if(usados.has(a)) return; const x=[a]; l.slice(i+1).forEach(b=>{ if(!usados.has(b)&&colorParecidos(a,b)&&!telasNoIguales[telaParKey(tela+'|'+a,tela+'|'+b)]) x.push(b); }); if(x.length>1){ x.forEach(c=>usados.add(c)); g.push(x); } }); return g; }
+function renderTsColores(){ const cont=document.getElementById('telas-content'),tela=tsVista.tela,g=colorGruposRepetidos(tela),l=colorCatalogo(tela),E=encodeURIComponent;
+  cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='nombres';renderTelasStock()">‹ Nombres de telas</button>
+    <div class="ts-title">Colores de ${tsEsc(tela)}</div>
+    <div class="ts-sub" style="margin-bottom:12px">Al unificar se cambia en el catálogo, cortes, rollos, stock y costeo de esta tela. El conteo de Logística de entregas ya contadas queda como estaba.</div>
+    ${g.length?`<div class="ts-card" style="border-color:#f59e0b"><div class="ts-tela" style="margin-bottom:6px">Posibles repetidos</div>${g.map((x,gi)=>`<div style="padding:8px 0;border-top:1px solid var(--border)">${x.map((c,i)=>`<label style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;cursor:pointer"><span><input type="radio" name="cg${gi}" value="${tsEsc(c)}" ${i===0?'checked':''}> ${tsEsc(c)}</span><span class="ts-sub">${colorUsosTxt(tela,c)}</span></label>`).join('')}
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px"><button class="ts-btn-out" onclick="colorNoSon(${gi})">No son el mismo</button><button class="ts-btn" onclick="colorUnificarGrupo(${gi})">Unificar</button></div></div>`).join('')}</div>`:'<div class="ts-sub" style="margin-bottom:12px">No hay colores que parezcan repetidos.</div>'}
+    <div class="ts-card"><div class="ts-tela" style="margin-bottom:6px">Todos los colores (${l.length})</div>${l.map(c=>{const u=colorUsosTxt(tela,c);return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--border)"><span>${tsEsc(c)}</span><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="ts-sub">${u}</span>
+      <button class="ts-link" onclick="colorRenombrarUI('${E(c)}')">Renombrar</button><button class="ts-link" onclick="colorUnificarConUI('${E(c)}')">Unificar con…</button>${u==='sin uso'?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="colorBorrarUI('${E(c)}')">Borrar</button>`:''}</span></div>`}).join('')}</div>`; }
+function colorConfirmar(tela,viejos,nuevo){ return confirm(`${tela}: cambiar ${viejos.map(v=>`"${v}"`).join(', ')} por "${nuevo}" en catálogo, cortes, rollos, stock y costeo.\n\nNo se puede deshacer automáticamente. ¿Seguir?`); }
+async function colorUnificarGrupo(gi){ if(currentUser!=='ariel') return; const tela=tsVista.tela,g=colorGruposRepetidos(tela)[gi]; if(!g) return; const sel=document.querySelector(`input[name="cg${gi}"]:checked`),nuevo=sel?sel.value:g[0],viejos=g.filter(c=>c!==nuevo);
+  if(!colorConfirmar(tela,viejos,nuevo)) return; await colorRenombrar(tela,viejos,nuevo); showToast(`✓ Unificado en "${nuevo}"`); }
+function colorNoSon(gi){ const tela=tsVista.tela,g=colorGruposRepetidos(tela)[gi]; if(!g) return; const up={}; g.forEach((a,i)=>g.slice(i+1).forEach(b=>{ up[telaParKey(tela+'|'+a,tela+'|'+b)]=true; })); db.ref('fabrica_v5/telas_no_iguales').update(up); }
+async function colorRenombrarUI(enc){ if(currentUser!=='ariel') return; const tela=tsVista.tela,c=decodeURIComponent(enc),n=prompt(`Nuevo nombre para "${c}" (${tela}):`,c); if(n===null) return; const nuevo=n.trim().replace(/\s+/g,' '); if(!nuevo||nuevo===c) return;
+  const dest=colorCatalogo(tela).find(x=>x!==c&&telaNorm(x)===telaNorm(nuevo))||nuevo; if(!colorConfirmar(tela,[c],dest)) return; await colorRenombrar(tela,[c],dest); showToast(`✓ Ahora es "${dest}"`); }
+function colorUnificarConUI(enc){ if(currentUser!=='ariel') return; const tela=tsVista.tela,c=decodeURIComponent(enc);
+  telaPicker(`Unificar "${c}" con…`,colorCatalogo(tela).filter(x=>x!==c),async dest=>{ if(!colorConfirmar(tela,[c],dest)) return; await colorRenombrar(tela,[c],dest); showToast(`✓ Unificado en "${dest}"`); },{ph:'Buscar color…',sub:x=>colorUsosTxt(tela,x)}); }
+function colorBorrarUI(enc){ if(currentUser!=='ariel') return; const tela=tsVista.tela,c=decodeURIComponent(enc); if(colorUsosTxt(tela,c)!=='sin uso'){ showToast('Ese color está en uso'); return; } if(!confirm(`¿Borrar "${c}" de los colores de ${tela}?`)) return;
+  const key=sanitizeStr(tela),d=telasColoresData[key]||{}; db.ref(`fabrica_v5/telas_colores/${key}`).set({nombre:tela,colores:(d.colores||[]).filter(x=>x!==c),eliminados:[...new Set([...(d.eliminados||[]),c])]}); logActivity('Borró color de tela',`${tela}: ${c}`); }
 function telaBorrarUI(enc){ if(currentUser!=='ariel') return; const t=decodeURIComponent(enc); if(telaUsosTxt(t)!=='sin uso'){ showToast('Esa tela está en uso'); return; } if(!confirm(`¿Borrar "${t}" de la lista?`)) return;
   db.ref('fabrica_v5/telas').set((telasList||[]).filter(x=>x!==t)); logActivity('Borró tela de la lista',t); }
 function openRollosModal(secId,itemId){
@@ -11751,6 +11812,7 @@ function renderTelasStock(){
   if(tsVista.modo==='remitos') return renderTsRemitos();
   if(tsVista.modo==='revision') return renderTsRevision();
   if(tsVista.modo==='nombres') return renderTsNombres();
+  if(tsVista.modo==='colores') return renderTsColores();
   if(tsVista.modo==='tela') return renderTsTela();
   const val=tsValor(), dolar=tsNum(tsData.config.dolarHoy);
   const totalPesos=val.ARS+(dolar?val.USD*dolar:0);
@@ -11833,7 +11895,7 @@ function renderTsTela(){
           const ed=currentUser==='ariel';
           return `<div class="ts-fila" style="grid-template-columns:.7fr ${ed?'1.4fr ':''}1fr 1fr 1.1fr;cursor:default;align-items:center">
             <span style="font-weight:700">${tsEsc(r.codigo)}</span>
-            ${ed?`<input class="ts-in" value="${tsEsc(r.color||'')}" aria-label="Color de ${tsEsc(r.codigo)}" onchange="tsInlineColor('${id}',this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;min-width:0">`:''}
+            ${ed?`<button class="ts-link" style="text-align:left;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="elegirColor(tsData.rollos['${id}'].tela,c=>tsInlineColor('${id}',c))">${tsEsc(r.color||'—')}</button>`:''}
             <span>${ed?`<input class="ts-in" inputmode="decimal" value="${(Number(rest)||0).toFixed(2).replace('.',',')}" aria-label="Kilos de ${tsEsc(r.codigo)}" onchange="tsInlineKg('${id}',this.value)" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;text-align:right"> ${u}`:`<b>${tsFmt(rest,1)} ${u}</b>`}${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
             <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
             <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}</span>
@@ -11978,6 +12040,7 @@ function tsNuevoRemito(inicial){
 }
 function tsF(campo,v){ tsForm[campo]=v; if(campo==='unidad'||campo==='moneda') renderTsForm(); else tsActualizarTotales(); }
 function tsColor(i,v){ tsForm.colores[i].color=v; }
+function tsElegirColor(i){ elegirColor(tsForm.tela,c=>{ tsForm.colores[i].color=c; renderTsForm(); }); }
 function tsRollo(i,j,v){ tsForm.colores[i].rollos[j]=v; tsActualizarTotales(); }
 function tsAddRollo(i){ tsForm.colores[i].rollos.push(''); renderTsForm(); setTimeout(()=>{ const e=document.getElementById(`ts-r-${i}-${tsForm.colores[i].rollos.length-1}`); if(e) e.focus(); },30); }
 function tsDelRollo(i,j){ tsForm.colores[i].rollos.splice(j,1); if(!tsForm.colores[i].rollos.length) tsForm.colores[i].rollos.push(''); renderTsForm(); }
@@ -12023,7 +12086,7 @@ function renderTsForm(){
       ${f.colores.map((c,i)=>`<div class="ts-colorbox">
         ${f.inicial?`<div class="ts-seg" style="max-width:280px"><button type="button" class="${c.sobrante?'':'on'}" onclick="${c.sobrante?`tsToggleSobr(${i})`:''}">Rollos enteros</button><button type="button" class="${c.sobrante?'on':''}" onclick="${c.sobrante?'':`tsToggleSobr(${i})`}">Sobrantes</button></div>`:''}
         <div class="ts-colorhead">
-          <label style="flex:1">Color<input type="text" value="${tsEsc(c.color)}" oninput="tsColor(${i},this.value)" placeholder="Ej: Negro"></label>
+          <label style="flex:1">Color<button type="button" class="ts-btn-out" style="display:block;width:100%;text-align:left;margin-top:4px" onclick="tsElegirColor(${i})">${c.color?tsEsc(c.color):'Elegir color…'}</button></label>
           <span class="ts-sub" id="ts-cres-${i}"></span>
           ${f.colores.length>1?`<button type="button" class="ts-x" aria-label="Quitar color" onclick="tsDelColor(${i})">×</button>`:''}
         </div>
@@ -12418,9 +12481,93 @@ function cmpBannerCortesHtml(){
   </div>`;
 }
 
+// ============ COLLARETA Y COMBINACIÓN DE COLORES ============
+// item.collareta = {tela, modo:'tono'|'comb', mapa:{k:{base,color}}, usos:{k:{stockId,usado}}}  (corte normal)
+// item.combinacion = {modo:'tono'|'comb', mapa:{k:{base,color}}}                                  (complemento: cuello, lazo…)
+// La tela y la combinación las cargan Ariel o Peque; los kilos de collareta usados, Emir (o Ariel/Peque).
+// Los kilos usados bajan del stock como cualquier rollo: lo que no carga Ariel queda pendiente de su revisión.
+const colPuedeConfig=()=>currentUser==='ariel'||currentUser==='peque';
+const colPuedeUsos=()=>currentUser==='ariel'||currentUser==='emir'||currentUser==='peque';
+const colK=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9]/g,'_')||'_';
+function colBaseColores(item){ const set=new Set(); const g=grupoCorteOf(item);
+  [g&&g.capas,item.capas,g&&g.rollos,item.rollos].forEach(o=>Object.values(o||{}).forEach(x=>{ if(x&&x.color&&x.color.trim()) set.add(x.color.trim()); })); return [...set]; }
+function colBaseComplemento(item){ const p=item.complemento_de&&cmpFind(item.complemento_de.numero); if(!p) return [];
+  const ck=corteKeyFrom(p.item.numero_corte),grupo=ck?(gruposCorteData[ck]||{}):{}; const filas=calcularGrillaEsperada({...p.item,rollos:grupo.rollos||p.item.rollos});
+  const m={}; filas.forEach(f=>{ m[f.color]=(m[f.color]||0)+(f.esperado||0); }); const l=Object.keys(m).map(c=>({c,n:m[c]})); return l.length?l:colBaseColores(p.item).map(c=>({c,n:null})); }
+function colRef(secId,itemId){ return db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`); }
+function colCombHtml(secId,itemId,campo,datos,bases,telaColores,lblDest){
+  const d=datos||{},modo=d.modo||'tono',ed=colPuedeConfig();
+  const chip=(v,t)=>`<button class="btn-sm" ${ed?`onclick="colSetModo('${secId}','${itemId}','${campo}','${v}')"`:'disabled'} style="${modo===v?'background:var(--accent-bg);color:var(--accent);border-color:var(--accent);font-weight:700':''}">${t}</button>`;
+  const filas=modo==='comb'?bases.map(b=>{const base=typeof b==='string'?b:b.c,n=typeof b==='string'?null:b.n,k=colK(base),dest=(d.mapa&&d.mapa[k]&&d.mapa[k].color)||'';
+    return `<div style="display:grid;grid-template-columns:1fr 18px 1fr;gap:6px;align-items:center;margin-top:4px"><span>${cmpEsc(base)}${n!=null?` <small style="color:var(--text2)">(${n})</small>`:''}</span><span style="color:var(--text2)">→</span>
+      ${ed?`<button class="btn-sm" style="text-align:left;${dest?'':'color:var(--warn-text)'}" onclick="colElegirDestino('${secId}','${itemId}','${campo}','${encodeURIComponent(base)}')">${dest?cmpEsc(dest):'Elegir…'}</button>`:`<b>${dest?cmpEsc(dest):'—'}</b>`}</div>`}).join('')
+    :`<div style="color:var(--text2);margin-top:4px">Cada color base lleva ${lblDest} del mismo color.</div>`;
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${chip('tono','A tono')}${chip('comb','Combinada')}</div>${filas}${modo==='comb'&&!bases.length?'<div style="color:var(--text2);margin-top:4px">Todavía no hay colores base cargados en el corte.</div>':''}`;
+}
+function colStripHtml(secId,itemId,item,sec){
+  if(!item||!item.numero_corte||getBoard(sec)==='diseno'||String((sec&&sec.tipo)||'').startsWith('muestra')) return '';
+  const caja=html=>`<div style="margin:-4px 0 10px;padding:9px 12px;border-radius:0 0 10px 10px;background:#eef3ee;font-size:12px;border:1px solid var(--border);border-top:0">${html}</div>`;
+  if(item.es_complemento){
+    const bases=colBaseComplemento(item),tela=item.tela||item.tela_nombre||'';
+    return caja(`<div style="font-weight:700;margin-bottom:6px">🎨 Colores del ${cmpEsc((item.complemento_de&&item.complemento_de.que)||'complemento')} por color base</div>${colCombHtml(secId,itemId,'combinacion',item.combinacion,bases,tela,'el complemento')}`);
+  }
+  const c=item.collareta;
+  if(!c){ return colPuedeConfig()?caja(`<button class="btn-sm" onclick="colActivar('${secId}','${itemId}')">+ Lleva collareta</button>`):''; }
+  const usos=Object.entries(c.usos||{}); const totU=usos.reduce((s,[,u])=>s+(Number(u.usado)||0),0);
+  const filasU=usos.map(([k,u])=>{const r=tsData.rollos[u.stockId];const pend=r&&r.usos&&Object.values(r.usos).some(x=>x&&x.pendiente&&x.corte===item.numero_corte&&x.code===('collareta '+(item.code||'')));
+    return `<div style="display:grid;grid-template-columns:70px 1fr 110px 24px;gap:6px;align-items:center;margin-top:4px"><b>${r?tsEsc(r.codigo):'—'}</b><span>${r?tsEsc(r.color)+` · queda ${tsFmt(tsRestanteDe(r),2)}`:'rollo borrado'}${pend?' <small style="color:#b45309">· pendiente de revisión</small>':''}</span>
+      ${colPuedeUsos()?`<span><input type="text" inputmode="decimal" value="${String(u.usado||'').replace('.',',')}" placeholder="kg usados" style="width:80px;padding:4px 6px;border:1px solid var(--border);border-radius:6px" onchange="colSetUsado('${secId}','${itemId}','${k}',this.value)"> kg</span><button class="btn-sm" aria-label="Quitar" onclick="colQuitarUso('${secId}','${itemId}','${k}')">✕</button>`:`<span>${tsFmt(Number(u.usado)||0,2)} kg</span><span></span>`}</div>`}).join('');
+  return caja(`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px"><b>🧵 Collareta</b>
+      ${colPuedeConfig()?`<span style="display:flex;gap:6px"><button class="btn-sm" onclick="colElegirTela('${secId}','${itemId}')">${c.tela?cmpEsc(c.tela):'Elegir tela…'}</button><button class="btn-sm" onclick="colQuitar('${secId}','${itemId}')">Quitar</button></span>`:`<span>${cmpEsc(c.tela||'—')}</span>`}</div>
+    ${colCombHtml(secId,itemId,'collareta',c,colBaseColores(item),c.tela,'collareta')}
+    <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:6px"><div style="display:flex;justify-content:space-between;align-items:center"><b>Rollos de collareta usados${totU?` · ${tsFmt(totU,2)} kg`:''}</b>
+      ${colPuedeUsos()&&c.tela?`<button class="btn-sm" onclick="colAgregarRollo('${secId}','${itemId}')">+ Elegir del stock</button>`:''}</div>
+      ${filasU||`<div style="color:var(--text2);margin-top:4px">${c.tela?'Todavía no se cargaron rollos.':'Primero elegí la tela de la collareta.'}</div>`}</div>`);
+}
+// Línea para el cortador arriba de la orden de corte.
+function colOrdenLineaHtml(item){ if(!item) return ''; const parts=[];
+  const lin=(t,d,bases)=>{ if(!d) return; if((d.modo||'tono')!=='comb'){ parts.push(`<b>${t}</b>: a tono`); return; }
+    parts.push(`<b>${t}</b>: `+bases.map(b=>{const base=typeof b==='string'?b:b.c;const x=d.mapa&&d.mapa[colK(base)];return `${cmpEsc(base)} → <b>${x&&x.color?cmpEsc(x.color):'¿?'}</b>`}).join(' · ')); };
+  if(item.collareta) lin(`Collareta ${item.collareta.tela?'('+cmpEsc(item.collareta.tela)+')':''}`,item.collareta,colBaseColores(item));
+  if(item.es_complemento&&item.combinacion) lin(cmpEsc((item.complemento_de&&item.complemento_de.que)||'Complemento'),item.combinacion,colBaseComplemento(item));
+  return parts.length?`<div style="background:#eef3ee;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12.5px">🧵 ${parts.join('<br>')}</div>`:''; }
+function colActivar(secId,itemId){ if(!colPuedeConfig()) return; const it=sectionsData[secId].items[itemId];
+  telaPicker('Tela de la collareta',telasList||[],t=>{ colRef(secId,itemId).child('collareta').set({tela:t,modo:'tono'}); logActivity('Agregó collareta',`${it.code||''}: ${t}`); },{nuevo:raw=>{const t=telaResolver(raw); if(t) colRef(secId,itemId).child('collareta').set({tela:t,modo:'tono'});}}); }
+function colElegirTela(secId,itemId){ if(!colPuedeConfig()) return; telaPicker('Tela de la collareta',telasList||[],t=>colRef(secId,itemId).child('collareta/tela').set(t),{nuevo:raw=>{const t=telaResolver(raw); if(t) colRef(secId,itemId).child('collareta/tela').set(t);}}); }
+function colQuitar(secId,itemId){ if(!colPuedeConfig()) return; const it=sectionsData[secId].items[itemId],c=it.collareta||{};
+  if(Object.keys(c.usos||{}).length&&!confirm('Esta collareta tiene rollos cargados. Si la quitás, se sacan esos usos del stock. ¿Seguir?')) return;
+  colAplicarStock(it,{}); colRef(secId,itemId).child('collareta').remove(); }
+function colSetModo(secId,itemId,campo,modo){ if(!colPuedeConfig()) return; colRef(secId,itemId).child(`${campo}/modo`).set(modo); }
+function colElegirDestino(secId,itemId,campo,enc){ if(!colPuedeConfig()) return; const base=decodeURIComponent(enc),it=sectionsData[secId].items[itemId];
+  const tela=campo==='collareta'?(it.collareta&&it.collareta.tela):(it.tela||it.tela_nombre); if(!tela){ showToast(campo==='collareta'?'Primero elegí la tela de la collareta':'Este complemento no tiene tela cargada'); return; }
+  elegirColor(tela,c=>colRef(secId,itemId).child(`${campo}/mapa/${colK(base)}`).set({base,color:c})); }
+function colAgregarRollo(secId,itemId){ if(!colPuedeUsos()) return; const it=sectionsData[secId].items[itemId],tela=it.collareta&&it.collareta.tela; if(!tela) return;
+  const ya=new Set(Object.values(it.collareta.usos||{}).map(u=>u.stockId));
+  const disp=Object.entries(tsData.rollos||{}).filter(([id,r])=>r&&r.tela===tela&&r.estado!=='usado'&&!ya.has(id));
+  if(!disp.length){ showToast(`No hay rollos de ${tela} en stock. Cargá el remito en Telas.`); return; }
+  const et=([id,r])=>`${r.codigo} · ${r.color} · ${tsFmt(tsRestanteDe(r),2)} kg`; const m={}; disp.forEach(x=>m[et(x)]=x[0]);
+  telaPicker(`Rollo de collareta · ${tela}`,Object.keys(m),lbl=>{ const k='u'+Date.now(); colRef(secId,itemId).child(`collareta/usos/${k}`).set({stockId:m[lbl],usado:''}); },{ph:'Buscar rollo o color…',sub:()=>''}); }
+function colSetUsado(secId,itemId,k,v){ if(!colPuedeUsos()) return; const n=tsNum(v); const it=sectionsData[secId].items[itemId]; const usos={...((it.collareta||{}).usos||{})}; if(!usos[k]) return;
+  usos[k]={...usos[k],usado:n||''}; colRef(secId,itemId).child(`collareta/usos/${k}/usado`).set(n||''); colAplicarStock(it,usos); }
+function colQuitarUso(secId,itemId,k){ if(!colPuedeUsos()) return; const it=sectionsData[secId].items[itemId]; const usos={...((it.collareta||{}).usos||{})}; delete usos[k];
+  colRef(secId,itemId).child(`collareta/usos/${k}`).remove(); colAplicarStock(it,usos); }
+// Igual que los rollos del corte: anota el uso en el rollo; si no lo carga Ariel, queda pendiente hasta que lo apruebe.
+function colAplicarStock(item,usos){
+  const ctx=('col_'+(item.numero_corte||'')+'_'+(item.code||'')).replace(/[.#$\[\]\/\s]/g,'_'); const info={corte:item.numero_corte||'',code:'collareta '+(item.code||'')};
+  const usadoPor={}; Object.values(usos||{}).forEach(u=>{ if(u&&u.stockId&&tsData.rollos[u.stockId]&&Number(u.usado)>0) usadoPor[u.stockId]=(usadoPor[u.stockId]||0)+(Number(u.usado)||0); });
+  const upd={};
+  Object.entries(tsData.rollos||{}).forEach(([id,r])=>{ if(r&&r.usos&&r.usos[ctx]&&!(id in usadoPor)){ const us={...r.usos}; delete us[ctx]; const nr={...r,usos:us}; const rest=tsRestanteDe(nr);
+    upd[`rollos/${id}/usos/${ctx}`]=null; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest); } });
+  Object.entries(usadoPor).forEach(([id,usado])=>{ const r=tsData.rollos[id],previo=(r.usos||{})[ctx],u2=Math.round(usado*100)/100;
+    const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-u2)<0.01; const pendiente=currentUser==='ariel'?false:!yaAprobado;
+    const uso={...info,usado:u2,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente}; const nr={...r,usos:{...(r.usos||{}),[ctx]:uso}}; const rest=tsRestanteDe(nr);
+    upd[`rollos/${id}/usos/${ctx}`]=uso; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest); if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]='entero'; });
+  if(Object.keys(upd).length) db.ref('fabrica_v5/telas_stock').update(upd);
+}
 function buildItem(secId,itemId,item,sec,idx,total){
   const html=buildItemBase(secId,itemId,item,sec,idx,total);
   let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
+  try{ extra+=colStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
   return html+extra;
 }
 // ============ ESTAMPAS AUTOMÁTICAS DESDE EL CORTE ============

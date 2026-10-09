@@ -1600,7 +1600,7 @@ async function irAEstampado(secId,itemId){
     estId=newRef.key;
     await newRef.set({
       numero:item.numero_corte||item.code||item.name||'(sin código)',
-      tela:item.tela_nombre||item.tela||'',
+      tela:item.tela||item.tela_nombre||'',
       coloresImg:'',
       fotos,
       estampas,
@@ -9100,7 +9100,7 @@ async function crearEstampadoDesdeOrden(secId,itemId,capasObj,item,articulos){
   const estId=newRef.key;
   await newRef.set({
     numero:item.numero_corte||item.code||item.name||'(sin código)',
-    tela:item.tela_nombre||item.tela||'',
+    tela:item.tela||item.tela_nombre||'',
     coloresImg:'',
     fotos,
     estampas,
@@ -12192,7 +12192,7 @@ function tsEstadoDe(r,restante){
 function tsNorm(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
 function tsTelaDelCorte(){
   const it=(sectionsData[rollosCtx.secId]||{}).items?.[rollosCtx.itemId]||{};
-  return it.tela_nombre||it.tela||'';
+  return it.tela||it.tela_nombre||'';
 }
 function tsRollosDeLaTela(excluirRowId){
   const tela=tsNorm(tsTelaDelCorte());

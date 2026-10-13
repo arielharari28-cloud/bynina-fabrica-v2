@@ -5327,7 +5327,7 @@ function marcarEntregadoEstampadoTaller(secId,itemId){
 function grillaQuePasoControlCostura(item){
   if(!item||!item.numero_corte) return null;
   const nc=String(item.numero_corte), code=String(item.code||'');
-  const ents=Object.values(logiItemsData||{}).filter(e=>e&&e.sigue_a_estampado&&e.estado==='cerrado'&&String(e.numero_corte||'')===nc&&String(e.code||'')===code);
+  const ents=Object.values(logiItemsData||{}).filter(e=>e&&e.sigue_a_estampado&&!String(e.sigue_a||'').startsWith('Terminación')&&e.estado==='cerrado'&&String(e.numero_corte||'')===nc&&String(e.code||'')===code);
   if(!ents.length) return null;
   const acc={};
   ents.forEach(e=>Object.values(e.grilla||{}).forEach(f=>{
@@ -6188,7 +6188,25 @@ const UT_AVIO={
 };
 let utFiltro='todos';
 let utTaller=''; // '' = todos los talleres
-function utTallerDe(item){ return (item.taller_corte||'').trim()||'Sin taller'; }
+// Taller donde está HOY el corte: en terminación es el de la etapa pendiente (ej. Plancha · Irma),
+// no el de confección; en estampado, el interno. Así la lista, el filtro y "Por taller" muestran
+// el taller real y no el principal.
+function utEtapaActual(secId,item){
+  if(secId===SEC_TALLER_TERMINACION){
+    const et=etapasPendientes(item,'despues')[0];
+    if(et) return {tipo:'etapa',id:et[0],e:et[1],taller:(et[1].taller||'').trim(),label:etapaLabel(et[1])};
+    const paso=Object.values(item.pasos_extra||{}).find(p=>p&&!p.hecho);
+    if(paso) return {tipo:'paso',taller:(paso.taller||'').trim(),label:'🧺 '+(paso.nombre||'Terminación')};
+    return {tipo:'sin',taller:'',label:'Terminación'};
+  }
+  if(secId===SEC_ESTAMPADO_TALLER) return {tipo:'estampado',taller:TALLER_INTERNO,label:'🎨 Estampado'};
+  return null;
+}
+function utTallerDe(item,secId){
+  const a=secId?utEtapaActual(secId,item):null;
+  if(a) return a.taller||'Sin taller';
+  return (item.taller_corte||'').trim()||'Sin taller';
+}
 function setUtTaller(v){ utTaller=v; renderSections('talleres'); }
 let utOrden='etapa';
 try{ utOrden=localStorage.getItem('talleres_ut_orden')||'etapa'; }catch(e){}
@@ -6238,12 +6256,12 @@ function renderResumenPipelineTalleres(){
   });
   if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
   // Talleres presentes (antes de filtrar por taller, así el selector siempre muestra todos)
-  const talleresLista=[...new Set(filas.map(f=>utTallerDe(f.item)))].sort((a,b)=>a==='Sin taller'?1:b==='Sin taller'?-1:a.localeCompare(b));
+  const talleresLista=[...new Set(filas.map(f=>utTallerDe(f.item,f.secId)))].sort((a,b)=>a==='Sin taller'?1:b==='Sin taller'?-1:a.localeCompare(b));
   if(utTaller&&!talleresLista.includes(utTaller)) utTaller='';
-  if(utTaller) filas=filas.filter(f=>utTallerDe(f.item)===utTaller);
+  if(utTaller) filas=filas.filter(f=>utTallerDe(f.item,f.secId)===utTaller);
   if(searchQuery){
     const q=searchQuery.trim().toLowerCase();
-    filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q)||(f.item.taller_corte||'').toLowerCase().includes(q));
+    filas=filas.filter(f=>(f.item.code||'').toLowerCase().includes(q)||(f.item.name||'').toLowerCase().includes(q)||(f.item.numero_corte||'').toLowerCase().includes(q)||(f.item.taller_corte||'').toLowerCase().includes(q)||utTallerDe(f.item,f.secId).toLowerCase().includes(q));
   }
   const suma=l=>l.reduce((s,f)=>s+f.cantidad,0);
   const cardDefs=[{id:'todos',label:'Todos',fg:'var(--text)',bg:'var(--surface2)',dot:'#6b6560'}]
@@ -6263,7 +6281,7 @@ function renderResumenPipelineTalleres(){
   vis.sort((a,b)=>{
     if(utOrden==='etapa'){ const d=idxE(a.estado)-idxE(b.estado); if(d) return d; }
     if(utOrden==='taller'){
-      const ta=utTallerDe(a.item), tb=utTallerDe(b.item);
+      const ta=utTallerDe(a.item,a.secId), tb=utTallerDe(b.item,b.secId);
       if(ta!==tb) return ta==='Sin taller'?1:tb==='Sin taller'?-1:ta.localeCompare(tb);
       const d=idxE(a.estado)-idxE(b.estado); if(d) return d;
     }
@@ -6271,7 +6289,7 @@ function renderResumenPipelineTalleres(){
     return d2||extractCorteNumber(a.item)-extractCorteNumber(b.item);
   });
   const grupos={};
-  const grupoKey=f=>utOrden==='taller'?utTallerDe(f.item):f.estado;
+  const grupoKey=f=>utOrden==='taller'?utTallerDe(f.item,f.secId):f.estado;
   vis.forEach(f=>{ const k=grupoKey(f); grupos[k]=grupos[k]||{n:0,p:0}; grupos[k].n++; grupos[k].p+=f.cantidad; });
   let prev=null;
   const filasHtml=vis.map((f,idx)=>{
@@ -6314,7 +6332,12 @@ function renderResumenPipelineTalleres(){
     const puede=utPuedeEditarTaller();
     const stop='onclick="event.stopPropagation()"';
     let precioHtml='';
-    if(puede&&!it.es_complemento){
+    const actual=utEtapaActual(f.secId,it);
+    if(puede&&!it.es_complemento&&actual&&actual.tipo==='etapa'&&actual.e.factura){
+      const tieneE=!!actual.e.precio;
+      precioHtml=`<span style="${tieneE?'font-size:10.5px;color:var(--text2);display:block':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tieneE?utEsc(actual.taller||'Terminación'):'Falta precio '+utEsc(actual.taller||'')}</span>$ <input class="ut-in${tieneE?'':' falta'}" ${stop} type="number" min="0" value="${actual.e.precio||''}" placeholder="/u" style="width:62px" onchange="etapaPrecio('${f.secId}','${f.itemId}','${actual.id}',this.value)">`
+        +(it.precio_taller?'':`<span style="display:block;font-size:10px;color:var(--danger);font-weight:700;margin-top:2px">Falta precio ${utEsc(it.taller_corte||'confección')}</span>`);
+    } else if(puede&&!it.es_complemento){
       const tiene=!!it.precio_taller;
       precioHtml=`<span style="${tiene?'':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tiene?'':'Falta precio'}</span>$ <input class="ut-in${tiene?'':' falta'}" ${stop} type="number" min="0" value="${it.precio_taller||''}" placeholder="/u" style="width:62px" onchange="setPrecioTallerCorte('${f.secId}','${f.itemId}',this.value)">`;
     }
@@ -6344,7 +6367,14 @@ function renderResumenPipelineTalleres(){
       <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
       <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
       <div class="c-precio">${precioHtml}</div>
-      <div class="c-taller">${(()=>{const et=f.secId===SEC_TALLER_TERMINACION&&etapasPendientes(it,'despues')[0];return et?`${utEsc(etapaLabel(et[1]))} · <b>${utEsc(et[1].taller)}</b>`:(it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>');})()}${avisoRetiro}${diasTallerHtml}</div>
+      <div class="c-taller">${(()=>{
+        if(actual&&(actual.tipo==='etapa'||actual.tipo==='paso'||actual.tipo==='sin')&&f.secId===SEC_TALLER_TERMINACION){
+          const conf=it.taller_corte?`<div style="font-size:10.5px;color:var(--text2)">Confección: ${utEsc(it.taller_corte)} ✓</div>`:'';
+          if(actual.taller) return `${utEsc(actual.label)} · <b>${utEsc(actual.taller)}</b>${conf}`;
+          return `<span style="color:var(--danger);font-weight:700;font-size:11px">⚠ Falta cargar el taller de terminación</span>${conf}`;
+        }
+        return it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>';
+      })()}${avisoRetiro}${diasTallerHtml}</div>
       <div class="c-dias">${entregaHtml}</div>
       <div class="c-avio">${avioHtml}</div>
       <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
@@ -16097,7 +16127,7 @@ function logiCardHtml(id,it,cerrado){
     : (it.prioridad ? `<span class="logi-prio-badge ${it.prioridad}">${it.prioridad==='alta'?'🔴 Alta':'🟡 Media'}</span>` : '');
   let badgeHtml;
   if(cerrado&&it.sigue_a_estampado){
-    badgeHtml = '<span class="logi-badge" style="background:#dbeafe;color:#1e3a8a">🎨 Controlado · sigue a estampado</span>';
+    badgeHtml = `<span class="logi-badge" style="background:#dbeafe;color:#1e3a8a">${String(it.sigue_a||'').startsWith('Terminación')?'🧺':'🎨'} Controlado · sigue a ${utEsc(it.sigue_a||'estampado')}</span>`;
   } else if(cerrado){
     badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
   } else if(logiEstadoColumna(it)==='dividir'){
@@ -16548,7 +16578,7 @@ function logiRenderDetail(id){
 
   if(cerrado){
     const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');
-    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">${it.sigue_a_estampado?`✅ Controlado — facturable a ${it.taller||'el taller'} · 🎨 sigue a Estampado (se divide con la entrega de estampado)`:'✅ Conteo cerrado'}</div>` +
+    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">${it.sigue_a_estampado?`✅ Controlado — facturable a ${it.taller||'el taller'} · sigue a ${utEsc(it.sigue_a||'Estampado')} (se divide con la última entrega)`:'✅ Conteo cerrado'}</div>` +
       (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
     const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>`
@@ -16562,7 +16592,7 @@ function logiRenderDetail(id){
       : '';
     html += avisoControl + yaMarcado + `<div class="logi-summary-bar">
       <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
-      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">${logiSigueAEstampado(it)?'Cerrar control → Facturar y sigue a Estampado':'Cerrar control → Pendiente dividir'}</button></div>
+      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">${(()=>{const s=logiSigueA(it);return s?'Cerrar control → Facturar y sigue a '+utEsc(s):'Cerrar control → Pendiente dividir';})()}</button></div>
     </div>`;
   }
   document.getElementById('logi-final-summary').innerHTML = html;
@@ -16686,14 +16716,36 @@ function logiSigueAEstampado(it){
   // Si ya está en la sección de estampado va a estampar, aunque haya llegado movido a mano.
   return f.secId===SEC_ESTAMPADO_TALLER||!!f.item.estampado_dtf;
 }
+// Próximo paso del corte después de esta entrega, según su recorrido (oct 2026). Si la
+// mercadería todavía no está terminada (le falta terminación —plancha, ojal, bordado…— o
+// estampado), el control solo sirve para facturarle al taller: la entrega se cierra sin pasar a
+// "Pendiente dividir" (se divide una sola vez, con la última entrega). Devuelve el nombre del
+// próximo paso, o null si esta entrega es la final (→ Pendiente dividir).
+function logiSigueA(it){
+  if(!it) return null;
+  const av=it.avance_pendiente;
+  if(av&&!av.avanzado) return av.destino_tipo==='en_estampado_taller'?'Estampado':null;
+  if(it.proceso==='estampado') return null;
+  const f=logiCorteFabricaDe(it);
+  if(!f) return null;
+  const et=etapasPendientes(f.item,'despues')[0];
+  if(et) return `Terminación (${etapaLabel(et[1]).replace(/^\S+\s/,'')}${et[1].taller?' · '+et[1].taller:''})`;
+  const paso=Object.values(f.item.pasos_extra||{}).find(p=>p&&!p.hecho);
+  if(paso) return `Terminación (${paso.nombre||'pasos extra'})`;
+  if(f.secId===SEC_TALLER_TERMINACION) return 'Terminación';
+  if(!it.proceso&&!it.no_facturar&&!f.item.estampado_taller_entregado&&(f.secId===SEC_ESTAMPADO_TALLER||!!f.item.estampado_dtf)) return 'Estampado';
+  return null;
+}
+function logiSigueAEstampado(it){ return !!logiSigueA(it); }
 function logiCerrarConteo(itemId){
   const it=logiItemsData[itemId];
-  if(logiSigueAEstampado(it)){
-    if(!confirm(`¿Cerrar el control de la entrega de ${it.taller||'costura'}? Queda lista para facturarle a ${it.taller||'el taller'} y el corte sigue a Estampado Nina — NO pasa a dividir (se divide después, con la entrega de estampado).`)) return;
-    const upd={estado:'cerrado',sigue_a_estampado:true,fecha_control_cerrado:Date.now(),control_cerrado_por:currentUser,fecha_cerrado:Date.now(),cerrado_por:currentUser};
+  const sigueA=logiSigueA(it);
+  if(sigueA){
+    if(!confirm(`¿Cerrar el control de la entrega de ${it.taller||'costura'}? Queda lista para facturarle a ${it.taller||'el taller'} y el corte sigue a ${sigueA} — NO pasa a dividir (se divide después, con la última entrega).`)) return;
+    const upd={estado:'cerrado',sigue_a_estampado:true,sigue_a:sigueA,fecha_control_cerrado:Date.now(),control_cerrado_por:currentUser,fecha_cerrado:Date.now(),cerrado_por:currentUser};
     db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upd);
-    logActivity('Control cerrado — facturable, sigue a estampado',`${it.code||''} — Corte ${it.numero_corte||'?'}`);
-    showToast(`🎨 Control cerrado — facturable a ${it.taller||'el taller'}, sigue a Estampado`);
+    logActivity(`Control cerrado — facturable, sigue a ${sigueA}`,`${it.code||''} — Corte ${it.numero_corte||'?'}`);
+    showToast(`✅ Control cerrado — facturable a ${it.taller||'el taller'}, sigue a ${sigueA}`);
   } else {
     if(!confirm('¿Cerrar el control de este corte? Pasa a "Pendiente dividir" — Ariel tiene que marcarlo dividido para que quede Finalizado.')) return;
     db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('pendiente_dividir');
@@ -16821,6 +16873,7 @@ function logiReabrirConteo(itemId){
   if(!confirm('¿Reabrir este conteo para seguir cargando lo que falta?')) return;
   db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('abierto');
   db.ref(`fabrica_v5/logistica/items/${itemId}/sigue_a_estampado`).set(null);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/sigue_a`).set(null);
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_reabierto`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/reabierto_por`).set(currentUser);
   logActivity('Reabrió un conteo de Logística',itemId);

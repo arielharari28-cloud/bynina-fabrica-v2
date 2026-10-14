@@ -782,7 +782,8 @@
   .ts-totales div{display:flex;justify-content:space-between}
   .ts-guardar{min-height:48px;font-size:15px}
   .ts-aviso{width:100%;text-align:left;min-height:44px;border:1px solid #c7d6ec;background:#e8eef7;color:#2c4a7a;border-radius:12px;padding:0 14px;font-weight:700;font-size:13px;cursor:pointer;margin-bottom:12px;font-family:inherit}
-  .rol-stock{font-size:11.5px;padding:5px;border:1px solid var(--border);border-radius:6px;max-width:190px}
+  .rol-stock{font-size:11.5px;padding:5px;border:1px solid var(--border);border-radius:6px;max-width:230px}
+  .rol-orig{font-size:10.5px;color:var(--text2);margin-top:3px;max-width:230px;line-height:1.35;white-space:normal}
   .rol-stock.en{border-color:var(--accent);background:var(--accent-bg);font-weight:600}
   /* --- Logística: detalle de entrega --- */
   .ld-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px}
@@ -9759,6 +9760,7 @@ function rolColTarget(secId,itemId){
 // Kilos de collareta de una fila: metros × peso por metro del corte (si el rollo está en metros, son los metros).
 function rolColKg(row){
   const m=numAr(row.colMts); if(!m) return 0;
+  if(row.colUnidad==='kg') return m;
   const r=row.stockId?tsData.rollos[row.stockId]:null;
   return (r&&r.unidad==='m')?m:m*(rollosCtx.peso||0);
 }
@@ -9784,7 +9786,7 @@ function openRollosModal(secId,itemId){
     curvaSum:Object.values(item.curva_valores||{}).reduce((s,v)=>s+(parseInt(v)||0),0)
   };
   rollosCtx.colTarget=rolColTarget(secId,itemId);
-  const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||'',stockId:r.stockId||'',codigo:r.codigo||'',sobranteReal:(r.sobranteReal===undefined||r.sobranteReal===null)?'':String(r.sobranteReal),colMts:(r.colMts===undefined||r.colMts===null)?'':String(r.colMts)}));
+  const filasExistentes=Object.entries(rollosFuente).map(([id,r])=>({id,color:r.color||'',kgmts:r.kgmts!==undefined?r.kgmts:'',capas:r.capas!==undefined?r.capas:'',nota:r.nota||'',stockId:r.stockId||'',codigo:r.codigo||'',sobranteReal:(r.sobranteReal===undefined||r.sobranteReal===null)?'':String(r.sobranteReal),colMts:(r.colMts===undefined||r.colMts===null)?'':String(r.colMts),colUnidad:r.colUnidad||'m'}));
   rollosCtx.rows=filasExistentes;
   rollosCtx.stockAlAbrir=new Set(filasExistentes.filter(r=>r.stockId).map(r=>r.stockId));
   renderRollosModal();
@@ -9826,7 +9828,7 @@ function rollosRefreshRow(rowId){
   const sr=document.getElementById(`rol-sobreal-${rowId}`);
   if(sr) sr.placeholder=row.kgmts?sobrante.toFixed(2):'—';
   const ck=document.getElementById(`rol-colkg-${rowId}`);
-  if(ck){ const k=rollosCalc(row).colKg; ck.textContent=k?'= '+k.toFixed(2)+' kg':''; }
+  if(ck){ const k=rollosCalc(row).colKg; ck.textContent=(k&&row.colUnidad!=='kg')?'= '+k.toFixed(2)+' kg':''; }
   const ct=document.getElementById('rol-col-total');
   if(ct) ct.innerHTML=rolColTotalTexto();
 }
@@ -9876,12 +9878,15 @@ function renderRollosModal(){
       ? `<input type="text" value="${(row.color||'').replace(/"/g,'&quot;')}" placeholder="Color del rollo" onchange="rollosUpdateField('${row.id}','color',this.value)" style="width:90px;padding:5px;font-size:12px;border:1px solid var(--border);border-radius:6px">`
       : `<select onchange="rollosUpdateField('${row.id}','color',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--border);border-radius:6px">${colorOptsFor(row.color)}</select>`;
     return `<tr>
-      <td><select class="rol-stock ${row.stockId?'en':''}" onchange="rollosElegirStock('${row.id}',this.value)" aria-label="Rollo del stock">${tsOpcionesRollo(row)}</select></td>
+      <td><select class="rol-stock ${row.stockId?'en':''}" onchange="rollosElegirStock('${row.id}',this.value)" aria-label="Rollo del stock" title="${rStock?tsEsc(rStock.codigo+' · '+rStock.color):'Fuera de la app'}">${tsOpcionesRollo(row)}</select>
+        ${rStock?`<div class="rol-orig"><b>${tsEsc(rStock.codigo)}</b> · ${tsEsc(rStock.color)}<br>Entró con ${tsFmt(tsNum(rStock.inicial),2)} ${tsUnidadTxt(rStock.unidad)}${rStock.numeroRemito?` · remito ${tsEsc(rStock.numeroRemito)}`:''}${rStock.cargadoComo==='sobrante'||rStock.estado==='sobrante'?' · sobrante':''}</div>`:''}</td>
       <td>${colorCell}</td>
       <td><input type="number" min="0" step="0.01" value="${row.kgmts}" placeholder="0" oninput="rollosUpdateField('${row.id}','kgmts',this.value)" style="width:64px;padding:5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:6px"></td>
       <td><input type="number" min="0" value="${row.capas}" placeholder="0" oninput="rollosUpdateField('${row.id}','capas',this.value)" class="oc-capas-input" style="width:56px"></td>
       <td><span class="oc-cell-calc" id="rol-usado-${row.id}">${usado?usado.toFixed(2):'—'}</span></td>
-      ${rollosCtx.colTarget?`<td style="white-space:nowrap"><input type="number" min="0" step="0.1" value="${row.colMts??''}" placeholder="m" title="Metros de collareta que salieron de este rollo" oninput="rollosUpdateField('${row.id}','colMts',this.value)" style="width:56px;padding:5px;font-size:12px;text-align:center;border:1px solid ${row.colMts?'var(--accent)':'var(--border)'};border-radius:6px"> <span style="font-size:11px;color:var(--text2)" id="rol-colkg-${row.id}">${rollosCalc(row).colKg?'= '+rollosCalc(row).colKg.toFixed(2)+' kg':''}</span></td>`:''}
+      ${rollosCtx.colTarget?`<td style="white-space:nowrap"><input type="number" min="0" step="0.1" value="${row.colMts??''}" placeholder="m" title="Collareta que salió de este rollo" oninput="rollosUpdateField('${row.id}','colMts',this.value)" style="width:56px;padding:5px;font-size:12px;text-align:center;border:1px solid ${row.colMts?'var(--accent)':'var(--border)'};border-radius:6px">
+        <select onchange="rollosUpdateField('${row.id}','colUnidad',this.value)" style="font-size:11.5px;padding:4px;border:1px solid var(--border);border-radius:6px" aria-label="Unidad de la collareta"><option value="m" ${row.colUnidad!=='kg'?'selected':''}>m</option><option value="kg" ${row.colUnidad==='kg'?'selected':''}>kg</option></select>
+        <span style="font-size:11px;color:var(--text2)" id="rol-colkg-${row.id}">${row.colUnidad!=='kg'&&rollosCalc(row).colKg?'= '+rollosCalc(row).colKg.toFixed(2)+' kg':''}</span></td>`:''}
       <td>${rStock
         ? `<div style="display:flex;flex-direction:column;gap:3px;align-items:center">
             <input type="number" min="0" step="0.01" id="rol-sobreal-${row.id}" value="${row.sobranteReal??''}" placeholder="${row.kgmts?sobrante.toFixed(2):'—'}" title="Si lo pesaron, poné lo que quedó de verdad. Vacío = se calcula por capas." oninput="rollosUpdateField('${row.id}','sobranteReal',this.value)" style="width:64px;padding:4px;font-size:12px;text-align:center;border:1px solid ${row.sobranteReal!==''&&row.sobranteReal!=null?'var(--accent)':'var(--border)'};border-radius:6px">
@@ -9917,8 +9922,8 @@ function renderRollosModal(){
 function rolColTotalTexto(){
   const t=rollosCtx.colTarget; if(!t) return '';
   const it=(sectionsData[t.secId]||{}).items?.[t.itemId]||{};
-  let m=0,k=0; rollosCtx.rows.forEach(r=>{ m+=numAr(r.colMts); k+=rollosCalc(r).colKg; });
-  return `🧵 Collareta${t.itemId!==rollosCtx.itemId&&it.code?' de '+tsEsc(it.code):''}: metros × peso x metro (${rollosCtx.peso||'—'})${m?` · total <strong>${Math.round(m*100)/100} m = ${k.toFixed(2)} kg</strong>`:''}${m&&!rollosCtx.peso?' <span style="color:#9a3412">· falta el peso por metro para pasarlo a kg</span>':''}`;
+  let m=0,k=0; rollosCtx.rows.forEach(r=>{ if(r.colUnidad!=='kg') m+=numAr(r.colMts); k+=rollosCalc(r).colKg; });
+  return `🧵 Collareta${t.itemId!==rollosCtx.itemId&&it.code?' de '+tsEsc(it.code):''}: cargala en metros (se pasa a kg × ${rollosCtx.peso||'—'}) o directo en kg${k?` · total <strong>${k.toFixed(2)} kg</strong>`:''}${m&&!rollosCtx.peso?' <span style="color:#9a3412">· falta el peso por metro para pasar los metros a kg</span>':''}`;
 }
 // Total capas (suma de todas las filas) y total prendas (capas × curva de este ítem) — para
 // que el encimador vea de un vistazo cuánto va a salir en total, sin tener que sumarlo a mano.
@@ -9939,7 +9944,7 @@ function saveRollos(){
     if(!row.color&&!row.kgmts&&!row.capas) return;
     const colM=rollosCtx.colTarget?numAr(row.colMts):0;
     rollosObj[row.id]={color:row.color||'',kgmts:row.kgmts!==''?parseFloat(row.kgmts)||0:'',capas:row.capas!==''?parseInt(row.capas)||0:'',nota:row.nota||'',stockId:row.stockId||null,codigo:row.codigo||null,sobranteReal:(row.stockId&&String(row.sobranteReal??'').trim()!=='')?numAr(row.sobranteReal):null,
-      colMts:colM||null,colKg:colM?Math.round(rolColKg(row)*100)/100:null};
+      colMts:colM||null,colUnidad:colM?(row.colUnidad||'m'):null,colKg:colM?Math.round(rolColKg(row)*100)/100:null};
   });
   // Collareta cortada de estos rollos: se anota en la collareta del artículo (usos "deCorte") y baja del stock
   // en la misma pasada que el corte, para que el rollo no quede descontado dos veces.
@@ -9950,7 +9955,7 @@ function saveRollos(){
     Object.entries((tgtItem.collareta&&tgtItem.collareta.usos)||{}).forEach(([k,u])=>{ if(u&&!u.deCorte) usosCol[k]=u; });
     const nuevos={};
     rows.forEach(row=>{ const m=numAr(row.colMts); if(!m||!(row.color||row.kgmts||row.capas)) return;
-      nuevos['rc_'+row.id]={stockId:row.stockId||null,usado:Math.round(rolColKg(row)*100)/100,metros:m,color:row.color||'',deCorte:true}; });
+      nuevos['rc_'+row.id]={stockId:row.stockId||null,usado:Math.round(rolColKg(row)*100)/100,metros:row.colUnidad==='kg'?null:m,color:row.color||'',deCorte:true}; });
     const up={};
     Object.entries((tgtItem.collareta&&tgtItem.collareta.usos)||{}).forEach(([k,u])=>{ if(u&&u.deCorte&&!nuevos[k]) up[`collareta/usos/${k}`]=null; });
     Object.entries(nuevos).forEach(([k,u])=>{ up[`collareta/usos/${k}`]=u; usosCol[k]=u; });
@@ -12850,7 +12855,7 @@ function tsColorOrdenPara(colorRollo){
 function tsOpcionesRollo(row){
   const propias=tsRollosDeLaTela(row.id);
   const actual=row.stockId&&tsData.rollos[row.stockId]&&!propias.some(([id])=>id===row.stockId)?[[row.stockId,tsData.rollos[row.stockId]]]:[];
-  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(r.color)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?` (sobrante, entró con ${tsFmt(tsNum(r.inicial),1)})`:''} · ${tsEsc(r.codigo)}</option>`;
+  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(r.codigo)} · ${tsEsc(r.color)} · ${tsFmt(tsRestanteDe(r),1)} ${tsUnidadTxt(r.unidad)}${r.estado==='sobrante'?` (sobrante, entró con ${tsFmt(tsNum(r.inicial),1)})`:''}</option>`;
   const lista=[...actual,...propias];
   return `<option value="" ${!row.stockId?'selected':''}>Fuera de la app</option>`
     +(lista.length?lista.map(opt).join(''):`<option disabled>Sin rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock</option>`);
@@ -13185,7 +13190,7 @@ function colStripHtml(secId,itemId,item,sec){
   if(!c){ return colPuedeConfig()?caja(`<button class="btn-sm" onclick="colActivar('${secId}','${itemId}')">+ Lleva collareta</button>`):''; }
   const usos=Object.entries(c.usos||{}); const totU=usos.reduce((s,[,u])=>s+(Number(u.usado)||0),0);
   const filasU=usos.map(([k,u])=>{const r=u.stockId?tsData.rollos[u.stockId]:null;
-    if(u.deCorte) return `<div style="display:grid;grid-template-columns:70px 1fr 110px 24px;gap:6px;align-items:center;margin-top:4px"><b>${r?tsEsc(r.codigo):'Fuera app'}</b><span>${tsEsc(u.color||(r&&r.color)||'')} · ${tsFmt(Number(u.metros)||0,2)} m <small style="color:var(--text2)">· cargado en los rollos del corte</small></span><span>${tsFmt(Number(u.usado)||0,2)} kg</span><span></span></div>`;const pend=r&&r.usos&&Object.values(r.usos).some(x=>x&&x.pendiente&&x.corte===item.numero_corte&&x.code===('collareta '+(item.code||'')));
+    if(u.deCorte) return `<div style="display:grid;grid-template-columns:70px 1fr 110px 24px;gap:6px;align-items:center;margin-top:4px"><b>${r?tsEsc(r.codigo):'Fuera app'}</b><span>${tsEsc(u.color||(r&&r.color)||'')}${u.metros?` · ${tsFmt(Number(u.metros)||0,2)} m`:''} <small style="color:var(--text2)">· cargado en los rollos del corte</small></span><span>${tsFmt(Number(u.usado)||0,2)} kg</span><span></span></div>`;const pend=r&&r.usos&&Object.values(r.usos).some(x=>x&&x.pendiente&&x.corte===item.numero_corte&&x.code===('collareta '+(item.code||'')));
     return `<div style="display:grid;grid-template-columns:70px 1fr 110px 24px;gap:6px;align-items:center;margin-top:4px"><b>${r?tsEsc(r.codigo):'—'}</b><span>${r?tsEsc(r.color)+` · queda ${tsFmt(tsRestanteDe(r),2)}`:'rollo borrado'}${pend?' <small style="color:#b45309">· pendiente de revisión</small>':''}</span>
       ${colPuedeUsos()?`<span><input type="text" inputmode="decimal" value="${String(u.usado||'').replace('.',',')}" placeholder="kg usados" style="width:80px;padding:4px 6px;border:1px solid var(--border);border-radius:6px" onchange="colSetUsado('${secId}','${itemId}','${k}',this.value)"> kg</span><button class="btn-sm" aria-label="Quitar" onclick="colQuitarUso('${secId}','${itemId}','${k}')">✕</button>`:`<span>${tsFmt(Number(u.usado)||0,2)} kg</span><span></span>`}</div>`}).join('');
   return caja(`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px"><b>🧵 Collareta</b>

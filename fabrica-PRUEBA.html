@@ -6179,6 +6179,7 @@ const UT_ESTADOS=[
   {id:'previo',     label:'Bordado/estampado (antes)',fg:'#155e75',bg:'#cffafe',dot:'#0891b2'},
   {id:'retiro',     label:'Pendiente retiro',         fg:'#9a3412',bg:'#ffedd5',dot:'#ea580c'},
   {id:'confeccion', label:'En taller · confección',   fg:'#4c1d95',bg:'#ede9fe',dot:'#6d28d9'},
+  {id:'parcial',    label:'Entrega parcial · falta',  fg:'#9f1239',bg:'#ffe4e6',dot:'#e11d48'},
   {id:'terminacion',label:'En terminación',           fg:'#854d0e',bg:'#fef9c3',dot:'#ca8a04'},
   {id:'plancha',    label:'Estampado · Plancha Nina', fg:'#1e3a8a',bg:'#dbeafe',dot:'#2563eb'},
 ];
@@ -6211,6 +6212,33 @@ function setUtTaller(v){ utTaller=v; renderSections('talleres'); }
 let utOrden='etapa';
 try{ utOrden=localStorage.getItem('talleres_ut_orden')||'etapa'; }catch(e){}
 const utExpandidos=new Set();
+// Cortes que ya tuvieron una entrega (pasaron a Revisión final / Mejora / Producto perfecto) pero
+// todavía tienen prendas en el taller: se muestran en Talleres con lo que falta, hasta que se cuente.
+function utSaldoParcial(item,itemId){
+  const r=resumenEntregasFabrica(item,itemId);
+  if(!r.entregas.length||r.enTaller<=0) return null;
+  // Si ya se abrió otra entrega y se está contando/controlando, lo que faltaba ya llegó.
+  const abierta=r.entregas.some(([,e])=>e.estado!=='cerrado'&&['conteo','control'].includes(logiEstadoColumna(e)));
+  if(abierta) return null;
+  const cont={};
+  r.entregas.forEach(([,e])=>Object.values(e.grilla||{}).forEach(f=>{ const k=(f.color||'')+'__'+(f.talle||''); cont[k]=(cont[k]||0)+(parseInt(f.contado)||0); }));
+  const faltan=[];
+  r.filas.forEach(f=>{ const n=(f.esperado||0)-(cont[(f.color||'')+'__'+(f.talle||'')]||0); if(n>0) faltan.push({color:f.color,talle:f.talle,n}); });
+  const ultima=r.entregas[r.entregas.length-1][1];
+  return {cantidad:r.enTaller,faltan,desde:ultima.fecha_creado||null,ultimaFecha:ultima.fecha_entregado||''};
+}
+function utSaldoDetalleHtml(f){
+  const porColor={};
+  (f.parcial.faltan||[]).forEach(x=>{ (porColor[x.color||'—']=porColor[x.color||'—']||[]).push(x); });
+  const filas=Object.entries(porColor).map(([c,l])=>`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:4px 0;border-bottom:1px dashed var(--border)">
+      <b style="min-width:120px">${utEsc(c)}</b>${l.map(x=>`<span class="ut-chip">${utEsc(x.talle||'')} · ${x.n}</span>`).join('')}
+      <span style="margin-left:auto;font-weight:700">${l.reduce((s,x)=>s+x.n,0)} u.</span></div>`).join('');
+  return `<div style="padding:10px 12px;font-size:12.5px">
+    <div style="font-weight:700;margin-bottom:4px">Falta que ${utEsc(f.item.taller_corte||'el taller')} entregue ${f.cantidad} prendas</div>
+    ${filas||'<div class="ut-muted">Sin detalle por color</div>'}
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">${f.parcial.ultimaFecha?'Última entrega: '+utEsc(f.parcial.ultimaFecha)+'. ':''}Cuando llegue, se abre desde Logística → "Nueva entrega del taller" y esta fila desaparece sola.</div>
+  </div>`;
+}
 function utEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function utEstadoDe(secId,item){
   if(etapasAntesHabilitadas(secId,item)&&etapaEnTallerAntes(item)) return 'previo';
@@ -6252,6 +6280,16 @@ function renderResumenPipelineTalleres(){
       const estado=utEstadoDe(secId,item);
       const ts=(secId==='sFIN'&&item.retirado_taller&&item.fecha_retiro_confirmado)?item.fecha_retiro_confirmado:item.fecha_etapa;
       filas.push({secId,itemId,item,sec,estado,avio:item.es_complemento?null:utAvioDe(secId,item),cantidad:totalEsperado||0,dias:diasEntre(ts)});
+    });
+  });
+  ['revision_final','mejora','producto_perfecto'].map(getSectionIdByTipo).filter(Boolean).forEach(secId=>{
+    const sec=sectionsData[secId];
+    if(!sec) return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||item.es_complemento) return;
+      const parcial=utSaldoParcial(item,itemId);
+      if(!parcial) return;
+      filas.push({secId,itemId,item,sec,estado:'parcial',parcial,avio:null,cantidad:parcial.cantidad,dias:diasEntre(parcial.desde)});
     });
   });
   if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
@@ -6333,7 +6371,9 @@ function renderResumenPipelineTalleres(){
     const stop='onclick="event.stopPropagation()"';
     let precioHtml='';
     const actual=utEtapaActual(f.secId,it);
-    if(puede&&!it.es_complemento&&actual&&actual.tipo==='etapa'&&actual.e.factura){
+    if(f.estado==='parcial'){
+      precioHtml=it.precio_taller?`<span style="color:var(--text2)">$ ${utEsc(it.precio_taller)}</span>`:'';
+    } else if(puede&&!it.es_complemento&&actual&&actual.tipo==='etapa'&&actual.e.factura){
       const tieneE=!!actual.e.precio;
       precioHtml=`<span style="${tieneE?'font-size:10.5px;color:var(--text2);display:block':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tieneE?utEsc(actual.taller||'Terminación'):'Falta precio '+utEsc(actual.taller||'')}</span>$ <input class="ut-in${tieneE?'':' falta'}" ${stop} type="number" min="0" value="${actual.e.precio||''}" placeholder="/u" style="width:62px" onchange="etapaPrecio('${f.secId}','${f.itemId}','${actual.id}',this.value)">`
         +(it.precio_taller?'':`<span style="display:block;font-size:10px;color:var(--danger);font-weight:700;margin-top:2px">Falta precio ${utEsc(it.taller_corte||'confección')}</span>`);
@@ -6342,7 +6382,9 @@ function renderResumenPipelineTalleres(){
       precioHtml=`<span style="${tiene?'':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tiene?'':'Falta precio'}</span>$ <input class="ut-in${tiene?'':' falta'}" ${stop} type="number" min="0" value="${it.precio_taller||''}" placeholder="/u" style="width:62px" onchange="setPrecioTallerCorte('${f.secId}','${f.itemId}',this.value)">`;
     }
     let entregaHtml;
-    if(it.es_complemento){
+    if(f.estado==='parcial'){
+      entregaHtml=`<span style="${late?'color:#9f1239;font-weight:700':''}">Faltan ${f.cantidad}${f.dias!=null?` · hace ${f.dias} d de la última entrega`:''}</span>`;
+    } else if(it.es_complemento){
       const modo=it.combinacion&&it.combinacion.modo==='comb'?'Combinado':it.combinacion?'A tono':'';
       entregaHtml=modo?`<span class="ut-chip">${modo}</span>`:'<span class="ut-muted">falta a tono / combinado</span>';
     } else if(f.estado==='previo'){
@@ -6378,7 +6420,7 @@ function renderResumenPipelineTalleres(){
       <div class="c-dias">${entregaHtml}</div>
       <div class="c-avio">${avioHtml}</div>
       <div class="c-estado"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span></div>
-    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${buildTallerCardHtml(f,idx,vis.length)}</div>`:''}`;
+    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='parcial'?utSaldoDetalleHtml(f):buildTallerCardHtml(f,idx,vis.length)}</div>`:''}`;
   }).join('');
   const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
   cont.innerHTML=`<div class="rt-box">

@@ -17628,9 +17628,9 @@ function renderCosteoDetail(){
   const rollosHtml=costeoRollosAbierto?(rollos.length?`<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">
       <tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)"><td style="padding:4px 6px">Color</td><td style="padding:4px 6px;text-align:right">Cargado</td><td style="padding:4px 6px;text-align:right">Capas</td><td style="padding:4px 6px">Observación</td><td style="padding:4px 6px;text-align:right">Calculado</td><td style="padding:4px 6px;text-align:right">Sobrante</td><td style="padding:4px 6px;text-align:right">A distribuir</td></tr>
       ${rollos.map(([rk,x])=>{const carg=numAr2(x.kgmts),sob=numAr2(x.sobrante),capas=numAr2(x.capas);const calc=largo&&pesoM&&capas?capas*largo*pesoM:null;
-        return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;font-weight:600">${costeoEsc(x.color||'—')}</td>
+        return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;font-weight:600">${currentUser==='ariel'?`<span style="cursor:pointer;border-bottom:1px dashed var(--text3)" title="Tocá para corregir el color" onclick="editCosteoColorRollo('${key}','${rk}')">${costeoEsc(x.color||'—')} <span style="font-size:10px;color:var(--text3)">✏️</span></span>`:costeoEsc(x.color||'—')}</td>
         <td style="padding:4px 6px;text-align:right">${canEdit?inp(x.kgmts,`setCosteoKgRollo('${key}','${rk}',this.value)`,70):costeoKg(carg)}</td>
-        <td style="padding:4px 6px;text-align:right">${x.capas||'—'}</td><td style="padding:4px 6px;color:var(--text2)">${x.nota?costeoEsc(x.nota):'—'}</td>
+        <td style="padding:4px 6px;text-align:right">${currentUser==='ariel'?inp(x.capas,`setCosteoCapasRollo('${key}','${rk}',this.value)`,50,'—','step="1"'):(x.capas||'—')}</td><td style="padding:4px 6px;color:var(--text2)">${x.nota?costeoEsc(x.nota):'—'}</td>
         <td style="padding:4px 6px;text-align:right;color:var(--text3)">${calc!=null?costeoKg(calc):'—'}</td>
         <td style="padding:4px 6px;text-align:right">${canEdit?inp(x.sobrante,`setCosteoSobranteRollo('${key}','${rk}',this.value)`,70):(x.sobrante?costeoKg(sob):'—')}</td>
         <td style="padding:4px 6px;text-align:right;font-weight:700">${carg?costeoKg(Math.max(0,carg-sob)):'—'}</td></tr>`}).join('')}
@@ -18246,6 +18246,41 @@ function setCosteoKgRollo(key,rolloKey,val){
   const v=String(val).trim().replace(',','.');
   db.ref(`fabrica_v5/costeos/${key}/rollos/${rolloKey}/kgmts`).set(v===''?'':v);
   logActivity('Editó Kg/Mts de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${v||0} kg`);
+}
+// Corrige color y capas de un rollo mal anotado desde Costeo. Se guarda en la copia de Costeo
+// (que es la que muestran Costeo y la pestaña Cortes) y, si el rollo vino del corte compartido,
+// también en el corte original, para que no vuelva el dato viejo.
+function costeoRolloOrigen(key,rolloKey){
+  const g=gruposCorteData&&gruposCorteData[key];
+  return (g&&g.rollos&&g.rollos[rolloKey])?`fabrica_v5/grupos_corte/${key}/rollos/${rolloKey}`:null;
+}
+function editCosteoColorRollo(key,rolloKey){
+  if(currentUser!=='ariel') return;
+  const e=costeosData[key]||{};
+  const r=(e.rollos||{})[rolloKey];
+  if(!r) return;
+  const guardar=c=>{
+    c=String(c||'').trim(); if(!c||c===r.color) return;
+    const up={[`fabrica_v5/costeos/${key}/rollos/${rolloKey}/color`]:c};
+    const orig=costeoRolloOrigen(key,rolloKey); if(orig) up[`${orig}/color`]=c;
+    db.ref().update(up);
+    logActivity('Corrigió color de rollo (Costeo)',`Corte ${e.numero_corte}: ${r.color||'—'} → ${c}`);
+    showToast('✓ Color corregido');
+  };
+  if(e.tela&&typeof elegirColor==='function') elegirColor(e.tela,guardar);
+  else { const v=prompt('Color correcto del rollo:',r.color||''); if(v!==null) guardar(v); }
+}
+function setCosteoCapasRollo(key,rolloKey,val){
+  if(currentUser!=='ariel') return;
+  const e=costeosData[key]||{};
+  const r=(e.rollos||{})[rolloKey];
+  if(!r) return;
+  const n=parseInt(String(val).trim(),10);
+  const v=isNaN(n)||n<0?'':n;
+  const up={[`fabrica_v5/costeos/${key}/rollos/${rolloKey}/capas`]:v};
+  const orig=costeoRolloOrigen(key,rolloKey); if(orig) up[`${orig}/capas`]=v;
+  db.ref().update(up);
+  logActivity('Corrigió capas de rollo (Costeo)',`Corte ${e.numero_corte} — ${r.color||''}: ${r.capas||'—'} → ${v===''?'—':v}`);
 }
 function setCosteoPesoMetro(key,val){
   const e=costeosData[key]||{};

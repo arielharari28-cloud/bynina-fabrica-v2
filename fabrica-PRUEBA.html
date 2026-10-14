@@ -13138,9 +13138,12 @@ function colElegirDestino(secId,itemId,campo,enc){ if(!colPuedeConfig()) return;
   elegirColor(tela,c=>colRef(secId,itemId).child(`${campo}/mapa/${colK(base)}`).set({base,color:c})); }
 function colAgregarRollo(secId,itemId){ if(!colPuedeUsos()) return; const it=sectionsData[secId].items[itemId],tela=it.collareta&&it.collareta.tela; if(!tela) return;
   const ya=new Set(Object.values(it.collareta.usos||{}).map(u=>u.stockId));
-  const disp=Object.entries(tsData.rollos||{}).filter(([id,r])=>r&&r.tela===tela&&r.estado!=='usado'&&!ya.has(id));
+  // Misma búsqueda que el modal de rollos del corte: tela sin distinguir mayúsculas/acentos, solo con kilos disponibles, ordenado por color.
+  const telaN=tsNorm(tela);
+  const disp=Object.entries(tsData.rollos||{}).filter(([id,r])=>r&&tsNorm(r.tela)===telaN&&r.estado!=='usado'&&tsRestanteDe(r)>0&&!ya.has(id))
+    .sort((a,b)=>String(a[1].color).localeCompare(String(b[1].color),'es')||String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
   if(!disp.length){ showToast(`No hay rollos de ${tela} en stock. Cargá el remito en Telas.`); return; }
-  const et=([id,r])=>`${r.codigo} · ${r.color} · ${tsFmt(tsRestanteDe(r),2)} kg`; const m={}; disp.forEach(x=>m[et(x)]=x[0]);
+  const et=([id,r])=>`${r.codigo} · ${r.color} · ${tsFmt(tsRestanteDe(r),2)} kg${r.estado==='sobrante'?' (sobrante)':r.estado==='revision'?' (en revisión)':''}`; const m={}; disp.forEach(x=>m[et(x)]=x[0]);
   telaPicker(`Rollo de collareta · ${tela}`,Object.keys(m),lbl=>{ const k='u'+Date.now(); colRef(secId,itemId).child(`collareta/usos/${k}`).set({stockId:m[lbl],usado:''}); },{ph:'Buscar rollo o color…',sub:()=>''}); }
 function colSetUsado(secId,itemId,k,v){ if(!colPuedeUsos()) return; const n=tsNum(v); const it=sectionsData[secId].items[itemId]; const usos={...((it.collareta||{}).usos||{})}; if(!usos[k]) return;
   usos[k]={...usos[k],usado:n||''}; colRef(secId,itemId).child(`collareta/usos/${k}/usado`).set(n||''); colAplicarStock(it,usos); }

@@ -777,6 +777,11 @@
   .ts-rollo-in input{width:100%;text-align:center;padding:8px 4px}
   .ts-rollo-in button{border:0;background:none;color:var(--text3);font-size:15px;cursor:pointer;padding:0 2px}
   .ts-colorbox .ts-btn-out{align-self:flex-start}
+  .ts-rollos-ta{width:100%;box-sizing:border-box;min-height:58px;margin-top:4px;padding:10px 12px;border:1px solid var(--border2);border-radius:12px;font-size:15px;font-family:inherit;resize:vertical;background:var(--surface);color:var(--text)}
+  .ts-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .ts-chip{display:inline-flex;align-items:center;gap:4px;background:var(--accent-bg);color:var(--accent);border-radius:999px;padding:4px 6px 4px 12px;font-size:12px;font-weight:700}
+  .ts-chip input{width:54px;border:0;background:transparent;color:var(--accent);font-weight:700;font-size:13px;text-align:right;padding:2px 0;font-family:inherit}
+  .ts-chip button{border:0;background:none;color:var(--accent);font-size:15px;cursor:pointer;padding:0 4px}
   .ts-addcolor{min-height:44px;border:1.5px dashed var(--border2);border-radius:12px;background:transparent;color:var(--accent);font-weight:700;font-size:14px;cursor:pointer;font-family:inherit}
   .ts-totales{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:4px;font-size:13px}
   .ts-totales div{display:flex;justify-content:space-between}
@@ -12803,7 +12808,24 @@ function tsColor(i,v){ tsForm.colores[i].color=v; }
 function tsElegirColor(i){ elegirColor(tsForm.tela,c=>{ tsForm.colores[i].color=c; renderTsForm(); }); }
 function tsRollo(i,j,v){ tsForm.colores[i].rollos[j]=v; tsActualizarTotales(); }
 function tsAddRollo(i){ tsForm.colores[i].rollos.push(''); renderTsForm(); setTimeout(()=>{ const e=document.getElementById(`ts-r-${i}-${tsForm.colores[i].rollos.length-1}`); if(e) e.focus(); },30); }
-function tsDelRollo(i,j){ tsForm.colores[i].rollos.splice(j,1); if(!tsForm.colores[i].rollos.length) tsForm.colores[i].rollos.push(''); renderTsForm(); }
+// Carga rápida: todos los rollos de un color en un solo campo (uno por etiqueta, separados por espacio o Enter)
+function tsRollosParse(txt){ return String(txt||'').split(/[\s;]+/).filter(x=>x&&tsNum(x)>0); }
+function tsRollosJoin(arr){ return (arr||[]).filter(x=>String(x).trim()&&tsNum(x)>0).join(' '); }
+function tsChipsHTML(i){
+  const c=tsForm.colores[i], u=tsUnidadTxt(tsForm.unidad);
+  return c.rollos.map((x,j)=>tsNum(x)>0?`<span class="ts-chip">Rollo ${j+1}<input type="text" inputmode="decimal" value="${tsEsc(x)}" oninput="tsChipEdit(${i},${j},this.value)" aria-label="Rollo ${j+1}"> ${u}<button type="button" aria-label="Quitar rollo ${j+1}" onclick="tsDelRollo(${i},${j})">×</button></span>`:'').join('');
+}
+function tsRollosTexto(i,v){
+  tsForm.colores[i].rollos=tsRollosParse(v);
+  const ch=document.getElementById(`ts-chips-${i}`); if(ch) ch.innerHTML=tsChipsHTML(i);
+  tsActualizarTotales();
+}
+function tsChipEdit(i,j,v){
+  tsForm.colores[i].rollos[j]=v;
+  const ta=document.getElementById(`ts-ta-${i}`); if(ta) ta.value=tsRollosJoin(tsForm.colores[i].rollos);
+  tsActualizarTotales();
+}
+function tsDelRollo(i,j){ tsForm.colores[i].rollos.splice(j,1); renderTsForm(); }
 function tsAddColor(sobrante){ tsForm.colores.push({color:'',rollos:[''],sobrante:!!sobrante}); renderTsForm(); }
 function tsToggleSobr(i){ tsForm.colores[i].sobrante=!tsForm.colores[i].sobrante; renderTsForm(); }
 function tsDelColor(i){ tsForm.colores.splice(i,1); if(!tsForm.colores.length) tsForm.colores.push({color:'',rollos:['']}); renderTsForm(); }
@@ -12850,8 +12872,9 @@ function renderTsForm(){
           <span class="ts-sub" id="ts-cres-${i}"></span>
           ${f.colores.length>1?`<button type="button" class="ts-x" aria-label="Quitar color" onclick="tsDelColor(${i})">×</button>`:''}
         </div>
-        <div class="ts-rollos">${c.rollos.map((x,j)=>`<label>Rollo ${j+1}<span class="ts-rollo-in"><input id="ts-r-${i}-${j}" type="text" inputmode="decimal" value="${tsEsc(x)}" oninput="tsRollo(${i},${j},this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();tsAddRollo(${i});}" placeholder="${u}">${c.rollos.length>1?`<button type="button" aria-label="Quitar rollo" onclick="tsDelRollo(${i},${j})">×</button>`:''}</span></label>`).join('')}</div>
-        <button type="button" class="ts-btn-out" onclick="tsAddRollo(${i})">+ Rollo</button>
+        <label>${f.unidad==='m'?'Metros':'Kilos'} de los rollos (uno por etiqueta)<textarea id="ts-ta-${i}" class="ts-rollos-ta" rows="2" oninput="tsRollosTexto(${i},this.value)" placeholder="${f.unidad==='m'?'50  48,5  52':'22,4  21,8  23,1'}">${tsEsc(tsRollosJoin(c.rollos))}</textarea></label>
+        <div class="ts-sub" style="margin-top:-4px">Separá cada rollo con espacio o Enter. La coma es el decimal.</div>
+        <div class="ts-chips" id="ts-chips-${i}">${tsChipsHTML(i)}</div>
       </div>`).join('')}
       <button type="button" class="ts-addcolor" onclick="tsAddColor()">+ Agregar color</button>
       ${f.inicial?'<button type="button" class="ts-addcolor" onclick="tsAddColor(true)">+ Agregar sobrantes de un color</button>':''}

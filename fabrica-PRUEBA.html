@@ -874,7 +874,7 @@
     <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">N</div><div><div class="uname">Nahuel</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-noemi"><div class="user-avatar" style="background:#be185d">N</div><div><div class="uname">Noemí</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-alejandro"><div class="user-avatar" style="background:#4338ca">AL</div><div><div class="uname">Alejandro</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
-    <button class="user-btn" id="btn-noelia"><div class="user-avatar" style="background:#7c2d12">N</div><div><div class="uname">Noelia</div><div class="urole">Diseño — acceso total · resto solo lectura</div></div></button>
+    <button class="user-btn" id="btn-noelia"><div class="user-avatar" style="background:#7c2d12">N</div><div><div class="uname">Noelia</div><div class="urole">Diseño — acceso total · tizada, revisión final y fotos</div></div></button>
     <button class="user-btn" id="btn-meli"><div class="user-avatar" style="background:#0f766e">M</div><div><div class="uname">Meli</div><div class="urole">Administración — facturación a talleres/proveedores</div></div></button>
   </div>
 </div>
@@ -939,6 +939,7 @@
     <div class="notif-list" id="undo-list"></div>
   </div>
   <div class="main">
+    <div id="avisos-noe"></div>
     <div class="tabs">
       <button class="tab active" id="tab-btn-diseno">Diseño</button>
       <button class="tab" id="tab-btn-fabrica">Fábrica</button>
@@ -2567,6 +2568,7 @@ function assignModelista(secId,itemId,nombre){  const item=sectionsData[secId].i
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/modelista`).set(nombre||null);
   checkPasosNuevoDesarrollo(secId,itemId,{modelista:nombre||null});
   logActivity('Asignó modelista',`${item.code||item.name||''} → ${nombre||'sin asignar'}`);
+  if(nombre) avisoNoe(item,'Asignó modelista: '+nombre,secId,itemId);
   showToast(nombre?`✓ Modelista: ${nombre}`:'Modelista quitada');
 }
 
@@ -2992,7 +2994,7 @@ function getResponsable(sec,item,secId){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Peque';
       return 'Peque';
     }
-    if(!item.modelista) return 'Ariel y Stef';
+    if(!item.modelista) return 'Noelia'; // oct 2026: asignar modelista pasa a Noelia (Ariel y Stef revisan con el aviso)
     if(item.modelista==='Adela'&&!item.tela_entregada) return 'Peque';
     return 'Peque'; // modelista ya asignado: falta que Peque envíe a moldería
   }
@@ -3005,13 +3007,13 @@ function getResponsable(sec,item,secId){
     if(item.ficha_ajuste_pendiente) return 'Peque';
     if(item.molde_aprobado&&necesitaProgresiones(item)) return 'Peque'; // progresiones Minisur
     if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return 'Peque'; // digitalizar el molde: ahora lo hace Peque
-    return 'Ariel y Stef';
+    return 'Noelia'; // oct 2026: foto puesta + decidir la muestra pasa a Noelia
   }
   if(tipo==='muestra_pend') return (!item.color||!item.talle)?'Noelia':'Cortador'; // color y talle los carga Noelia
   if(tipo==='muestra_cort') return 'Peque';
   if(tipo==='muestra_lista') return 'Peque';
   if(tipo==='muestra_en_taller') return 'Peque';
-  if(tipo==='revision_final') return 'Ariel y Stef';
+  if(tipo==='revision_final') return 'Noelia'; // oct 2026: la revisión final la hace Noelia
   if(tipo==='en_estampado_taller') return item.estampado_taller_entregado?null:'Emir';
   if(tipo==='en_terminacion'){
     const pend=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
@@ -3084,7 +3086,7 @@ function getProximaAccion(sec,item,secId){
       if(!(item.base_ref_id||item.base_ref_manual)) return 'Falta elegir de qué base sale';
       return 'Falta enviar a Pendiente armar tizada (base ya aprobada, sin moldería)';
     }
-    if(!item.modelista) return 'Falta asignar modelista (Ariel/Stef)';
+    if(!item.modelista) return 'Falta asignar modelista (Noelia)';
     if(item.modelista==='Adela'&&!item.tela_entregada) return 'Falta tildar Tela separada';
     return `Falta enviar a moldería · Modelista: ${item.modelista}`;
   }
@@ -3116,8 +3118,8 @@ function getProximaAccion(sec,item,secId){
     if(item.molde_aprobado&&necesitaProgresiones(item)) return '📏 Falta hacer las progresiones (Minisur)';
     if(item.modelista==='Adela'&&item.molde_aprobado&&!item.molde_digitalizado) return '🖨️ Falta digitalizar el molde (Peque)';
     const fotos=Object.keys(item.fotos_prueba||{});
-    if(!fotos.length) return 'Falta cargar foto de cómo queda puesta';
-    return 'Falta decidir: Aprobar / A revisión / Corregir sin muestra';
+    if(!fotos.length) return 'Falta cargar foto de cómo queda puesta (Noelia)';
+    return 'Falta decidir: Aprobar / A revisión / Corregir sin muestra (Noelia)';
   }
   if(secId==='s3'){
     if(item.sin_confirmar) return 'Esperando confirmación (Ariel)';
@@ -3698,6 +3700,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     if(!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
     publishPendientesResumen();
     renderMisPendientesBadge();
+    renderAvisosNoe();
     if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
   });
   db.ref('fabrica_v5/grupos_corte').on('value',snap=>{
@@ -3789,6 +3792,68 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
   });
 }
 
+// Aviso arriba para Ariel y Stef cada vez que Noelia hace un paso de diseño (asignar modelista,
+// decidir la muestra, revisión final). Es solo para enterarse: no frena nada. Cada uno lo marca
+// visto por su cuenta (vistoPor.ariel / vistoPor.stef). Se guarda en fabrica_v5/avisos_noe.
+let avisosNoeData={};
+const esNoeliaReal=()=>usuarioLogueado==='noelia'||currentUser==='noelia';
+function avisoNoe(item,texto,secId,itemId){
+  if(!esNoeliaReal()||!item) return;
+  db.ref('fabrica_v5/avisos_noe').push({texto,code:item.code||'',name:item.name||'',secId:secId||'',itemId:itemId||'',ts:Date.now()});
+}
+function avisosNoePendientes(){
+  const yo=usuarioLogueado||currentUser;
+  if(yo!=='ariel'&&yo!=='stef') return [];
+  const l=Object.entries(avisosNoeData||{}).filter(([,a])=>a&&!(a.vistoPor&&a.vistoPor[yo])).map(([id,a])=>({id,...a}));
+  // Avisos viejos de revisión final (antes iban a Mis pendientes de Ariel): se muestran acá hasta marcarlos vistos.
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,item])=>{
+    const rn=item&&item.revision_noelia;
+    if(rn&&!rn.revisado) l.push({id:'rn|'+secId+'|'+itemId,secId,itemId,code:item.code||'',name:item.name||'',ts:rn.ts||0,
+      texto:rn.resultado==='perfecto'?'Revisión final: Producto perfecto':'Revisión final: necesita mejora — "'+(rn.nota||'')+'"'});
+  }));
+  return l.sort((a,b)=>(b.ts||0)-(a.ts||0));
+}
+function cuandoAviso(ts){
+  if(!ts) return '';
+  const d=new Date(ts),h=new Date();const hoyD=new Date(h.getFullYear(),h.getMonth(),h.getDate());
+  const hh=d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',hour12:false});
+  if(d>=hoyD) return 'hoy '+hh;
+  if(d>=new Date(hoyD-86400000)) return 'ayer '+hh;
+  return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+}
+function renderAvisosNoe(){
+  const c=document.getElementById('avisos-noe');if(!c) return;
+  const l=avisosNoePendientes();
+  if(!l.length){c.innerHTML='';return;}
+  const esc=t=>String(t||'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
+  c.innerHTML=`<div style="background:var(--warn-bg);border:1px solid #f0d9a8;border-radius:12px;padding:10px 14px;margin:0 0 12px;color:var(--warn-text)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap"><span style="font-weight:700;font-size:14px">Noe hizo ${l.length} paso${l.length>1?'s':''} de diseño para revisar</span>${l.length>1?`<button class="btn-sm" onclick="avisoNoeVisto('*')">Marcar todo visto</button>`:''}</div>
+    ${l.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #f0d9a8">
+      <div style="min-width:0"><div style="font-weight:700;font-size:13px">${esc(a.code?a.code+' · ':'')}${esc(a.name||'(sin nombre)')}</div><div style="font-size:12px">${esc(a.texto)} · ${cuandoAviso(a.ts)}</div></div>
+      <div style="display:flex;gap:6px;flex:none"><button class="btn-sm" onclick="avisoNoeVer('${a.id}')">Ver</button><button class="btn-sm" onclick="avisoNoeVisto('${a.id}')">Visto</button></div></div>`).join('')}
+  </div>`;
+}
+function avisoNoeVisto(id){
+  const yo=usuarioLogueado||currentUser;
+  const ids=id==='*'?avisosNoePendientes().map(a=>a.id):[id];
+  ids.forEach(x=>{
+    if(x.startsWith('rn|')){const[,secId,itemId]=x.split('|');db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/revision_noelia/revisado`).set(true);}
+    else db.ref(`fabrica_v5/avisos_noe/${x}/vistoPor/${yo}`).set(Date.now());
+  });
+}
+// "Ver": va al artículo. Si ya cambió de etapa (tiene otra clave), lo busca por código o nombre.
+function avisoNoeVer(id){
+  const a=avisosNoePendientes().find(x=>x.id===id);if(!a) return;
+  let secId=a.secId,itemId=a.itemId;
+  if(!(sectionsData[secId]&&sectionsData[secId].items&&sectionsData[secId].items[itemId])){
+    secId=null;
+    Object.entries(sectionsData).some(([sId,sec])=>Object.entries((sec&&sec.items)||{}).some(([iId,it])=>{
+      if(it&&((a.code&&it.code===a.code)||(!a.code&&a.name&&it.name===a.name))){secId=sId;itemId=iId;return true;}return false;}));
+  }
+  if(!secId){showToast('No encontré el artículo — puede que lo hayan borrado');return;}
+  cerrarMisPendientesYIr(secId,itemId,false);
+}
+db.ref('fabrica_v5/avisos_noe').on('value',snap=>{avisosNoeData=snap.val()||{};renderAvisosNoe();});
 function logActivity(action,details){
   const userName=USER_DISPLAY[currentUser]||currentUser||'Alguien';
   db.ref('fabrica_v5/actividad').push({user:userName,action,details,timestamp:Date.now(),read:false});
@@ -5347,10 +5412,9 @@ function marcarProductoPerfecto(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const perfSecId=getSectionIdByTipo('producto_perfecto');
   if(!perfSecId){ showToast('No encontré la sección de Productos Perfectos'); return; }
-  const notificarNoelia=currentUser==='noelia';
-  const newItem={...item,fecha_perfecto:Date.now(),fecha_etapa:Date.now(),
-    ...(notificarNoelia?{revision_noelia:{resultado:'perfecto',ts:Date.now(),revisado:false}}:{})};
-  db.ref(`fabrica_v5/sections/${perfSecId}/items`).push(newItem);
+  const newItem={...item,fecha_perfecto:Date.now(),fecha_etapa:Date.now()};
+  const nuevoRef=db.ref(`fabrica_v5/sections/${perfSecId}/items`).push(newItem);
+  avisoNoe(item,'Revisión final: Producto perfecto',perfSecId,nuevoRef.key);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Producto perfecto',item.code);
   showToast(`✅ ${item.code} — producto perfecto`);
@@ -5362,10 +5426,9 @@ function marcarNecesitaMejora(secId,itemId){
   if(nota===null||!nota.trim()){ showToast('Cargá una nota para continuar'); return; }
   const mejoraSecId=getSectionIdByTipo('mejora');
   if(!mejoraSecId){ showToast('No encontré la sección de Mejora'); return; }
-  const notificarNoelia=currentUser==='noelia';
-  const newItem={...item,mejora_nota:nota.trim(),mejora_resuelta:false,fecha_mejora:Date.now(),fecha_etapa:Date.now(),
-    ...(notificarNoelia?{revision_noelia:{resultado:'mejora',nota:nota.trim(),ts:Date.now(),revisado:false}}:{})};
-  db.ref(`fabrica_v5/sections/${mejoraSecId}/items`).push(newItem);
+  const newItem={...item,mejora_nota:nota.trim(),mejora_resuelta:false,fecha_mejora:Date.now(),fecha_etapa:Date.now()};
+  const nuevoRef=db.ref(`fabrica_v5/sections/${mejoraSecId}/items`).push(newItem);
+  avisoNoe(item,'Revisión final: necesita mejora — "'+nota.trim()+'"',mejoraSecId,nuevoRef.key);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Necesita mejora',`${item.code}: ${nota.trim()}`);
   showToast('🔧 Pasó a Mejora — cargale una foto ahí');
@@ -5764,6 +5827,7 @@ function marcarAprobada(secId,itemId){
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
     logActivity(`Prenda aprobada — molde aprobado, a ${digDestTitle}`,item.code);
+    avisoNoe(item,'Aprobó la muestra',secId,itemId);
     showToast(`📐 ${item.code} aprobada → ${digDestTitle}`);
     return;
   }
@@ -5775,6 +5839,7 @@ function marcarAprobada(secId,itemId){
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra aprobada — a Pendiente armar tizada',item.code);
+  avisoNoe(item,'Aprobó la muestra',secId,itemId);
   showToast(`✅ ${item.code} aprobada → Pendiente armar tizada`);
 }
 
@@ -5792,6 +5857,7 @@ function marcarRevision(secId,itemId){
   db.ref(`fabrica_v5/sections/${SEC_MOLD}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Muestra a revisión',item.code);
+  avisoNoe(item,'Mandó la muestra a revisión (nueva muestra)',secId,itemId);
   showToast(`🔁 ${item.code} volvió a Moldería con modificaciones`);
 }
 
@@ -5828,6 +5894,7 @@ function marcarCorregirSinMuestra(secId,itemId){
     db.ref(`fabrica_v5/sections/${digDestId}/items`).push(newItemDig);
     db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
     logActivity(`Corregido sin nueva muestra — molde aprobado, a ${digDestTitle}`,item.code);
+    avisoNoe(item,'Corregir sin nueva muestra',secId,itemId);
     showToast(`📐 ${item.code} corregido → ${digDestTitle}`);
     return;
   }
@@ -5845,6 +5912,7 @@ function marcarCorregirSinMuestra(secId,itemId){
   db.ref(`fabrica_v5/sections/${destId}/items`).push(newItem);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
   logActivity('Corrección sin nueva muestra',item.code);
+  avisoNoe(item,'Corregir sin nueva muestra',secId,itemId);
   showToast(`🔧 ${item.code} corregido → Pendiente armar tizada`);
 }
 
@@ -11890,7 +11958,7 @@ function getMisPendientesArielStef(){
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       const rn=item.revision_noelia;
-      if(rn&&!rn.revisado) list.push({secId,itemId,item,texto:rn.resultado==='perfecto'?'Noelia marcó Producto Perfecto en revisión final':`Noelia marcó Necesita mejora: ${rn.nota||''}`,ts:rn.ts||0,esRevisionNoelia:true});
+      if(false&&rn&&!rn.revisado) list.push({secId,itemId,item,texto:rn.resultado==='perfecto'?'Noelia marcó Producto Perfecto en revisión final':`Noelia marcó Necesita mejora: ${rn.nota||''}`,ts:rn.ts||0,esRevisionNoelia:true});
     });
   });
   return list;
@@ -11914,12 +11982,40 @@ function getMisPendientesLogistica(){
   return list;
 }
 
+// Mis pendientes de Noelia (oct 2026): todo lo que la app le asigna como responsable, agrupado por tarea.
+function grupoTareaNoelia(sec,item){
+  const t=sec.tipo||'';
+  if(t==='muestra_prep'){
+    if(!stefCompletoNuevoDesarrollo(item)) return 'Nuevo desarrollo · cargar datos';
+    if(!noeliaCompletoNuevoDesarrollo(item)) return 'Nuevo desarrollo · código y Ninox';
+    if(!(item.control_ariel||item.control_stef||item.control_noelia)) return 'Controlar ficha técnica';
+    if(!item.modelista) return 'Asignar modelista';
+    return 'Nuevo desarrollo';
+  }
+  if(t==='muestra_diseno') return item.ficha_control_pendiente?'Controlar ficha técnica':'Muestra en diseño · foto y decidir';
+  if(t==='muestra_pend') return 'Muestra pendiente de cortar · color y talle';
+  if(t==='revision_final') return 'Revisión final';
+  return sec.title||'Otros';
+}
+const ORDEN_GRUPOS_NOELIA=['Nuevo desarrollo · cargar datos','Nuevo desarrollo · código y Ninox','Controlar ficha técnica','Asignar modelista','Muestra en diseño · foto y decidir','Muestra pendiente de cortar · color y talle','Revisión final','Pendiente armar tizada'];
 function getMisPendientesNoelia(){
   const list=[];
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   Object.entries((destId&&sectionsData[destId]?.items)||{}).forEach(([itemId,item])=>{
     const f=faltantesNoeliaTizada(item);
-    if(f.length) list.push({secId:destId,itemId,item,texto:'Armar tizada — falta '+f.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
+    if(f.length) list.push({secId:destId,itemId,item,grupo:'Pendiente armar tizada',texto:'Falta '+f.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
+  });
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    if(!sec||secId===destId) return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||item.done) return;
+      let resp=null;try{resp=getResponsable(sec,item,secId);}catch(e){}
+      if(resp!=='Noelia') return;
+      let acc='';try{acc=getProximaAccion(sec,item,secId)||'';}catch(e){}
+      const grp=grupoTareaNoelia(sec,item);
+      if(!acc&&grp==='Revisión final') acc='Marcar Producto perfecto o Necesita mejora';
+      list.push({secId,itemId,item,grupo:grp,texto:acc.replace(/ ?\((Noelia|Ariel\/Stef)\)/,''),ts:item.fecha_etapa||item.fecha_ingreso||0});
+    });
   });
   return list;
 }
@@ -11962,6 +12058,16 @@ function renderMisPendientesPanel(){
     ${x.esFechaRetro?`<button class="notif-read-btn" onclick="event.stopPropagation();marcarFechaPedidoRetroRevisada('${x.secId}','${x.itemId}','${x.avioId}')">✓ Revisado</button>`:''}
     ${x.esRevisionNoelia?`<button class="notif-read-btn" onclick="event.stopPropagation();marcarRevisionNoeliaVista('${x.secId}','${x.itemId}')">✓ Visto</button>`:''}
   </div>`;
+  if(list.some(x=>x.grupo)){
+    const dias=ts=>{if(!ts) return '';const d=Math.floor((Date.now()-ts)/86400000);return d<=0?'hoy':d===1?'hace 1 día':`hace ${d} días`};
+    const tarj=x=>`<div class="notif-item" style="cursor:pointer;background:var(--warn-bg);border-radius:8px;margin-bottom:6px" onclick="cerrarMisPendientesYIr('${x.secId}','${x.itemId}',false)">
+      <div style="flex:1"><div style="display:flex;justify-content:space-between;gap:6px"><span style="font-weight:700;font-size:13px;color:var(--warn-text)">${x.item.code?x.item.code+' · ':''}${x.item.name||'(sin nombre)'}</span>${x.ts>misPendientesLastSeen?'<span style="font-size:10px;font-weight:700;background:#fff;color:var(--warn-text);border-radius:6px;padding:1px 6px;flex:none">Nuevo</span>':''}</div>
+      <div style="font-size:12px;color:var(--warn-text)">${x.texto}${x.ts?' · '+dias(x.ts):''}</div></div></div>`;
+    const g={};list.forEach(x=>(g[x.grupo]=g[x.grupo]||[]).push(x));
+    const ord=k=>{const i=ORDEN_GRUPOS_NOELIA.indexOf(k);return i<0?99:i};
+    cont.innerHTML=`<div style="font-size:12px;color:var(--text2);margin:2px 0 6px">${list.length} en total</div>`+Object.keys(g).sort((a,b)=>ord(a)-ord(b)).map(k=>`<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin:10px 0 4px;text-transform:uppercase;font-weight:700"><span>${k}</span><span>${g[k].length}</span></div>`+g[k].sort((a,b)=>(a.ts||0)-(b.ts||0)).map(tarj).join('')).join('');
+    return;
+  }
   const nuevos=list.filter(x=>x.ts>misPendientesLastSeen);
   const generales=list.filter(x=>x.ts<=misPendientesLastSeen);
   let html='';

@@ -10058,7 +10058,7 @@ function saveRollos(){
         const up={};
         actuales.forEach(([k,x])=>{ if(x.deItem===itemId) up[`fabrica_v5/costeos/${ckC}/rollos/${k}`]=null; });
         Object.entries(rollosObj).forEach(([rid,x])=>{
-          up[`fabrica_v5/costeos/${ckC}/rollos/${itemId}_${rid}`]={color:x.color,kgmts:x.kgmts,capas:x.capas,nota:x.nota,
+          up[`fabrica_v5/costeos/${ckC}/rollos/${itemId}_${rid}`]={color:x.color,kgmts:x.kgmts,capas:x.capas,nota:x.nota,stockId:x.stockId||null,codigo:x.codigo||null,
             sobrante:x.sobranteReal!=null?x.sobranteReal:'',colKg:x.colKg||null,deItem:itemId};
         });
         if(Object.keys(up).length) db.ref().update(up);
@@ -17863,6 +17863,25 @@ function setCosteoCotizacion(key,campo,val){
   logActivity('Cargó cotización del dólar (Costeo)',`Corte ${e.numero_corte}: $${n}`);
 }
 function costeoToggleArt(i){ costeoArtAbiertos[i]=!costeoArtAbiertos[i]; renderCosteoDetail(); }
+// Celda "Rollo" de la tabla de rollos de Costeo: el código del stock y su kilaje inicial (el de la
+// etiqueta del proveedor, que es como Ariel reconoce cada rollo). Si lo cargado no coincide con el
+// inicial, avisa de qué otros cortes se usó antes, para poder chequear que el rollo elegido es el correcto.
+function costeoRolloOrigenHtml(x,carg,numeroCorte){
+  const td=c=>`<td style="padding:4px 6px;white-space:nowrap;vertical-align:top">${c}</td>`;
+  const st=x&&x.stockId&&typeof tsData!=='undefined'?tsData.rollos[x.stockId]:null;
+  const cod=(st&&st.codigo)||(x&&x.codigo)||'';
+  if(!cod) return td('<span style="font-size:11px;color:var(--text3)">Fuera de la app</span>');
+  if(!st) return td(`<b>${costeoEsc(cod)}</b><div style="font-size:10.5px;color:var(--warn-text)">no está en stock</div>`);
+  const un=tsUnidadTxt(st.unidad), ini=tsNum(st.inicial);
+  let extra='';
+  if(ini&&carg&&Math.abs(ini-carg)>=0.01){
+    const ck=corteKeyFrom(String(numeroCorte||''));
+    const otros=Object.values(st.usos||{}).filter(u=>u&&u.corte&&corteKeyFrom(String(u.corte))!==ck);
+    const txt=otros.length?'antes en '+otros.map(u=>`corte ${costeoEsc(u.corte)} (${tsFmt(tsNum(u.usado),2)})`).join(', '):(carg<ini?'cargado menos que el inicial':'cargado más que el inicial');
+    extra=`<div style="font-size:10.5px;color:var(--warn-text)">${txt}</div>`;
+  }
+  return td(`<b>${costeoEsc(cod)}</b><div style="font-size:10.5px;color:var(--text2)">inicial ${tsFmt(ini,2)} ${un}</div>${extra}`);
+}
 function renderCosteoDetail(){
   const key=costeoDetailKey;
   const e=costeosData[key];
@@ -17895,9 +17914,9 @@ function renderCosteoDetail(){
   const sinSob=rollos.some(([,x])=>x.sobrante==null||x.sobrante==='');
   const colTot=rollos.reduce((s,[,x])=>s+numAr2(x.colKg),0);
   const rollosHtml=costeoRollosAbierto?(rollos.length?`<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">
-      <tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)"><td style="padding:4px 6px">Color</td><td style="padding:4px 6px;text-align:right">Cargado</td><td style="padding:4px 6px;text-align:right">Capas</td><td style="padding:4px 6px">Observación</td><td style="padding:4px 6px;text-align:right">Calculado</td>${colTot?'<td style="padding:4px 6px;text-align:right">Collareta</td>':''}<td style="padding:4px 6px;text-align:right">Sobrante</td><td style="padding:4px 6px;text-align:right">A distribuir</td></tr>
+      <tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)"><td style="padding:4px 6px">Rollo</td><td style="padding:4px 6px">Color</td><td style="padding:4px 6px;text-align:right">Cargado</td><td style="padding:4px 6px;text-align:right">Capas</td><td style="padding:4px 6px">Observación</td><td style="padding:4px 6px;text-align:right">Calculado</td>${colTot?'<td style="padding:4px 6px;text-align:right">Collareta</td>':''}<td style="padding:4px 6px;text-align:right">Sobrante</td><td style="padding:4px 6px;text-align:right">A distribuir</td></tr>
       ${rollos.map(([rk,x])=>{const carg=numAr2(x.kgmts),sob=numAr2(x.sobrante),capas=numAr2(x.capas);const calc=largo&&pesoM&&capas?capas*largo*pesoM:null;
-        return `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;font-weight:600">${currentUser==='ariel'?`<span style="cursor:pointer;border-bottom:1px dashed var(--text3)" title="Tocá para corregir el color" onclick="editCosteoColorRollo('${key}','${rk}')">${costeoEsc(x.color||'—')} <span style="font-size:10px;color:var(--text3)">✏️</span></span>`:costeoEsc(x.color||'—')}</td>
+        return `<tr style="border-bottom:1px solid var(--border)">${costeoRolloOrigenHtml(x,carg,e.numero_corte)}<td style="padding:4px 6px;font-weight:600">${currentUser==='ariel'?`<span style="cursor:pointer;border-bottom:1px dashed var(--text3)" title="Tocá para corregir el color" onclick="editCosteoColorRollo('${key}','${rk}')">${costeoEsc(x.color||'—')} <span style="font-size:10px;color:var(--text3)">✏️</span></span>`:costeoEsc(x.color||'—')}</td>
         <td style="padding:4px 6px;text-align:right">${canEdit?inp(x.kgmts,`setCosteoKgRollo('${key}','${rk}',this.value)`,70):costeoKg(carg)}</td>
         <td style="padding:4px 6px;text-align:right">${currentUser==='ariel'?inp(x.capas,`setCosteoCapasRollo('${key}','${rk}',this.value)`,50,'—','step="1"'):(x.capas||'—')}</td><td style="padding:4px 6px;color:var(--text2)">${x.nota?costeoEsc(x.nota):'—'}</td>
         <td style="padding:4px 6px;text-align:right;color:var(--text3)">${calc!=null?costeoKg(calc):'—'}</td>

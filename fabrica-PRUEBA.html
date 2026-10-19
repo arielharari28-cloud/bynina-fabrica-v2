@@ -9150,7 +9150,11 @@ function buildOrdenCtx(secId,itemId){
   // Sumar también los colores que hay en el stock de esa tela (aunque nunca se hayan usado en un corte).
   { const tela=item.tela||item.tela_nombre||'',stock=ocStockColores(tela),ya=new Set(ctx.coloresSugeridos.map(c=>telaNorm(c)));
     Object.keys(stock).forEach(c=>{ if(!ya.has(telaNorm(c))){ ctx.coloresSugeridos.push(c); ya.add(telaNorm(c)); } });
-    ctx.coloresSugeridos.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); ctx.stockColores=stock; }
+    ctx.coloresSugeridos.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); ctx.stockColores=stock;
+    // Si la tela tiene rollos en stock, los colores de la orden salen SOLO del stock (así coinciden con los rollos).
+    // Sin nada en stock (rollos fuera de la app) queda como siempre.
+    ctx.soloStock=Object.keys(stock).length>0;
+    if(ctx.soloStock) ctx.coloresSugeridos=Object.keys(stock).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); }
   const grupo=gruposCorteData[corteKey];
   const capasGrupo=grupo?grupo.capas:(item.capas||null);
   const filasExistentes=Object.entries(capasGrupo||{}).map(([id,f])=>({id,color:f.color||'',capas:f.capas!==undefined?f.capas:''}));
@@ -9289,6 +9293,7 @@ function ordenCorteAddColorFromInput(){
   const sugeridos=ordenCtx.coloresSugeridos||[];
   const canon=sugeridos.find(c=>telaNorm(c)===telaNorm(val));
   if(canon){ ordenCorteAddColor(canon); inp.value=''; return; }
+  if(ordenCtx.soloStock){ showToast(`"${val}" no está en el stock de esta tela. Elegí un color del stock.`); return; }
   if(sugeridos.length && !sugeridos.some(c=>c.trim().toLowerCase()===val.toLowerCase())){
     showToast(`"${val}" no está en los colores ya usados con esta tela. Elegilo de la lista, o agregalo primero en Colores por tela.`);
     return;
@@ -9300,6 +9305,10 @@ function ordenCorteAddNuevoColor(){
   const item=sectionsData[ordenCtx.secId].items[ordenCtx.itemId];
   const tela=item.tela||item.tela_nombre||'';
   if(!tela.trim()){ showToast('Este ítem no tiene tela cargada todavía'); return; }
+  if(ordenCtx.soloStock){ const st=ordenCtx.stockColores||{};
+    telaPicker(`Color del stock · ${tela}`,Object.keys(st).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),v=>ordenCorteAddColor(v),
+      {ph:'Buscar color…',sub:c=>{const x=st[c]||{n:0,kg:0}; return `${x.n} rollo${x.n===1?'':'s'} · ${tsFmt(x.kg,2)} kg`;}});
+    return; }
   elegirColor(tela,v=>{ ordenCorteAddColor(v); if(!ordenCtx.coloresSugeridos) ordenCtx.coloresSugeridos=[]; if(!ordenCtx.coloresSugeridos.includes(v)) ordenCtx.coloresSugeridos=[...ordenCtx.coloresSugeridos,v].sort(); });
   return;
   const val='';
@@ -9474,7 +9483,7 @@ function renderOrdenCorteModal(){
     <div class="oc-fields-row">
       <div class="oc-field-block">
         <label>Colores de esta tela</label>
-        <div class="chip-box">${chipsHtml}<input type="text" id="oc-color-input" placeholder="${(ordenCtx.coloresSugeridos||[]).length?'Elegí de los colores ya usados con esta tela':'Escribí un color y Enter'}" onkeydown="if(event.key==='Enter'){event.preventDefault();ordenCorteAddColorFromInput();}"></div>
+        <div class="chip-box">${chipsHtml}<input type="text" id="oc-color-input" placeholder="${ordenCtx.soloStock?'Elegí de los colores del stock':(ordenCtx.coloresSugeridos||[]).length?'Elegí de los colores ya usados con esta tela':'Escribí un color y Enter'}" onkeydown="if(event.key==='Enter'){event.preventDefault();ordenCorteAddColorFromInput();}"></div>
         ${sugeridosHtml}
       </div>
       <div class="oc-field-block">
@@ -9486,7 +9495,7 @@ function renderOrdenCorteModal(){
     </div>
     <div style="display:flex;gap:6px">
       <button class="btn-sm" onclick="ordenCorteAddColorFromInput()" style="flex:1;padding:8px">+ Agregar color</button>
-      <button class="btn-sm" onclick="ordenCorteAddNuevoColor()" style="flex:1;padding:8px;background:var(--accent-bg);color:var(--accent)">+ Nuevo color (no está en la lista)</button>
+      <button class="btn-sm" onclick="ordenCorteAddNuevoColor()" style="flex:1;padding:8px;background:var(--accent-bg);color:var(--accent)">${ordenCtx.soloStock?'+ Elegir color del stock':'+ Nuevo color (no está en la lista)'}</button>
     </div>
     ${tableHtml}
     <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
@@ -9951,7 +9960,7 @@ function renderRollosModal(){
     const{usado,sobrante}=rollosCalc(row);
     const rStock=row.stockId?tsData.rollos[row.stockId]:null;
     const colorCell=rStock
-      ? `<span style="font-size:12px;font-weight:600" title="Sale del rollo ${tsEsc(rStock.codigo)}">${tsEsc(row.color||rStock.color)}</span>${(!liquidar&&!coloresDisponibles.includes(row.color))?'<br><span style="font-size:10.5px;color:#9a3412">no está en la orden de corte</span>':''}`
+      ? `<span style="font-size:12px;font-weight:600" title="Sale del rollo ${tsEsc(rStock.codigo)}">${tsEsc(row.color||rStock.color)}</span>${(!liquidar&&!coloresDisponibles.some(c=>telaNorm(c)===telaNorm(row.color)))?'<br><span style="font-size:10.5px;color:#9a3412">no está en la orden de corte</span>':''}`
       : liquidar
       ? `<input type="text" value="${(row.color||'').replace(/"/g,'&quot;')}" placeholder="Color del rollo" onchange="rollosUpdateField('${row.id}','color',this.value)" style="width:90px;padding:5px;font-size:12px;border:1px solid var(--border);border-radius:6px">`
       : `<select onchange="rollosUpdateField('${row.id}','color',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--border);border-radius:6px">${colorOptsFor(row.color)}</select>`;
@@ -12979,11 +12988,12 @@ function tsRollosDeLaTela(excluirRowId){
 }
 // Color de la orden de corte que corresponde al color del rollo (ej. rollo "Jet Black" → "Negro - Jet Black").
 function tsColorOrdenPara(colorRollo){
-  const c=tsNorm(colorRollo); if(!c) return '';
+  // Compara sin fijarse en espacios, barras ni mayúsculas ("Cuarzo/ Chocolate" = "Cuarzo / Chocolate").
+  const c=telaNorm(colorRollo); if(!c) return '';
   const lista=rollosCtx.coloresDisponibles||[];
-  return lista.find(o=>tsNorm(o)===c)
-    || lista.find(o=>tsNorm(o).split(/\s*-\s*/).some(p=>p===c))
-    || lista.find(o=>tsNorm(o).includes(c)||c.includes(tsNorm(o)))
+  return lista.find(o=>telaNorm(o)===c)
+    || lista.find(o=>tsNorm(o).split(/\s*-\s*/).some(p=>telaNorm(p)===c))
+    || lista.find(o=>telaNorm(o).includes(c)||c.includes(telaNorm(o)))
     || '';
 }
 // Ariel reconoce cada rollo por el kilaje con el que entró (el de la etiqueta del proveedor):

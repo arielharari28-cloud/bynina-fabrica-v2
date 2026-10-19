@@ -14052,9 +14052,40 @@ function logiAbrirNuevaEntregaCorte(){
       if(resumen.enTaller>0) candidatos.push({id,it,secId,resumen});
     });
   });
+  // Entregas de estampado y terminación: se cargan desde acá igual que cualquier taller, así Emir
+  // no depende de la tarjeta de Talleres. Cada una llama a la misma función que el botón de la tarjeta.
+  const E=s=>String(s||'').replace(/</g,'&lt;');
+  // 1) Taller de estampado (Plancha Nina)
+  Object.entries(((sectionsData||{})[SEC_ESTAMPADO_TALLER]||{}).items||{}).forEach(([id,it])=>{
+    if(!it||it.estampado_taller_entregado) return;
+    candidatos.push({id,it,secId:SEC_ESTAMPADO_TALLER,
+      accion:`marcarEntregadoEstampadoTaller('${SEC_ESTAMPADO_TALLER}','${id}')`,sub:'🎨 Entrega de estampado · Plancha Nina'});
+  });
+  // 2) Taller de terminación sin recorrido (forma anterior, pasos extra)
+  Object.entries(((sectionsData||{})[SEC_TALLER_TERMINACION]||{}).items||{}).forEach(([id,it])=>{
+    if(!it||it.es_complemento||etapasDe(it,'despues').length) return;
+    const pasos=Object.values(it.pasos_extra||{});
+    const tl=[...new Set(pasos.map(p=>(p.taller||'').trim()).filter(Boolean))].join(' + ');
+    candidatos.push({id,it,secId:SEC_TALLER_TERMINACION,
+      accion:`marcarEntregadoTerminacion('${SEC_TALLER_TERMINACION}','${id}')`,sub:`🧺 Entrega de terminación${tl?' · '+E(tl):''}${pasos.length?' ('+E(pasos.map(p=>p.nombre).join(', '))+')':''}`});
+  });
+  // 3) Etapas del recorrido: las de después de confección cuando el corte está en terminación,
+  //    y las de antes de confección que ya salieron al taller.
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([id,it])=>{
+    if(!it||it.es_complemento) return;
+    etapasPendientes(it).forEach(([eid,e])=>{
+      const hab=e.momento==='antes'?(etapasAntesHabilitadas(secId,it)&&e.estado==='en_taller'):etapasDespuesHabilitadas(secId);
+      if(!hab) return;
+      candidatos.push({id,it,secId,accion:`etapaEntrega('${secId}','${id}','${eid}')`,
+        sub:`${E(etapaLabel(e))} · ${E(e.taller||'—')} · ${e.momento==='antes'?'antes':'después'} de confección${e.estado==='en_taller'&&e.cantidad_salida?' · salieron '+E(e.cantidad_salida):''}`});
+    });
+  }));
   if(!candidatos.length){ showToast('No hay cortes con saldo pendiente en taller'); return; }
   candidatos.sort((a,b)=>(a.it.numero_corte||'').localeCompare(b.it.numero_corte||'',undefined,{numeric:true}));
-  const listHtml=candidatos.map(x=>`<div class="logi-note-btn" style="display:block;text-align:left;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="logiCrearEntregaDesdeCorte('${x.secId}','${x.id}')">
+  const listHtml=candidatos.map(x=>x.accion?`<div class="logi-note-btn" style="display:block;text-align:left;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="logiCerrarNuevaEntregaModal();${x.accion}">
+    <div style="font-weight:700;font-size:13px">Corte ${(x.it.numero_corte||'?').toString().replace(/</g,'&lt;')} — ${(x.it.code||'').replace(/</g,'&lt;')}</div>
+    <div style="font-size:11px;color:var(--text3)">${(x.it.name||'').replace(/</g,'&lt;')} · ${x.sub}</div>
+  </div>`:`<div class="logi-note-btn" style="display:block;text-align:left;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="logiCrearEntregaDesdeCorte('${x.secId}','${x.id}')">
     <div style="font-weight:700;font-size:13px">Corte ${(x.it.numero_corte||'?').toString().replace(/</g,'&lt;')} — ${(x.it.code||'').replace(/</g,'&lt;')}</div>
     <div style="font-size:11px;color:var(--text3)">${(x.it.name||'').replace(/</g,'&lt;')} · Taller: ${(x.it.taller_corte||'—').replace(/</g,'&lt;')} · Pendiente: ${x.resumen.enTaller} de ${x.resumen.totalEsperado}${SEC_TAG[x.secId]||''}</div>
   </div>`).join('');

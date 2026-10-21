@@ -6326,6 +6326,25 @@ function utSaldoDetalleHtml(f){
   </div>`;
 }
 function utEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Marcas de los complementos (cuello, puño…) dentro de la fila del corte base: no tienen fila propia.
+function utComplementosHtml(it){
+  if(!it||it.es_complemento||!it.complementos) return '';
+  const pills=Object.values(it.complementos).filter(c=>c&&c.numero).map(c=>{
+    const f=cmpFind(c.numero);
+    if(f&&f.secId===SEC_CMP_ENTREGADO) return '';
+    const que=(f&&f.item.complemento_de&&f.item.complemento_de.que)||c.que||'Complemento';
+    const comb=f&&f.item.combinacion?(f.item.combinacion.modo==='comb'?'combinado':'a tono'):'falta a tono / combinado';
+    let est,bg,fg,acc='';
+    if(!f||f.secId==='s3'||!cmpCortado(f)){ est='sin cortar'; bg='#fee2e2'; fg='#991b1b'; }
+    else if(f.secId==='sFIN'&&!f.item.retirado_taller){ est='pendiente retiro'; bg='#ffedd5'; fg='#9a3412';
+      if(utPuedeEditarTaller()) acc=` onclick="event.stopPropagation();if(confirm('¿${utEsc(it.taller_corte||'El taller').replace(/'/g,'')} ya retiró el ${utEsc(que).replace(/'/g,'')} ${utEsc(c.numero)}?'))confirmarRetiroTaller('${f.secId}','${f.itemId}')" style="cursor:pointer"`; }
+    else if(f.secId==='sFIN'||f.secId==='s6'||TALLERES_TAB_SECS.includes(f.secId)){ est='retirado'; bg='#eaf3de'; fg='#27500a'; }
+    else { est='en fábrica'; bg='#fef3c7'; fg='#92400e'; }
+    const tip=`${que} ${c.numero} · ${est} · ${comb}${est==='pendiente retiro'&&acc?' · tocá para confirmar el retiro':''}`;
+    return `<span class="ut-flag" title="${utEsc(tip)}"${acc} style="margin-left:0;background:${bg};color:${fg};border-color:${fg};${acc?'cursor:pointer':''}">🧩 ${utEsc(c.numero)}${est==='retirado'?' ✓':est==='pendiente retiro'?' · retiro':est==='sin cortar'?' · sin cortar':''}</span>`;
+  }).filter(Boolean);
+  return pills.length?`<div style="display:flex;flex-direction:column;gap:2px;margin-top:2px">${pills.join('')}</div>`:'';
+}
 function utEstadoDe(secId,item){
   if(etapasAntesHabilitadas(secId,item)&&etapaEnTallerAntes(item)) return 'previo';
   if(['s4','s5','sLT'].includes(secId)) return 'por_sacar';
@@ -6362,6 +6381,7 @@ function renderResumenPipelineTalleres(){
     const sec=sectionsData[secId];
     if(!sec) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||item.es_complemento) return;   // el complemento se ve como marca dentro de la fila de su corte base
       const {totalEsperado}=resumenEntregasFabrica(item,itemId);
       const estado=utEstadoDe(secId,item);
       const ts=(secId==='sFIN'&&item.retirado_taller&&item.fecha_retiro_confirmado)?item.fecha_retiro_confirmado:item.fecha_etapa;
@@ -6491,7 +6511,7 @@ function renderResumenPipelineTalleres(){
     }
     return head+`<div class="ut-row${abierto?' ut-open':''}" onclick="toggleUtFila('${f.secId}','${f.itemId}')">
       <div class="c-foto">${it.foto?`<img class="ut-foto" src="${utEsc(it.foto)}" loading="lazy" alt="">`:'<div class="ut-foto"></div>'}</div>
-      <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}${it.nota?'<div><span class="ut-flag" style="margin-left:0" title="Tiene aclaración de diseño">📝 Aclaración</span></div>':''}</div>
+      <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}${it.nota?'<div><span class="ut-flag" style="margin-left:0" title="Tiene aclaración de diseño">📝 Aclaración</span></div>':''}${utComplementosHtml(it)}</div>
       <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
       <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
       <div class="c-precio">${precioHtml}</div>

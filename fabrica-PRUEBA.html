@@ -5253,7 +5253,7 @@ function buildTallerCardHtml(f,idx,total){
     // En taller: la entrega respeta el recorrido (terminación / estampado / revisión) y pasa por Logística.
     if(it.retirado_taller&&(canEdit||currentUser==='emir')) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${destinoEntregaLabel(it)}</button>`);
   } else if(canEdit&&!PASOS_SIN_SIGUIENTE.includes(secId)) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`);
-  const mv=buildMoveOpts(secId); if(mv) acts.push(`<span onclick="event.stopPropagation()">${mv}</span>`);
+  const mv=buildMoveOptsForItem(secId,itemId); if(mv) acts.push(`<span onclick="event.stopPropagation()">${mv}</span>`);
   return `<div class="tc">
     ${aclaracion}
     ${avioBanner}
@@ -7691,10 +7691,35 @@ function buildMoveOpts(secId){
 // Necesito itemId en el select, lo pongo como data
 function buildMoveOptsForItem(secId,itemId){
   if(currentUser!=='ariel') return '';
-  const targets=Object.entries(sectionsData).filter(([id])=>id!==secId).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
-  if(!targets.length) return '';
-  const opts=targets.map(([id,s])=>`<option value="${id}">${s.title}</option>`).join('');
-  return `<select class="move-select" onchange="moveItem('${secId}','${itemId}',this.value);this.value=''"><option value="">Mover a...</option>${opts}</select>`;
+  const sec=sectionsData[secId]||{}, item=(sec.items||{})[itemId]||{};
+  const esCorte=!!item.numero_corte&&getBoard(sec)!=='diseno'&&!String(sec.tipo||'').startsWith('muestra');
+  const E=x=>String(x||'').replace(/</g,'&lt;');
+  if(!esCorte){
+    const targets=Object.entries(sectionsData).filter(([id,s])=>id!==secId&&id!==SEC_CMP_ENTREGADO).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+    if(!targets.length) return '';
+    const opts=targets.map(([id,s])=>`<option value="${id}">${E(s.title)}</option>`).join('');
+    return `<select class="move-select" onchange="moveItem('${secId}','${itemId}',this.value);this.value=''"><option value="">Mover a...</option>${opts}</select>`;
+  }
+  // Cortes: los estados con los nombres de Talleres, agrupados; "Pendiente retiro" y "En taller · confección"
+  // son el mismo lugar (Cortes en talleres) con retirado sí/no. Lo demás queda al final, aparte.
+  const T=t=>getSectionIdByTipo(t), tiz=getSectionIdByTitleExact('Pendiente armar tizada');
+  const grupos=[
+    ['Fábrica',[[tiz,'Pendiente armar tizada'],['s3','Cortes próximos a sacar'],['s3b','Cortado · en fábrica']]],
+    ['Por sacar a taller',[['s4','Avío sin pedir'],['s5','Avío pedido, sin llegar'],['sLT','Listo para taller']]],
+    ['Talleres',[['sFIN|retiro','Pendiente retiro'],['sFIN|taller','En taller · confección'],['s6','En taller · falta avío'],[SEC_ESTAMPADO_TALLER,'Estampado · Plancha Nina'],[SEC_TALLER_TERMINACION,'En terminación']]],
+    ['Volvió del taller',[[T('revision_final'),'Revisión final'],[T('mejora'),'Mejora'],[T('producto_perfecto'),'Producto perfecto']]],
+  ];
+  const actual=secId==='sFIN'?(item.retirado_taller?'sFIN|taller':'sFIN|retiro'):secId;
+  const usados=new Set(['sFIN']);
+  let html='';
+  grupos.forEach(([g,ops])=>{
+    const o=ops.filter(([v])=>v&&(v.startsWith('sFIN|')||sectionsData[v]));
+    o.forEach(([v])=>usados.add(v));
+    if(o.length) html+=`<optgroup label="${g}">`+o.map(([v,l])=>v===actual?`<option disabled>${E(l)} (acá está)</option>`:`<option value="${v}">${E(l)}</option>`).join('')+'</optgroup>';
+  });
+  const resto=Object.entries(sectionsData).filter(([id])=>!usados.has(id)&&id!==secId&&id!==SEC_CMP_ENTREGADO).sort((a,b)=>(a[1].order||0)-(b[1].order||0));
+  if(resto.length) html+=`<optgroup label="Diseño / muestras y otras">`+resto.map(([id,s])=>`<option value="${id}">${E(s.title)}</option>`).join('')+'</optgroup>';
+  return `<select class="move-select" onchange="moveItem('${secId}','${itemId}',this.value);this.value=''"><option value="">Mover a...</option>${html}</select>`;
 }
 
 // Rerender buildItem con move correcto
@@ -11202,6 +11227,18 @@ document.getElementById('save-modal-base-add').onclick=confirmBaseAdd;
 function moveItem(secId,itemId,targetSecId){
   if(!targetSecId||!itemId)return;
   const item=sectionsData[secId].items[itemId];
+  // "Pendiente retiro" / "En taller · confección": mismo lugar (Cortes en talleres), cambia si el taller ya lo retiró.
+  // El avío no se toca: si falta, sigue figurando como marca aparte.
+  if(targetSecId==='sFIN|retiro'||targetSecId==='sFIN|taller'){
+    const retirado=targetSecId==='sFIN|taller';
+    const campos=retirado?{retirado_taller:true,fecha_retiro_confirmado:item.fecha_retiro_confirmado||Date.now()}:{retirado_taller:false,fecha_retiro_confirmado:null};
+    const lbl=retirado?'En taller · confección':'Pendiente retiro';
+    if(secId==='sFIN') db.ref(`fabrica_v5/sections/sFIN/items/${itemId}`).update({...campos,fecha_etapa:Date.now()});
+    else { const n={...item,...campos,fecha_etapa:Date.now()}; if(!retirado) delete n.fecha_retiro_confirmado; moveItemUndoable(secId,itemId,'sFIN',n); }
+    logActivity('Movió ítem',`${item.code} → ${lbl}`);
+    showToast(`Ítem movido a ${lbl}`);
+    return;
+  }
   // No puede entrar a "Cortes próximos a sacar" sin ficha, curva, ancho y control de piezas cargados:
   // esa info tiene que estar lista antes de que se considere un corte próximo a sacar.
   if(targetSecId==='s3'){

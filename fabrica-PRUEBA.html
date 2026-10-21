@@ -11295,8 +11295,9 @@ function cmpQuitarDelBase(secId,itemId,L){
   if(!(currentUser==='ariel'||currentUser==='peque')) return;
   const item=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!item) return;
   const c=(item.complementos||{})[L]; if(!c) return;
-  const f=cmpFind(c.numero);
-  if(!confirm(f?`¿Quitar el complemento ${c.numero} (${c.que}) del corte ${item.numero_corte}?\nEl corte ${c.numero} también se elimina.`:`¿Quitar el complemento ${c.numero} (${c.que}) del corte ${item.numero_corte}?`)) return;
+  const otros=cmpArticulosDeCorte(item.numero_corte).filter(a=>a.itemId!==itemId&&Object.values(a.item.complementos||{}).some(x=>x&&x.numero===c.numero));
+  const f=otros.length?null:cmpFind(c.numero);
+  if(!confirm(f?`¿Quitar el complemento ${c.numero} (${c.que}) del corte ${item.numero_corte}?\nEl corte ${c.numero} también se elimina.`:`¿Quitar el complemento ${c.numero} (${c.que}) de ${item.code||'este artículo'}?${otros.length?'\nLo siguen usando los otros artículos del corte.':''}`)) return;
   const up={};
   up[`fabrica_v5/sections/${secId}/items/${itemId}/complementos/${L}`]=null;
   up[`fabrica_v5/sections/${secId}/items/${itemId}/sin_complemento/${L}`]=null;
@@ -11310,11 +11311,11 @@ function deleteItem(secId,itemId){
   const item=sectionsData[secId]?.items?.[itemId];
   // Si es un complemento, se saca también el enlace del corte base (si no, queda "No encontrado").
   if(item&&item.es_complemento&&item.complemento_de){
-    const p=cmpFind(item.complemento_de.numero);
-    if(p){
-      const L=Object.entries(p.item.complementos||{}).find(([,c])=>c&&corteKeyFrom(String(c.numero))===corteKeyFrom(String(item.numero_corte||'')));
-      if(L) db.ref().update({[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/complementos/${L[0]}`]:null,[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/sin_complemento/${L[0]}`]:null});
-    }
+    const up={};
+    cmpArticulosDeCorte(item.complemento_de.numero).forEach(p=>Object.entries(p.item.complementos||{}).forEach(([L,c])=>{
+      if(c&&corteKeyFrom(String(c.numero))===corteKeyFrom(String(item.numero_corte||''))){ up[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/complementos/${L}`]=null; up[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/sin_complemento/${L}`]=null; }
+    }));
+    if(Object.keys(up).length) db.ref().update(up);
   }
   deleteItemUndoable(secId,itemId);
   logActivity('Eliminó ítem',item?.code||item?.name||'');
@@ -13282,9 +13283,52 @@ function cmpPorBase(numero){
 }
 // Limpieza (una sola vez, la corre Ariel): entregas de Logística abiertas para un complemento → se borran
 // si no se facturaron ni se contó nada; y esos complementos pasan a finalizados con su base.
+// Duplicados: cada artículo de un corte había creado su propio complemento (193B, 193C…) cuando es uno solo.
+// Por corte y por tipo (cuello con cuello) se queda el más avanzado; los demás, si no se cortaron ni tienen
+// rollos, se borran y el artículo pasa a usar el que queda. Enlaces a complementos ya borrados también se arreglan.
+function cmpLimpiezaDuplicados(){
+  if(currentUser!=='ariel'||!sectionsData) return;
+  db.ref('fabrica_v5/migraciones/complementos_dedupe').once('value').then(snap=>{
+    if(snap.val()) return;
+    const N=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+    const porCorte={};
+    Object.entries(sectionsData).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,it])=>{
+      if(!it||it.es_complemento||!it.complementos||!it.numero_corte) return;
+      const k=corteKeyFrom(String(it.numero_corte)); (porCorte[k]||(porCorte[k]=[])).push({secId,itemId,item:it,sec});
+    }));
+    const up={}, hechos=[], revisar=[];
+    Object.values(porCorte).forEach(arts=>{
+      const grupos={};
+      arts.forEach(a=>Object.entries(a.item.complementos||{}).forEach(([L,c])=>{ if(c&&c.numero) (grupos[N(c.que)]||(grupos[N(c.que)]=[])).push({a,L,c,f:cmpFind(c.numero)}); }));
+      Object.values(grupos).forEach(g=>{
+        const nums=[...new Set(g.map(x=>x.c.numero))]; if(nums.length<2&&g.every(x=>x.f)) return;
+        const vivos=g.filter(x=>x.f); if(!vivos.length) return;
+        const rank=x=>(x.f.secId===SEC_CMP_ENTREGADO?3:cmpEntregado(x.f)?2:cmpCortado(x.f)?1:0);
+        vivos.sort((x,y)=>rank(y)-rank(x)||String(x.c.numero).localeCompare(String(y.c.numero),'es',{numeric:true}));
+        const canon=vivos[0];
+        const borrar=new Set();
+        g.forEach(x=>{
+          if(x.c.numero===canon.c.numero) return;
+          if(x.f){ const tieneRollos=Object.values(x.f.item.rollos||{}).some(r=>r&&(r.capas||r.kgmts))||Object.values(((gruposCorteData||{})[corteKeyFrom(String(x.c.numero))]||{}).rollos||{}).some(r=>r&&(r.capas||r.kgmts));
+            if(cmpCortado(x.f)||tieneRollos){ revisar.push(x.c.numero); return; }
+            borrar.add(x.f.secId+'/'+x.f.itemId); }
+          const b=`fabrica_v5/sections/${x.a.secId}/items/${x.a.itemId}`, Lc=String(canon.c.numero).slice(String(x.a.item.numero_corte).trim().length)||canon.L;
+          up[`${b}/complementos/${x.L}`]=null; up[`${b}/sin_complemento/${x.L}`]=null;
+          if(!Object.values(x.a.item.complementos||{}).some(c=>c&&c.numero===canon.c.numero)) Object.assign(up,cmpLinkUpd(x.a,Lc,canon.c));
+          hechos.push(`${x.c.numero} → ${canon.c.numero}`);
+        });
+        borrar.forEach(k=>{ up[`fabrica_v5/sections/${k.replace('/','/items/')}`]=null; });
+      });
+    });
+    if(Object.keys(up).length) db.ref().update(up);
+    db.ref('fabrica_v5/migraciones/complementos_dedupe').set({ts:Date.now(),hechos,revisar});
+    if(hechos.length) logActivity('Unificó complementos duplicados',[...new Set(hechos)].join(', '));
+    if(revisar.length) showToast(`⚠️ Complementos repetidos que ya se cortaron, revisalos a mano: ${[...new Set(revisar)].join(', ')}`);
+  });
+}
 function cmpIntentarLimpieza(){
   if(window.__cmpLimpiezaHecha||currentUser!=='ariel'||!sectionsData||!Object.keys(sectionsData).length||!logiItemsData||!Object.keys(logiItemsData).length) return;
-  window.__cmpLimpiezaHecha=true; setTimeout(cmpLimpiezaEntregasPropias,3000);
+  window.__cmpLimpiezaHecha=true; setTimeout(cmpLimpiezaEntregasPropias,3000); setTimeout(cmpLimpiezaDuplicados,6000);
 }
 function cmpLimpiezaEntregasPropias(){
   if(currentUser!=='ariel'||!logiItemsData||!sectionsData) return;
@@ -13331,6 +13375,12 @@ function cmpEstado(f){ return f?cortesTabEstado(f.secId,f.sec,f.item):null; }
 function cmpCortado(f){ const e=cmpEstado(f); return !!(e&&['fabrica','taller','finalizado'].includes(e.key)); }
 function cmpEntregado(f){ const e=cmpEstado(f); return !!(e&&(e.key==='taller'||e.key==='finalizado')); }
 function cmpSecTizada(){ return getSectionIdByTitleExact('Pendiente armar tizada'); }
+// Artículos (no complementos) de un N° de corte: el complemento es del corte, no de cada artículo.
+function cmpArticulosDeCorte(numero){ const k=corteKeyFrom(String(numero||'')); const l=[]; if(!k) return l;
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,it])=>{ if(it&&!it.es_complemento&&corteKeyFrom(String(it.numero_corte||''))===k) l.push({secId,itemId,item:it,sec}); })); return l; }
+function cmpLinkUpd(art,L,c){ const up={}; const b=`fabrica_v5/sections/${art.secId}/items/${art.itemId}`;
+  up[`${b}/complementos/${L}`]={numero:c.numero,que:c.que,creadoPor:currentUser,creadoEn:Date.now(),vinculado:true};
+  if(cmpEntregado(art)&&!cmpEntregado(cmpFind(c.numero))) up[`${b}/sin_complemento/${L}`]=true; return up; }
 function cmpPuedeCrear(secId,sec,item){
   if(!item||!item.numero_corte||item.es_complemento) return false;
   if(sec&&String(sec.tipo||'').startsWith('muestra')) return false;
@@ -13341,6 +13391,23 @@ function cmpPuedeCrear(secId,sec,item){
 function cmpCrear(secId,itemId){
   const sec=sectionsData[secId], item=(sec&&sec.items||{})[itemId];
   if(!cmpPuedeCrear(secId,sec,item)) return;
+  // Si otro artículo del mismo corte ya tiene complemento, casi siempre es el mismo (una sola tizada de cuellos).
+  if(!cmpCrear._nuevo){
+    const base0=String(item.numero_corte).trim(), mios=new Set(Object.values(item.complementos||{}).map(c=>c&&c.numero));
+    const ex={}; cmpArticulosDeCorte(base0).forEach(a=>Object.entries(a.item.complementos||{}).forEach(([L,c])=>{ if(c&&c.numero&&!mios.has(c.numero)&&cmpFind(c.numero)) ex[c.numero]={L,c}; }));
+    const lista=Object.values(ex);
+    if(lista.length){
+      const op={}; lista.forEach(x=>op[`${x.c.que} ${x.c.numero} — es el mismo`]=x); const OTRO='Es otro complemento distinto…';
+      telaPicker(`El corte ${base0} ya tiene complemento`,[...Object.keys(op),OTRO],v=>{
+        if(v===OTRO){ cmpCrear._nuevo=true; try{ cmpCrear(secId,itemId); } finally{ cmpCrear._nuevo=false; } return; }
+        const x=op[v]; if(!x) return;
+        db.ref().update(cmpLinkUpd({secId,itemId,item,sec},x.L,x.c));
+        logActivity('Vinculó complemento',`${item.code||''} · corte ${base0} → ${x.c.numero}`);
+        showToast(`🧩 ${item.code||'Artículo'} usa el ${x.c.que} ${x.c.numero} del corte`);
+      });
+      return;
+    }
+  }
   const que=prompt('¿Qué complemento lleva? (ej: Cuello, Lazo)');
   if(!que||!que.trim()) return;
   const base=String(item.numero_corte).trim();

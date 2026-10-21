@@ -9148,7 +9148,9 @@ function buildOrdenCtx(secId,itemId){
   const ctx={secId,itemId,talles,curvaValores,corteKey};
   ctx.coloresSugeridos=coloresParaTela(item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor);
   // Sumar también los colores que hay en el stock de esa tela (aunque nunca se hayan usado en un corte).
-  { const tela=item.tela||item.tela_nombre||'',stock=ocStockColores(tela),ya=new Set(ctx.coloresSugeridos.map(c=>telaNorm(c)));
+  { const stock={}; telasDeItem(item).forEach(t=>Object.entries(ocStockColores(t)).forEach(([c,x])=>{ const y=stock[c]||(stock[c]={n:0,kg:0}); y.n+=x.n; y.kg+=x.kg; }));
+    telasDeItem(item).slice(1).forEach(t=>coloresParaTela(t,'').forEach(c=>{ if(!ctx.coloresSugeridos.includes(c)) ctx.coloresSugeridos.push(c); }));
+    const ya=new Set(ctx.coloresSugeridos.map(c=>telaNorm(c)));
     Object.keys(stock).forEach(c=>{ if(!ya.has(telaNorm(c))){ ctx.coloresSugeridos.push(c); ya.add(telaNorm(c)); } });
     ctx.coloresSugeridos.sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})); ctx.stockColores=stock;
     // Si la tela tiene rollos en stock, los colores de la orden salen SOLO del stock (así coinciden con los rollos).
@@ -9303,8 +9305,10 @@ function ordenCorteAddColorFromInput(){
 }
 function ordenCorteAddNuevoColor(){
   const item=sectionsData[ordenCtx.secId].items[ordenCtx.itemId];
-  const tela=item.tela||item.tela_nombre||'';
-  if(!tela.trim()){ showToast('Este ítem no tiene tela cargada todavía'); return; }
+  const telas=telasDeItem(item);
+  if(!telas.length){ showToast('Este ítem no tiene tela cargada todavía'); return; }
+  if(telas.length>1&&!ordenCtx.soloStock&&!ordenCtx._telaElegida){ telaPicker('¿De qué tela es el color?',telas,t=>{ ordenCtx._telaElegida=t; ordenCorteAddNuevoColor(); ordenCtx._telaElegida=null; }); return; }
+  const tela=ordenCtx._telaElegida||telas.join(' / ');
   if(ordenCtx.soloStock){ const st=ordenCtx.stockColores||{};
     telaPicker(`Color del stock · ${tela}`,Object.keys(st).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'})),v=>ordenCorteAddColor(v),
       {ph:'Buscar color…',sub:c=>{const x=st[c]||{n:0,kg:0}; return `${x.n} rollo${x.n===1?'':'s'} · ${tsFmt(x.kg,2)} kg`;}});
@@ -9966,7 +9970,7 @@ function renderRollosModal(){
       : `<select onchange="rollosUpdateField('${row.id}','color',this.value)" style="font-size:12px;padding:5px;border:1px solid var(--border);border-radius:6px">${colorOptsFor(row.color)}</select>`;
     return `<tr>
       <td><select class="rol-stock ${row.stockId?'en':''}" onchange="rollosElegirStock('${row.id}',this.value)" aria-label="Rollo del stock" title="${rStock?tsEsc(rStock.codigo+' · '+rStock.color):'Fuera de la app'}">${tsOpcionesRollo(row)}</select>
-        ${rStock?`<div class="rol-orig"><b>${tsFmt(tsNum(rStock.inicial),2)} ${tsUnidadTxt(rStock.unidad)}</b> · ${tsEsc(rStock.codigo)} · ${tsEsc(rStock.color)}${rStock.numeroRemito?`<br>remito ${tsEsc(rStock.numeroRemito)}`:''}</div>`:''}</td>
+        ${rStock?`<div class="rol-orig">${tsTelasDelCorte().length>1?`<b>${tsEsc(rStock.tela)}</b> · `:''}<b>${tsFmt(tsNum(rStock.inicial),2)} ${tsUnidadTxt(rStock.unidad)}</b> · ${tsEsc(rStock.codigo)} · ${tsEsc(rStock.color)}${rStock.numeroRemito?`<br>remito ${tsEsc(rStock.numeroRemito)}`:''}</div>`:''}</td>
       <td>${colorCell}</td>
       <td><input type="number" min="0" step="0.01" value="${row.kgmts}" placeholder="0" oninput="rollosUpdateField('${row.id}','kgmts',this.value)" style="width:64px;padding:5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:6px"></td>
       <td><input type="number" min="0" value="${row.capas}" placeholder="0" oninput="rollosUpdateField('${row.id}','capas',this.value)" class="oc-capas-input" style="width:56px"></td>
@@ -12975,16 +12979,17 @@ function tsEstadoDe(r,restante){
 }
 // Solo rollos de la TELA de este corte (comparación sin mayúsculas ni acentos).
 function tsNorm(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
-function tsTelaDelCorte(){
-  const it=(sectionsData[rollosCtx.secId]||{}).items?.[rollosCtx.itemId]||{};
-  return it.tela||it.tela_nombre||'';
-}
+// Telas de un artículo: la principal + las extra (un complemento puede salir de 2 telas en la misma tiza).
+function telasDeItem(it){ if(!it) return []; const l=[it.tela||it.tela_nombre||'',...Object.values(it.telas_extra||{}).map(t=>t&&t.tela)].map(t=>String(t||'').trim()).filter(Boolean);
+  const vis=new Set(); return l.filter(t=>{const k=tsNorm(t); if(vis.has(k)) return false; vis.add(k); return true;}); }
+function tsTelasDelCorte(){ return telasDeItem((sectionsData[rollosCtx.secId]||{}).items?.[rollosCtx.itemId]); }
+function tsTelaDelCorte(){ return tsTelasDelCorte().join(' / '); }
 function tsRollosDeLaTela(excluirRowId){
-  const tela=tsNorm(tsTelaDelCorte());
+  const telas=new Set(tsTelasDelCorte().map(tsNorm));
   const enUso=new Set(rollosCtx.rows.filter(x=>x.id!==excluirRowId&&x.stockId).map(x=>x.stockId));
-  return Object.entries(tsData.rollos).filter(([id,r])=>r&&tela&&tsNorm(r.tela)===tela&&
+  return Object.entries(tsData.rollos).filter(([id,r])=>r&&telas.has(tsNorm(r.tela))&&
     (r.estado==='entero'||r.estado==='sobrante'||r.estado==='revision')&&tsRestanteDe(r)>0&&!enUso.has(id))
-    .sort((a,b)=>String(a[1].color).localeCompare(String(b[1].color),'es')||String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
+    .sort((a,b)=>String(a[1].tela).localeCompare(String(b[1].tela),'es')||String(a[1].color).localeCompare(String(b[1].color),'es')||String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
 }
 // Color de la orden de corte que corresponde al color del rollo (ej. rollo "Jet Black" → "Negro - Jet Black").
 function tsColorOrdenPara(colorRollo){
@@ -13006,7 +13011,8 @@ function tsEtiquetaRollo(r,conColor){
 function tsOpcionesRollo(row){
   const propias=tsRollosDeLaTela(row.id);
   const actual=row.stockId&&tsData.rollos[row.stockId]&&!propias.some(([id])=>id===row.stockId)?[[row.stockId,tsData.rollos[row.stockId]]]:[];
-  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${tsEsc(tsEtiquetaRollo(r))}</option>`;
+  const varias=tsTelasDelCorte().length>1;
+  const opt=([id,r])=>`<option value="${id}" ${row.stockId===id?'selected':''}>${varias?tsEsc(r.tela)+' · ':''}${tsEsc(tsEtiquetaRollo(r))}</option>`;
   const lista=[...actual,...propias];
   return `<option value="" ${!row.stockId?'selected':''}>Fuera de la app</option>`
     +(lista.length?lista.map(opt).join(''):`<option disabled>Sin rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock</option>`);
@@ -13018,10 +13024,11 @@ function rollosPickerHtml(){
   if(!rollosCtx.pickOpen) return '';
   const lista=tsRollosDeLaTela(null);
   const sel=rollosCtx.pickSel||new Set();
-  const porColor={}; lista.forEach(([id,r])=>{ (porColor[r.color]||(porColor[r.color]=[])).push([id,r]); });
+  const varias=tsTelasDelCorte().length>1;
+  const porColor={}; lista.forEach(([id,r])=>{ const g=varias?`${r.tela} · ${r.color}`:r.color; (porColor[g]||(porColor[g]=[])).push([id,r]); });
   return `<div style="border:1px solid var(--accent);border-radius:10px;padding:10px;margin-top:8px;background:var(--accent-bg)">
     <div style="font-weight:700;font-size:13px;margin-bottom:6px">Rollos de ${tsEsc(tsTelaDelCorte()||'esta tela')} en stock — tildá los que se van a usar</div>
-    ${lista.length?Object.entries(porColor).map(([color,arr])=>`<div style="margin:6px 0 2px;font-size:12px;font-weight:700">${tsEsc(color)}${tsColorOrdenPara(color)?'':' <span style="color:#9a3412;font-weight:600">(no está en la orden de corte)</span>'}</div>
+    ${lista.length?Object.entries(porColor).map(([color,arr])=>`<div style="margin:6px 0 2px;font-size:12px;font-weight:700">${tsEsc(color)}${tsColorOrdenPara(arr[0][1].color)?'':' <span style="color:#9a3412;font-weight:600">(no está en la orden de corte)</span>'}</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(([id,r])=>`<label style="display:flex;align-items:center;gap:5px;background:#fff;border:1px solid ${sel.has(id)?'var(--accent)':'var(--border)'};border-radius:8px;padding:5px 8px;font-size:12px;cursor:pointer">
         <input type="checkbox" ${sel.has(id)?'checked':''} onchange="rollosPickToggle('${id}')"> <b>${tsFmt(tsNum(r.inicial),2)} ${tsUnidadTxt(r.unidad)}</b>${tsRolloConUso(r)?` · quedan ${tsFmt(tsRestanteDe(r),2)}`:''} · ${tsEsc(r.codigo)}</label>`).join('')}</div>`).join('')
       :`<div style="font-size:12px;color:var(--text2)">No hay rollos de esta tela cargados en el stock.</div>`}
@@ -13321,9 +13328,21 @@ function colBaseComplemento(item){ const p=item.complemento_de&&cmpFind(item.com
   const ck=corteKeyFrom(p.item.numero_corte),grupo=ck?(gruposCorteData[ck]||{}):{}; const filas=calcularGrillaEsperada({...p.item,rollos:grupo.rollos||p.item.rollos});
   const m={}; filas.forEach(f=>{ m[f.color]=(m[f.color]||0)+(f.esperado||0); }); const l=Object.keys(m).map(c=>({c,n:m[c]})); return l.length?l:colBaseColores(p.item).map(c=>({c,n:null})); }
 function colRef(secId,itemId){ return db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`); }
-function colCombHtml(secId,itemId,campo,datos,bases,telaColores,lblDest){
+function colCombHtml(secId,itemId,campo,datos,bases,telaColores,lblDest,telas){
   const d=datos||{},modo=d.modo||'tono',ed=colPuedeConfig();
+  telas=telas||[]; const varias=telas.length>1;
   const chip=(v,t)=>`<button class="btn-sm" ${ed?`onclick="colSetModo('${secId}','${itemId}','${campo}','${v}')"`:'disabled'} style="${modo===v?'background:var(--accent-bg);color:var(--accent);border-color:var(--accent);font-weight:700':''}">${t}</button>`;
+  const telaDe=k=>{ const t=d.mapa&&d.mapa[k]&&d.mapa[k].tela; return t&&telas.some(x=>tsNorm(x)===tsNorm(t))?t:''; };
+  const selTela=(base,k)=>{ const t=telaDe(k);
+    return ed?`<select style="font-size:12px;padding:4px 6px;border:1px solid ${t?'var(--border)':'var(--warn-text)'};border-radius:6px;max-width:100%" onchange="colSetTelaDestino('${secId}','${itemId}','${campo}','${encodeURIComponent(base)}',this.value)"><option value="" ${t?'':'selected'}>Elegir tela…</option>${telas.map(x=>`<option value="${cmpEsc(x)}" ${tsNorm(x)===tsNorm(t)?'selected':''}>${cmpEsc(x)}</option>`).join('')}</select>`
+      :`<b>${t?cmpEsc(t):'—'}</b>`; };
+  if(varias){
+    const cab=`<div style="display:grid;grid-template-columns:1.1fr 18px 1.2fr 1fr;gap:6px;margin-top:6px;color:var(--text2);font-size:11px"><span>Color base</span><span></span><span>Tela</span><span>Color</span></div>`;
+    const filasV=bases.map(b=>{const base=typeof b==='string'?b:b.c,n=typeof b==='string'?null:b.n,k=colK(base),dest=(d.mapa&&d.mapa[k]&&d.mapa[k].color)||'';
+      const colCell=modo==='comb'?(ed?`<button class="btn-sm" style="text-align:left;${dest?'':'color:var(--warn-text)'}" onclick="colElegirDestino('${secId}','${itemId}','${campo}','${encodeURIComponent(base)}')">${dest?cmpEsc(dest):'Elegir…'}</button>`:`<b>${dest?cmpEsc(dest):'—'}</b>`):`<span style="color:var(--text2)">a tono</span>`;
+      return `<div style="display:grid;grid-template-columns:1.1fr 18px 1.2fr 1fr;gap:6px;align-items:center;margin-top:4px;padding-top:4px;border-top:1px dashed var(--border)"><span>${cmpEsc(base)}${n!=null?` <small style="color:var(--text2)">(${n})</small>`:''}</span><span style="color:var(--text2)">→</span>${selTela(base,k)}${colCell}</div>`}).join('');
+    return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${chip('tono','A tono')}${chip('comb','Combinada')}</div>${bases.length?cab+filasV:'<div style="color:var(--text2);margin-top:4px">Todavía no hay colores base cargados en el corte.</div>'}`;
+  }
   const filas=modo==='comb'?bases.map(b=>{const base=typeof b==='string'?b:b.c,n=typeof b==='string'?null:b.n,k=colK(base),dest=(d.mapa&&d.mapa[k]&&d.mapa[k].color)||'';
     return `<div style="display:grid;grid-template-columns:1fr 18px 1fr;gap:6px;align-items:center;margin-top:4px"><span>${cmpEsc(base)}${n!=null?` <small style="color:var(--text2)">(${n})</small>`:''}</span><span style="color:var(--text2)">→</span>
       ${ed?`<button class="btn-sm" style="text-align:left;${dest?'':'color:var(--warn-text)'}" onclick="colElegirDestino('${secId}','${itemId}','${campo}','${encodeURIComponent(base)}')">${dest?cmpEsc(dest):'Elegir…'}</button>`:`<b>${dest?cmpEsc(dest):'—'}</b>`}</div>`}).join('')
@@ -13334,8 +13353,15 @@ function colStripHtml(secId,itemId,item,sec){
   if(!item||!item.numero_corte||getBoard(sec)==='diseno'||String((sec&&sec.tipo)||'').startsWith('muestra')) return '';
   const caja=html=>`<div style="margin:-4px 0 10px;padding:9px 12px;border-radius:0 0 10px 10px;background:#eef3ee;font-size:12px;border:1px solid var(--border);border-top:0">${html}</div>`;
   if(item.es_complemento){
-    const bases=colBaseComplemento(item),tela=item.tela||item.tela_nombre||'';
-    return caja(`<div style="font-weight:700;margin-bottom:6px">🎨 Colores del ${cmpEsc((item.complemento_de&&item.complemento_de.que)||'complemento')} por color base</div>${colCombHtml(secId,itemId,'combinacion',item.combinacion,bases,tela,'el complemento')}`);
+    const bases=colBaseComplemento(item),tela=item.tela||item.tela_nombre||'',telas=telasDeItem(item),ed=colPuedeConfig();
+    const extras=Object.entries(item.telas_extra||{}).filter(([,t])=>t&&t.tela);
+    const telasBox=`<div style="background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px">
+      <div style="font-size:11px;color:var(--text2);margin-bottom:4px">Telas del complemento${telas.length>1?' · salen de la misma tiza':''}</div>
+      <div style="padding:3px 0"><b>${tela?cmpEsc(tela):'<span style="color:var(--warn-text)">Sin tela principal</span>'}</b>${(item.proveedor||item.tela_proveedor)?` · ${cmpEsc(item.proveedor||item.tela_proveedor)}`:''} <small style="color:var(--text2)">· principal (se cambia en TELA)</small></div>
+      ${extras.map(([k,t])=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 0;border-top:1px dashed var(--border)"><span><b>${cmpEsc(t.tela)}</b></span>${ed?`<button class="btn-sm" aria-label="Quitar tela" title="Quitar tela" onclick="colQuitarTelaExtra('${secId}','${itemId}','${k}')">✕</button>`:''}</div>`).join('')}
+      ${ed&&tela?`<button class="btn-sm" style="margin-top:4px;color:var(--accent);border-color:var(--accent)" onclick="colAgregarTelaExtra('${secId}','${itemId}')">+ Agregar otra tela</button>`:''}
+    </div>`;
+    return caja(`${telasBox}<div style="font-weight:700;margin-bottom:6px">🎨 ${cmpEsc((item.complemento_de&&item.complemento_de.que)||'Complemento')} por color base${telas.length>1?' (lo que ve el cortador)':''}</div>${colCombHtml(secId,itemId,'combinacion',item.combinacion,bases,tela,'el complemento',telas)}`);
   }
   const c=item.collareta;
   if(!c){ return colPuedeConfig()?caja(`<button class="btn-sm" onclick="colActivar('${secId}','${itemId}')">+ Lleva collareta</button>`):''; }
@@ -13354,9 +13380,12 @@ function colStripHtml(secId,itemId,item,sec){
 // Línea para el cortador arriba de la orden de corte.
 function colOrdenLineaHtml(item){ if(!item) return ''; const parts=[];
   const lin=(t,d,bases)=>{ if(!d) return; if((d.modo||'tono')!=='comb'){ parts.push(`<b>${t}</b>: a tono`); return; }
-    parts.push(`<b>${t}</b>: `+bases.map(b=>{const base=typeof b==='string'?b:b.c;const x=d.mapa&&d.mapa[colK(base)];return `${cmpEsc(base)} → <b>${x&&x.color?cmpEsc(x.color):'¿?'}</b>`}).join(' · ')); };
+    parts.push(`<b>${t}</b>: `+bases.map(b=>{const base=typeof b==='string'?b:b.c;const x=d.mapa&&d.mapa[colK(base)];return `${cmpEsc(base)} → <b>${x&&x.color?cmpEsc(x.color):'¿?'}</b>${varias?` <small>(${x&&x.tela?cmpEsc(x.tela):'¿tela?'})</small>`:''}`}).join(' · ')); };
+  const varias=item.es_complemento&&telasDeItem(item).length>1;
+  const linTelas=(t,d,bases)=>{ if(!d||(d.modo||'tono')==='comb'){ lin(t,d,bases); return; }
+    parts.push(`<b>${t}</b>: a tono · `+bases.map(b=>{const base=typeof b==='string'?b:b.c;const x=d.mapa&&d.mapa[colK(base)];return `${cmpEsc(base)} → <b>${x&&x.tela?cmpEsc(x.tela):'¿tela?'}</b>`}).join(' · ')); };
   if(item.collareta) lin(`Collareta ${item.collareta.tela?'('+cmpEsc(item.collareta.tela)+')':''}`,item.collareta,colBaseColores(item));
-  if(item.es_complemento&&item.combinacion) lin(cmpEsc((item.complemento_de&&item.complemento_de.que)||'Complemento'),item.combinacion,colBaseComplemento(item));
+  if(item.es_complemento&&(item.combinacion||varias)) (varias?linTelas:lin)(cmpEsc((item.complemento_de&&item.complemento_de.que)||'Complemento')+(varias?' ('+telasDeItem(item).map(cmpEsc).join(' + ')+')':''),item.combinacion||{modo:'tono'},colBaseComplemento(item));
   return parts.length?`<div style="background:#eef3ee;border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12.5px">🧵 ${parts.join('<br>')}</div>`:''; }
 function colActivar(secId,itemId){ if(!colPuedeConfig()) return; const it=sectionsData[secId].items[itemId];
   telaPicker('Tela de la collareta',telasList||[],t=>{ colRef(secId,itemId).child('collareta').set({tela:t,modo:'tono'}); logActivity('Agregó collareta',`${it.code||''}: ${t}`); },{nuevo:raw=>{const t=telaResolver(raw); if(t) colRef(secId,itemId).child('collareta').set({tela:t,modo:'tono'});}}); }
@@ -13366,8 +13395,23 @@ function colQuitar(secId,itemId){ if(!colPuedeConfig()) return; const it=section
   colAplicarStock(it,{}); colRef(secId,itemId).child('collareta').remove(); }
 function colSetModo(secId,itemId,campo,modo){ if(!colPuedeConfig()) return; colRef(secId,itemId).child(`${campo}/modo`).set(modo); }
 function colElegirDestino(secId,itemId,campo,enc){ if(!colPuedeConfig()) return; const base=decodeURIComponent(enc),it=sectionsData[secId].items[itemId];
-  const tela=campo==='collareta'?(it.collareta&&it.collareta.tela):(it.tela||it.tela_nombre); if(!tela){ showToast(campo==='collareta'?'Primero elegí la tela de la collareta':'Este complemento no tiene tela cargada'); return; }
-  elegirColor(tela,c=>colRef(secId,itemId).child(`${campo}/mapa/${colK(base)}`).set({base,color:c})); }
+  const k0=colK(base),mt=campo!=='collareta'&&it[campo]&&it[campo].mapa&&it[campo].mapa[k0]&&it[campo].mapa[k0].tela;
+  if(campo!=='collareta'&&telasDeItem(it).length>1&&!mt){ showToast('Primero elegí de qué tela sale ese color'); return; }
+  const tela=campo==='collareta'?(it.collareta&&it.collareta.tela):(mt||it.tela||it.tela_nombre); if(!tela){ showToast(campo==='collareta'?'Primero elegí la tela de la collareta':'Este complemento no tiene tela cargada'); return; }
+  elegirColor(tela,c=>colRef(secId,itemId).child(`${campo}/mapa/${colK(base)}`).set(mt?{base,color:c,tela:mt}:{base,color:c})); }
+// Complemento con más de una tela (misma tiza): Ariel o Peque suman telas y eligen de cuál sale cada color base.
+function colSetTelaDestino(secId,itemId,campo,enc,tela){ if(!colPuedeConfig()) return; const base=decodeURIComponent(enc),it=sectionsData[secId].items[itemId],k=colK(base);
+  const prev=(it[campo]&&it[campo].mapa&&it[campo].mapa[k])||{}; const cambio=!prev.tela||tsNorm(prev.tela)!==tsNorm(tela);
+  colRef(secId,itemId).child(`${campo}/mapa/${k}`).set(tela?{base,tela,color:cambio?'':(prev.color||'')}:null); }
+function colAgregarTelaExtra(secId,itemId){ if(!colPuedeConfig()) return; const it=sectionsData[secId].items[itemId],ya=new Set(telasDeItem(it).map(tsNorm));
+  const guardar=t=>{ if(!t) return; if(ya.has(tsNorm(t))){ showToast('Esa tela ya está en el complemento'); return; }
+    colRef(secId,itemId).child(`telas_extra/${colK(t)}`).set({tela:t,por:currentUser,fecha:Date.now()}); logActivity('Agregó tela al complemento',`${it.numero_corte||''}: ${t}`); };
+  telaPicker('Otra tela del complemento',(telasList||[]).filter(t=>!ya.has(tsNorm(t))),guardar,{nuevo:raw=>guardar(telaResolver(raw))}); }
+function colQuitarTelaExtra(secId,itemId,k){ if(!colPuedeConfig()) return; const it=sectionsData[secId].items[itemId],t=(it.telas_extra||{})[k]; if(!t) return;
+  const usados=Object.values(it.rollos||{}).concat(Object.values(((gruposCorteData||{})[corteKeyFrom(it.numero_corte)]||{}).rollos||{})).some(r=>r&&r.stockId&&tsData.rollos[r.stockId]&&tsNorm(tsData.rollos[r.stockId].tela)===tsNorm(t.tela));
+  if(!confirm(usados?`Hay rollos de ${t.tela} cargados en este corte. Sacá esos rollos primero desde Rollos.\n¿Quitar igual la tela ${t.tela} del complemento?`:`¿Quitar la tela ${t.tela} del complemento?`)) return;
+  const up={[`telas_extra/${k}`]:null}; Object.entries((it.combinacion&&it.combinacion.mapa)||{}).forEach(([mk,m])=>{ if(m&&m.tela&&tsNorm(m.tela)===tsNorm(t.tela)) up[`combinacion/mapa/${mk}`]=null; });
+  colRef(secId,itemId).update(up); logActivity('Quitó tela del complemento',`${it.numero_corte||''}: ${t.tela}`); }
 function colAgregarRollo(secId,itemId){ if(!colPuedeUsos()) return; const it=sectionsData[secId].items[itemId],tela=it.collareta&&it.collareta.tela; if(!tela) return;
   const ya=new Set(Object.values(it.collareta.usos||{}).map(u=>u.stockId));
   // Misma búsqueda que el modal de rollos del corte: tela sin distinguir mayúsculas/acentos, solo con kilos disponibles, ordenado por color.

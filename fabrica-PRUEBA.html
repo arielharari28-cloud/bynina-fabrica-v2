@@ -3163,6 +3163,9 @@ const SEC_DISENO = 'muestra_diseno';
 const SEC_CANCEL = 'muestra_cancelada';
 const SEC_ESTAMPADO_TALLER = 'fabrica_estampado_taller';
 const SEC_TALLER_TERMINACION = 'fabrica_taller_terminacion';
+// Complementos (cuello, puño…) que ya volvieron cosidos en su corte base: no tienen entrega propia.
+// Sección sin tablero (no se ve en ninguna pestaña); en Cortes figuran como finalizados y en Costeo siguen.
+const SEC_CMP_ENTREGADO = 'fabrica_complementos_entregados';
 // Secciones que Ariel quiere ver aparte, en su propia pestaña "Talleres" (cortes que ya están
 // afuera cortándose/terminándose o volviendo de eso), en vez de mezcladas con el resto de Fábrica.
 // 's6' (corte ya en taller pero con avío todavía pendiente de recibir) faltaba acá — por eso
@@ -3257,6 +3260,7 @@ const INITIAL_SECTIONS = {
   s6:{title:'Pendiente recibir avío — corte en taller',color:'danger',order:6.8,items:{}},
   [SEC_ESTAMPADO_TALLER]:{title:'Cortes — en taller de estampado (Plancha Nina)',color:'purple',order:6.9,tipo:'en_estampado_taller',items:{}},
   [SEC_TALLER_TERMINACION]:{title:'Cortes — en taller de terminación (pasos extra)',color:'purple',order:6.95,tipo:'en_terminacion',items:{}},
+  [SEC_CMP_ENTREGADO]:{title:'Complementos entregados con su corte',color:'gray',order:99,tipo:'complementos_entregados',board:'oculto',items:{}},
   sFIN:{title:'Cortes Finalizados',color:'purple',order:7,items:{}},
 };
 
@@ -3669,6 +3673,7 @@ function startListening(){
         if(!data.sections[SEC_DISENO]) db.ref(`fabrica_v5/sections/${SEC_DISENO}`).set(INITIAL_SECTIONS[SEC_DISENO]);
         if(!data.sections[SEC_ESTAMPADO_TALLER]) db.ref(`fabrica_v5/sections/${SEC_ESTAMPADO_TALLER}`).set(INITIAL_SECTIONS[SEC_ESTAMPADO_TALLER]);
         if(!data.sections[SEC_TALLER_TERMINACION]) db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}`).set(INITIAL_SECTIONS[SEC_TALLER_TERMINACION]);
+        if(!data.sections[SEC_CMP_ENTREGADO]) db.ref(`fabrica_v5/sections/${SEC_CMP_ENTREGADO}`).set(INITIAL_SECTIONS[SEC_CMP_ENTREGADO]);
         if(!data.sections[SEC_CANCEL]) db.ref(`fabrica_v5/sections/${SEC_CANCEL}`).set(INITIAL_SECTIONS[SEC_CANCEL]);
         if(!data.sections[SEC_PREP]) db.ref(`fabrica_v5/sections/${SEC_PREP}`).set(INITIAL_SECTIONS[SEC_PREP]);
         else db.ref(`fabrica_v5/sections/${SEC_PREP}/title`).set(INITIAL_SECTIONS[SEC_PREP].title);
@@ -3688,6 +3693,7 @@ function startListening(){
   });
 db.ref('fabrica_v5/sections').on('value',snap=>{
     sectionsData=snap.val()||{};
+    if(typeof cmpIntentarLimpieza==='function') cmpIntentarLimpieza();
     estProgramarSync();
     ensureSeccionCorte('s6'); // Sector nuevo: que siempre exista y se vea aunque esté en 0.
     backfillFechasIngreso();
@@ -5223,7 +5229,7 @@ function buildTallerCardHtml(f,idx,total){
       ${aclaracion}
       <div class="tc-sub">🧩 ${etEsc(base.que||'Complemento')} del corte <b>${etEsc(base.numero||'')}</b> · se paga dentro del precio del ${etEsc(base.numero||'base')}</div>
       ${comb||'<div class="tc-sub" style="color:var(--warn-text)">Falta cargar si va a tono o combinado (orden de corte del complemento).</div>'}
-      <div class="tc-acts">${retiroBtn}${it.retirado_taller?`<span class="tc-sub">✓ Retirado${it.fecha_retiro_confirmado?' el '+fmtFecha(it.fecha_retiro_confirmado):''}</span>`:''}</div>
+      <div class="tc-acts">${retiroBtn}${it.retirado_taller?`<span class="tc-sub">✓ Retirado${it.fecha_retiro_confirmado?' el '+fmtFecha(it.fecha_retiro_confirmado):''} · se entrega con el corte ${etEsc(base.numero||'')}</span>${['ariel','emir','peque'].includes(currentUser)?`<button class="btn-sm" onclick="event.stopPropagation();cmpMarcarVolvio('${secId}','${itemId}')">Ya volvió con el ${etEsc(base.numero||'base')}</button>`:''}`:''}</div>
       ${fold}
     </div>`;
   }
@@ -5266,6 +5272,7 @@ function buildTallerCardHtml(f,idx,total){
 
 function marcarEntregadoCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(item&&item.es_complemento){ showToast(`🧩 El ${(item.complemento_de&&item.complemento_de.que)||'complemento'} se entrega con el corte ${(item.complemento_de&&item.complemento_de.numero)||'base'}`); return; }
   // El precio pactado con el taller es obligatorio antes de marcar la entrega: sin él, la
   // entrega llega a Logística/Facturación sin poder calcular lo que se le debe.
   if(item.numero_corte&&!(parseFloat(item.precio_taller)>0)){
@@ -5303,12 +5310,14 @@ function marcarEntregadoCorte(secId,itemId){
       });
     }
     moveItemUndoable(secId,itemId,SEC_TALLER_TERMINACION,newItem);
+    cmpEntregarConBase(item,fechaFinal);
     logActivity('Entregado — pasa a taller de terminación',`${item.code}: ${fechaFinal} (${nombres})`);
     showToast(`🧵 ${item.code} pasó a taller de terminación (${nombres})`);
     return;
   }
   const fechaFinal=pedirFechaEntrega('¿Qué fecha entregó el taller de costura?');
   if(fechaFinal===null) return;
+  cmpEntregarConBase(item,fechaFinal);
   continuarDespuesDeTaller(secId,itemId,fechaFinal);
 }
 
@@ -12148,7 +12157,7 @@ function renderGaleria(){
   // y Revisión Final (esos cortes ya fueron entregados por el taller).
   const todos=[];
   Object.entries(sectionsData).forEach(([secId,sec])=>{
-    if(sec.tipo==='producto_perfecto'||sec.tipo==='muestra_cancelada'||sec.tipo==='revision_final') return;
+    if(sec.tipo==='producto_perfecto'||sec.tipo==='muestra_cancelada'||sec.tipo==='revision_final'||secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       const board=getBoard(sec);
       const etapa=board==='diseno'?'Diseño':(secId==='sFIN'?'En taller':'Fábrica');
@@ -13181,6 +13190,69 @@ function tsAprobarCompartido(id){
 }
 
 // ============ COMPLEMENTOS DE CORTE (10 → 10B, 10C…) ============
+// El complemento no tiene entrega propia: vuelve cosido en las prendas del corte base. Cuando se
+// abre la primera entrega del base (o se marca entregado), los complementos que ya estaban cortados
+// pasan a SEC_CMP_ENTREGADO (sin tablero) con la fecha y el corte con el que volvieron.
+function cmpEntregarConBase(baseItem,fecha){
+  if(!baseItem||baseItem.es_complemento) return;
+  Object.values(baseItem.complementos||{}).forEach(c=>{ if(c&&c.numero) cmpMoverAEntregado(cmpFind(c.numero),baseItem.numero_corte,fecha); });
+}
+function cmpMoverAEntregado(f,numBase,fecha){
+  if(!f||!f.item||!f.item.es_complemento||f.secId===SEC_CMP_ENTREGADO||f.secId==='s3'||!cmpCortado(f)) return false;
+  const nuevo={...f.item,entregado_con_base:{numero:numBase||(f.item.complemento_de&&f.item.complemento_de.numero)||'',fecha:fecha||'',por:currentUser||'',ts:Date.now()},fecha_etapa:Date.now()};
+  db.ref(`fabrica_v5/sections/${SEC_CMP_ENTREGADO}/items/${f.itemId}`).set(nuevo);
+  db.ref(`fabrica_v5/sections/${f.secId}/items/${f.itemId}`).remove();
+  logActivity('Complemento entregado con su corte',`${f.item.numero_corte} volvió con el ${nuevo.entregado_con_base.numero}`);
+  return true;
+}
+// Botón manual (casos raros, ej. el base ya se había entregado antes): "Volvió con el corte X".
+function cmpMarcarVolvio(secId,itemId){
+  if(!['ariel','emir','peque'].includes(currentUser)) return;
+  const it=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!it||!it.es_complemento) return;
+  const b=(it.complemento_de&&it.complemento_de.numero)||'';
+  if(!confirm(`¿El ${(it.complemento_de&&it.complemento_de.que)||'complemento'} ${it.numero_corte} ya volvió cosido con el corte ${b}?`)) return;
+  const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  if(cmpMoverAEntregado({secId,itemId,item:it,sec:sectionsData[secId]},b,hoy)) showToast(`🧩 ${it.numero_corte} finalizado con el corte ${b}`);
+  else showToast('Todavía no está cortado');
+}
+// Complementos de un corte base (para la marca "Incluye cuello 180B" en Logística).
+let cmpPorBaseCache={src:null,m:{}};
+function cmpPorBase(numero){
+  if(cmpPorBaseCache.src!==sectionsData){ const m={};
+    Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{ if(it&&it.es_complemento&&it.complemento_de&&it.numero_corte){ const k=corteKeyFrom(String(it.complemento_de.numero)); if(k) (m[k]||(m[k]=[])).push({numero:it.numero_corte,que:it.complemento_de.que||'Complemento',code:it.complemento_de.code||''}); } }));
+    cmpPorBaseCache={src:sectionsData,m}; }
+  return cmpPorBaseCache.m[corteKeyFrom(String(numero||''))]||[];
+}
+// Limpieza (una sola vez, la corre Ariel): entregas de Logística abiertas para un complemento → se borran
+// si no se facturaron ni se contó nada; y esos complementos pasan a finalizados con su base.
+function cmpIntentarLimpieza(){
+  if(window.__cmpLimpiezaHecha||currentUser!=='ariel'||!sectionsData||!Object.keys(sectionsData).length||!logiItemsData||!Object.keys(logiItemsData).length) return;
+  window.__cmpLimpiezaHecha=true; setTimeout(cmpLimpiezaEntregasPropias,3000);
+}
+function cmpLimpiezaEntregasPropias(){
+  if(currentUser!=='ariel'||!logiItemsData||!sectionsData) return;
+  db.ref('fabrica_v5/migraciones/complementos_sin_entrega').once('value').then(snap=>{
+    if(snap.val()) return;
+    const cmpPorNumero={};
+    Object.entries(sectionsData).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,it])=>{ if(it&&it.es_complemento&&it.numero_corte) cmpPorNumero[corteKeyFrom(String(it.numero_corte))]={secId,itemId,item:it,sec}; }));
+    let borradas=0,dejadas=[]; const movidos=new Set();
+    const mover=(f,b,fe)=>{ if(movidos.has(f.itemId)) return; movidos.add(f.itemId); cmpMoverAEntregado(f,b,fe); };
+    Object.entries(logiItemsData).forEach(([lid,l])=>{
+      const f=l&&cmpPorNumero[corteKeyFrom(String(l.numero_corte||''))]; if(!f) return;
+      const contado=Object.values(l.grilla||{}).some(g=>(parseInt(g.contado)||0)>0||(parseInt(g.ok)||0)>0);
+      if(l.facturado_cta_cte||contado){ dejadas.push(l.numero_corte); return; }
+      db.ref(`fabrica_v5/logistica/items/${lid}`).remove(); borradas++;
+      mover(f,f.item.complemento_de&&f.item.complemento_de.numero,l.fecha_entregado||'');
+    });
+    // Complementos que quedaron en Revisión / Mejora / Producto perfecto por la entrega propia
+    ['revision_final','mejora','producto_perfecto'].map(getSectionIdByTipo).filter(Boolean).forEach(secId=>Object.entries(((sectionsData[secId]||{}).items)||{}).forEach(([itemId,it])=>{
+      if(it&&it.es_complemento) mover({secId,itemId,item:it,sec:sectionsData[secId]},it.complemento_de&&it.complemento_de.numero,'');
+    }));
+    db.ref('fabrica_v5/migraciones/complementos_sin_entrega').set({ts:Date.now(),borradas,dejadas});
+    if(borradas) logActivity('Limpieza de entregas de complementos',`${borradas} entrega(s) borrada(s)`);
+    if(dejadas.length) showToast(`⚠️ Entregas de complemento con conteo o facturadas, revisalas a mano: ${dejadas.join(', ')}`);
+  });
+}
 // Un corte puede llevar complementos (cuello, lazo…) que se tizan aparte y se cortan cuando el corte
 // base ya está cortado. Datos:
 //   corte base: complementos/{letra} = {numero:'10B', que:'Cuello', creadoPor, creadoEn}
@@ -13560,7 +13632,7 @@ function onGaleriaDrop(ev){
 // control-bynina NUNCA escribe en esta ruta ni en fabrica_v5 en general, solo la lee.
 function publishPendientesResumen(){
   const resumen={};
-  Object.entries(sectionsData).forEach(([secId,sec])=>{
+  Object.entries(sectionsData).forEach(([secId,sec])=>{ if(secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       if(item.done) return;
       const resp=getResponsable(sec,item,secId);
@@ -13876,7 +13948,7 @@ function renderPendientes(){
   const cont=document.getElementById('pendientes-list');
   const BOARD_ORDEN={diseno:0,fabrica:1};
   const filas=[];
-  Object.entries(sectionsData).forEach(([secId,sec])=>{
+  Object.entries(sectionsData).forEach(([secId,sec])=>{ if(secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       if(item.done) return;
       if(filtroMarca&&(item.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
@@ -14078,6 +14150,7 @@ function logiAbrirNuevaEntregaCorte(){
     const sec=sectionsData&&sectionsData[secId];
     if(!sec) return;
     Object.entries(sec.items||{}).forEach(([id,it])=>{
+      if(!it||it.es_complemento) return;   // el complemento vuelve cosido en su corte base
       // Si este corte ya tiene una entrega abierta en Logística (creada pero todavía sin
       // cerrar — en conteo, en control o pendiente dividir), no lo mostramos de nuevo acá:
       // ya está en curso, y volver a elegirlo generaría una segunda entrega duplicada para
@@ -14157,6 +14230,7 @@ function pedirFechaEntrega(msg){
 }
 function logiCrearEntregaDesdeCorte(secId,itemId){
   const item=sectionsData[secId].items[itemId];
+  if(item&&item.es_complemento){ showToast(`🧩 El ${(item.complemento_de&&item.complemento_de.que)||'complemento'} se entrega con el corte ${(item.complemento_de&&item.complemento_de.numero)||'base'}`); return; }
   // Antes esta entrega se creaba SIN fecha_entregado → aparecía "Entregado sin fecha de entrega".
   const fechaEntrega=pedirFechaEntrega(`¿Qué fecha entregó el taller? (Corte ${item.numero_corte||''} — ${item.code||''})`);
   if(fechaEntrega===null) return;
@@ -14193,6 +14267,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   db.ref('fabrica_v5/logistica/items').push(logisticaItem).then(()=>{
     logActivity('Abrió una entrega del taller en Logística',`Corte ${item.numero_corte}: ${item.code}`);
     if(esPrimeraEntrega){
+      cmpEntregarConBase(item,fechaEntrega);
       avanzarCorteAlAbrirPrimeraEntrega(secId,itemId,fechaEntrega);
     } else {
       showToast('📦 Entrega abierta en Logística — falta que la cuenten');
@@ -14255,6 +14330,7 @@ let logiNotaPendiente = null;
 // "Entregas del taller" en Fábrica/Talleres siempre está al día, lo abra o no Emir.
 db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
+  cmpIntentarLimpieza();
   if(pmSumarBoard&&!document.getElementById('tab-prodmes').classList.contains('hidden')) renderPmSumar();
   logiBackfillFechaEntrega();
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
@@ -14471,6 +14547,8 @@ function listaEntHtml(ctx){
         ? `<span class="le-precio-edit" onclick="event.stopPropagation();listaEntEditarPrecio('${ctx}','${id}')" title="${(currentUser==='ariel'||!precio)?'Editar precio':'Pedir cambio de precio'}">${lbl} ✎</span>`
         : `<span ${precio?'':'style="color:var(--text3)"'}>${lbl}</span>`;
     }
+    const cmpsBase=cmpPorBase(it.numero_corte).filter(c=>!c.code||!it.code||c.code===it.code);
+    if(cmpsBase.length) nums+=`<span style="background:#eaf3de;color:#27500a;border-radius:8px;padding:1px 8px;font-size:11.5px">🧩 Incluye ${cmpsBase.map(c=>esc(String(c.que).toLowerCase())+' '+esc(c.numero)).join(' + ')}</span>`;
     let solHtml='';
     const sol=plata&&it.precio_solicitud;
     if(sol){
@@ -14901,6 +14979,7 @@ const CORTES_EST_FINAL=['revision_final','mejora','producto_perfecto'];
 function cortesTabEstado(secId,sec,item){
   const tipo=sec&&sec.tipo;
   if(secId==='s3') return null; // todavía no se cortó: la pestaña Cortes muestra solo cortes realizados
+  if(secId===SEC_CMP_ENTREGADO) return {key:'finalizado',label:`Finalizado · volvió con el ${(item.complemento_de&&item.complemento_de.numero)||'corte base'}`};
   if(CORTES_EST_FABRICA.includes(secId)) return {key:'fabrica',label:'En fábrica'};
   if(secId==='sFIN'){
     if(item.retirado_taller) return {key:'taller',label:`En taller · ${item.taller_corte||'sin taller'}`};

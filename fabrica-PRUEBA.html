@@ -14680,6 +14680,12 @@ function listaEntHtml(ctx){
       solHtml=`<div class="le-sol" onclick="event.stopPropagation()">⏳ ${esc(quien)} pide cambiar el precio a <b>$${Number(sol.valor).toLocaleString('es-AR')}</b>${sol.motivo?` — ${esc(sol.motivo)}`:''}
         ${currentUser==='ariel'?`<button class="le-sol-ok" onclick="listaEntAprobarPrecio('${ctx}','${id}')">✓ Aprobar</button><button class="le-sol-no" onclick="listaEntRechazarPrecio('${ctx}','${id}')">✕</button>`:'<span style="color:var(--text3)">(esperando a Ariel)</span>'}</div>`;
     }
+    const post = col==='dividir' ? logiEntregaPosterior(id,it) : null;
+    if(post){
+      const pd=post.it.fecha_entregado||'';
+      solHtml+=`<div class="le-sol" onclick="event.stopPropagation()">⚠️ Ya hay una entrega posterior de <b>${esc(listaEntDestino(post.it))}</b>${pd?' ('+esc(pd)+')':''} — esta no se divide, se divide la última.
+        ${currentUser==='ariel'?`<button class="le-sol-ok" onclick="logiCerrarSiguioOtroTaller('${id}')">✓ Cerrar sin dividir</button>`:'<span style="color:var(--text3)">(la cierra Ariel)</span>'}</div>`;
+    }
     let facHtml='';
     if(facturar){
       if(it.no_facturar){
@@ -14687,7 +14693,7 @@ function listaEntHtml(ctx){
       } else if(it.facturado_cta_cte){
         facHtml=`<span class="le-fac le-ok">✓ Facturado $${(it.facturacion_monto||0).toLocaleString('es-AR')}${it.facturacion_fecha?' · '+it.facturacion_fecha:''}</span>`;
       } else if(col!=='finalizado'){
-        facHtml=`<span class="le-fac le-no">${col==='dividir'?'Falta dividir':'Falta control'}</span>`;
+        facHtml=`<span class="le-fac le-no">${post?'No se divide':col==='dividir'?'Falta dividir':'Falta control'}</span>`;
       } else if(!precio){
         facHtml=`<span class="le-fac le-no">Falta precio</span>`;
       } else if(it.precio_solicitud){
@@ -16993,7 +16999,7 @@ function logiRenderDetail(id){
 
   // Mover a cualquier etapa a mano (solo Ariel) — para destrabar cortes viejos que no
   // respetan el flujo normal (conteo → control → pendiente dividir → finalizado/web).
-  const etapaActual = logiEstadoColumna(it);
+  const etapaActual = (it.estado==='cerrado'&&it.sigue_a_estampado) ? 'sigue' : logiEstadoColumna(it);
   document.getElementById('logi-detail-etapa-ariel').innerHTML = currentUser==='ariel' ? `
     <label style="font-size:11px;color:var(--text2);margin-right:6px">🔧 Forzar etapa (Ariel):</label>
     <select class="logi-prio-select" onchange="logiForzarEtapa('${id}',this.value)">
@@ -17001,6 +17007,7 @@ function logiRenderDetail(id){
       <option value="control" ${etapaActual==='control'?'selected':''}>🟡 Pendiente de control</option>
       <option value="dividir" ${etapaActual==='dividir'?'selected':''}>🔀 Pendiente dividir</option>
       <option value="finalizado" ${etapaActual==='finalizado'?'selected':''}>✅ Finalizado (habilita Web)</option>
+      <option value="sigue" ${etapaActual==='sigue'?'selected':''}>✅ Cerrada — siguió a otro taller (se factura, no se divide)</option>
     </select>` : '';
   const avPend=it.avance_pendiente&&!it.avance_pendiente.avanzado;
   document.getElementById('logi-detail-eliminar').innerHTML = (currentUser==='ariel'||currentUser==='stef') ? `
@@ -17293,6 +17300,44 @@ function logiSigueA(it){
   return null;
 }
 function logiSigueAEstampado(it){ return !!logiSigueA(it); }
+// Entrega posterior del mismo corte (oct 2026): cortes viejos que se cerraron a "Pendiente dividir"
+// antes de tener la plancha/estampado en el recorrido quedaban dos veces en División (ej. corte
+// 189: confección de Jose Luis + plancha de Irma). Si este ítem está en dividir y ya hay otra
+// entrega del mismo N° de corte y código, de otro proceso y más nueva, esta no es la final.
+// No cambia nada solo: devuelve la entrega posterior para avisar y que Ariel la cierre.
+function logiEntregaPosterior(id,it){
+  if(!it||!it.numero_corte) return null;
+  const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
+  const nc=norm(it.numero_corte), code=norm(it.code), ts=listaEntFechaTs(it);
+  let mejor=null;
+  for(const [oid,o] of Object.entries(logiItemsData||{})){
+    if(oid===id||!o||!o.proceso||o.proceso===it.proceso) continue;
+    if(norm(o.numero_corte)!==nc||norm(o.code)!==code) continue;
+    const ots=listaEntFechaTs(o);
+    if(ots<ts||(ots===ts&&(o.fecha_creado||0)<=(it.fecha_creado||0))) continue;
+    if(!mejor||ots>listaEntFechaTs(mejor.it)) mejor={id:oid,it:o};
+  }
+  return mejor;
+}
+function logiSigueALabelDe(o){
+  const dest=listaEntDestino(o);
+  return `${o.proceso==='estampado'?'Estampado':'Terminación'}${dest?' ('+dest+')':''}`;
+}
+// Cierra una entrega que quedó en dividir pero ya siguió a otro taller: queda facturable a su
+// taller, no se divide y no aparece en Web/Comercializar (igual que si se hubiera cerrado bien).
+function logiCerrarSiguioOtroTaller(itemId,silencioso){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede cerrarla así'); return; }
+  const it=logiItemsData[itemId];
+  if(!it){ showToast('No encontré la entrega'); return; }
+  const post=logiEntregaPosterior(itemId,it);
+  const sigueA=post?logiSigueALabelDe(post.it):(logiSigueA(it)||'otro taller');
+  if(!silencioso&&!confirm(`¿Cerrar la entrega de ${it.taller||'el taller'} (corte ${it.numero_corte||'?'})? Queda facturable a ${it.taller||'ese taller'} y NO se divide: siguió a ${sigueA}, que es la que se divide.`)) return;
+  const upd={estado:'cerrado',sigue_a_estampado:true,sigue_a:sigueA,dividido:null,fecha_cerrado:Date.now(),cerrado_por:currentUser};
+  if(!it.fecha_control_cerrado){ upd.fecha_control_cerrado=Date.now(); upd.control_cerrado_por=currentUser; }
+  db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upd);
+  logActivity(`Cerró entrega — siguió a ${sigueA} (no se divide)`,`${it.code||''} — Corte ${it.numero_corte||'?'}`);
+  showToast(`✅ Cerrada — facturable a ${it.taller||'el taller'}, no se divide`);
+}
 function logiCerrarConteo(itemId){
   const it=logiItemsData[itemId];
   const sigueA=logiSigueA(it);
@@ -17387,9 +17432,11 @@ function logiForzarEtapa(itemId,etapa){
   if(currentUser!=='ariel'){ showToast('Solo Ariel puede forzar la etapa'); return; }
   const it=logiItemsData[itemId];
   if(!it){ showToast('No encontré el corte'); return; }
+  if(etapa==='sigue'){ logiCerrarSiguioOtroTaller(itemId); return; }
   if(!confirm(`¿Forzar "${it.code||itemId}" a la etapa "${etapa}"? Esto salta los controles normales.`)) return;
   const updates={};
   const base=`fabrica_v5/logistica/items/${itemId}`;
+  if(etapa!=='finalizado'){ updates[`${base}/sigue_a_estampado`]=null; updates[`${base}/sigue_a`]=null; }
   if(etapa==='conteo'){
     updates[`${base}/estado`]=null;
     updates[`${base}/marcado_pendiente_controlar`]=null;
@@ -17402,6 +17449,8 @@ function logiForzarEtapa(itemId,etapa){
     updates[`${base}/estado`]='pendiente_dividir';
     if(!it.fecha_control_cerrado) updates[`${base}/fecha_control_cerrado`]=Date.now();
   } else if(etapa==='finalizado'){
+    updates[`${base}/sigue_a_estampado`]=null;
+    updates[`${base}/sigue_a`]=null;
     updates[`${base}/estado`]='cerrado';
     updates[`${base}/dividido`]=true;
     updates[`${base}/fecha_cerrado`]=Date.now();

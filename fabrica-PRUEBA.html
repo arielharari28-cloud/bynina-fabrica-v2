@@ -760,7 +760,7 @@
   .ts-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .ts-rollo{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;font-size:14px}
   .ts-estado{display:inline-block;margin-top:3px;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px}
-  .ts-estado.ok{background:var(--accent-bg);color:var(--accent)}.ts-estado.sobr{background:#fff3d6;color:#7a5200}.ts-estado.rev{background:#e8eef7;color:#2c4a7a}.ts-estado.usado{background:var(--surface2);color:var(--text2)}
+  .ts-estado.ok{background:var(--accent-bg);color:var(--accent)}.ts-estado.sobr{background:#fff3d6;color:#7a5200}.ts-estado.rev{background:#e8eef7;color:#2c4a7a}.ts-estado.usado{background:var(--surface2);color:var(--text2)}.ts-estado.dev{background:#fde8e4;color:#9a2b1c}
   .ts-link{border:0;background:none;color:var(--accent);font-weight:700;font-size:12.5px;cursor:pointer;padding:4px 0;font-family:inherit}
   .ts-form{display:flex;flex-direction:column;gap:12px}
   .ts-form label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text2)}
@@ -9193,7 +9193,7 @@ let ordenCtx={};
 // (solo Ariel) y el de solo-ver (todos los demás que pueden entrar a Cortes próximos a sacar).
 // Colores con rollos disponibles en stock para una tela: {color:{n,kg}}
 function ocStockColores(tela){ const m={}; if(!tela||typeof tsData==='undefined') return m;
-  Object.values(tsData.rollos||{}).forEach(r=>{ if(!r||r.tela!==tela||r.estado==='usado'||!r.color) return; const c=r.color.trim(); const x=m[c]||(m[c]={n:0,kg:0}); x.n++; x.kg+=tsRestanteDe(r); }); return m; }
+  Object.values(tsData.rollos||{}).forEach(r=>{ if(!r||r.tela!==tela||r.estado==='usado'||r.estado==='devuelto'||!r.color) return; const c=r.color.trim(); const x=m[c]||(m[c]={n:0,kg:0}); x.n++; x.kg+=tsRestanteDe(r); }); return m; }
 function buildOrdenCtx(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   const talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
@@ -11310,7 +11310,7 @@ function deleteItem(secId,itemId){
   if(!confirm('¿Eliminar?'))return;
   const item=sectionsData[secId]?.items?.[itemId];
   // Si es un complemento, se saca también el enlace del corte base (si no, queda "No encontrado").
-  if(item&&item.es_complemento&&item.complemento_de){
+  if(item&&item.es_complemento&&item.complemento_de&&!cmpDuplicados(itemId,item).length){
     const up={};
     cmpArticulosDeCorte(item.complemento_de.numero).forEach(p=>Object.entries(p.item.complementos||{}).forEach(([L,c])=>{
       if(c&&corteKeyFrom(String(c.numero))===corteKeyFrom(String(item.numero_corte||''))){ up[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/complementos/${L}`]=null; up[`fabrica_v5/sections/${p.secId}/items/${p.itemId}/sin_complemento/${L}`]=null; }
@@ -12594,7 +12594,7 @@ function tsUnidadTxt(u){ return u==='m'?'m':'kg'; }
 function tsResumen(){
   const telas={};
   Object.entries(tsData.rollos).forEach(([id,r])=>{
-    if(!r||r.estado==='usado') return;
+    if(!r||r.estado==='usado'||r.estado==='devuelto') return;
     const t=telas[r.tela]||(telas[r.tela]={tela:r.tela,colores:{},unidad:r.unidad,provs:new Set()});
     t.provs.add(r.proveedor||'');
     const c=t.colores[r.color]||(t.colores[r.color]={enteros:0,kgEnteros:0,sobr:0,kgSobr:0,rev:0,kgRev:0});
@@ -12634,7 +12634,7 @@ function tsValor(){
   const v={ARS:0,USD:0,kg:0,m:0};
   const ultCache={};
   Object.values(tsData.rollos).forEach(r=>{
-    if(!r||r.estado==='usado') return;
+    if(!r||r.estado==='usado'||r.estado==='devuelto') return;
     const q=tsRestanteDe(r);
     if(!(r.tela in ultCache)) ultCache[r.tela]=tsUltimaCompra(r.tela);
     const ult=ultCache[r.tela];
@@ -12723,7 +12723,7 @@ function renderTelasStock(){
 function tsVerTela(tela){ tsVista={...tsVista,modo:'tela',tela}; renderTelasStock(); window.scrollTo(0,0); }
 function renderTsTela(){
   const cont=document.getElementById('telas-content');
-  const rollos=Object.entries(tsData.rollos).filter(([,r])=>r&&r.tela===tsVista.tela&&r.estado!=='usado');
+  const rollos=Object.entries(tsData.rollos).filter(([,r])=>r&&r.tela===tsVista.tela&&r.estado!=='usado'&&r.estado!=='devuelto');
   const u=tsUnidadTxt((rollos[0]||[])[1]?.unidad);
   const porColor={}; rollos.forEach(([id,r])=>{ (porColor[r.color]||(porColor[r.color]=[])).push([id,r]); });
   const total=rollos.reduce((a,[,r])=>a+tsRestanteDe(r),0);
@@ -12743,7 +12743,7 @@ function renderTsTela(){
             ${ed?`<button class="ts-link" style="text-align:left;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="elegirColor(tsData.rollos['${id}'].tela,c=>tsInlineColor('${id}',c))">${tsEsc(r.color||'—')}</button>`:''}
             <span>${ed?`<input class="ts-in" inputmode="decimal" value="${(Number(rest)||0).toFixed(2).replace('.',',')}" aria-label="Kilos de ${tsEsc(r.codigo)}" onchange="tsInlineKg('${id}',this.value)" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;text-align:right"> ${u}`:`<b>${tsFmt(rest,1)} ${u}</b>`}${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
             <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
-            <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}</span>
+            <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}${currentUser==='ariel'&&!r.devolucion&&r.estado!=='revision'?` <button class="ts-link" title="Devolver al proveedor" onclick="tsVerColor(tsData.rollos['${id}'].tela,tsData.rollos['${id}'].color);tsDevAbrir('${id}')">↩</button>`:''}${r.devolucion?' <span class="ts-estado sobr">Dev. parcial</span>':''}</span>
           </div>${tsUsosHtml(id,r)}`; }).join('')}
       </div>`; }).join('')||'<div class="empty-state">No hay rollos disponibles de esta tela.</div>'}`;
 }
@@ -12755,24 +12755,26 @@ function renderTsColor(){
   const cont=document.getElementById('telas-content');
   const todos=Object.entries(tsData.rollos).filter(([,r])=>r&&r.tela===tsVista.tela&&r.color===tsVista.color);
   const f=tsVista.filtroEstado;
-  const lista=todos.filter(([,r])=>f==='disponibles'?(r.estado==='entero'||r.estado==='sobrante'):f==='revision'?r.estado==='revision':r.estado==='usado')
+  const lista=todos.filter(([,r])=>f==='disponibles'?(r.estado==='entero'||r.estado==='sobrante'):f==='revision'?r.estado==='revision':f==='devueltos'?!!r.devolucion:r.estado==='usado')
     .sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
   const u=tsUnidadTxt((todos[0]||[])[1]?.unidad);
   const disp=todos.filter(([,r])=>r.estado==='entero'||r.estado==='sobrante');
   const tot=disp.reduce((s,[,r])=>s+tsRestanteDe(r),0);
   const chip=(k,t)=>`<button class="ts-chip ${f===k?'on':''}" onclick="tsVista.filtroEstado='${k}';renderTelasStock()">${t}</button>`;
-  const est={entero:['Entero','ok'],sobrante:['Sobrante','sobr'],revision:['En revisión','rev'],usado:['Usado','usado']};
+  const est={entero:['Entero','ok'],sobrante:['Sobrante','sobr'],revision:['En revisión','rev'],usado:['Usado','usado'],devuelto:['Devuelto entero','dev']};
+  const nDev=todos.filter(([,r])=>r.devolucion).length;
   cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
     <div class="ts-title">${tsEsc(tsVista.tela)} · ${tsEsc(tsVista.color)}</div>
     <div class="ts-sub" style="margin-bottom:10px">${tsFmt(tot,1)} ${u} disponibles en ${disp.length} rollo${disp.length!==1?'s':''}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('disponibles','Disponibles')}${chip('revision','En revisión')}${chip('usados','Usados')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chip('disponibles','Disponibles')}${chip('revision','En revisión')}${chip('usados','Usados')}${nDev?chip('devueltos','Devoluciones'):''}</div>
     ${lista.length?lista.map(([id,r])=>{ const e=est[r.estado]||['',''];
       return `<div class="ts-rollo">
         <div><b>${tsEsc(r.codigo)}</b><span class="ts-sub">${r.deInventario?'Stock inicial':'Remito '+tsEsc(r.numeroRemito||'')} · ${tsFechaCorta(r.fechaIngreso)}</span></div>
-        <div style="text-align:right"><b>${r.estado==='sobrante'&&tsNum(r.restante)!==tsNum(r.inicial)?`${tsFmt(tsNum(r.restante),1)} de ${tsFmt(tsNum(r.inicial),1)} ${u}`:`${tsFmt(tsNum(r.estado==='usado'?r.inicial:r.restante),1)} ${u}`}</b>
-          <span class="ts-estado ${e[1]}">${e[0]}</span>${currentUser==='ariel'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}
-          ${tsPuedeCargar()&&r.estado!=='usado'?`<br><button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar en un corte</button>`:''}</div>
-      </div><div style="margin:-4px 0 10px 12px">${tsUsosHtml(id,r)}</div>`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
+        <div style="text-align:right"><b>${r.estado==='devuelto'?`${tsFmt(tsNum(r.inicial),1)} ${u}`:(r.estado==='sobrante'||r.devolucion)&&tsNum(r.restante)!==tsNum(r.inicial)?`${tsFmt(tsNum(r.restante),1)} de ${tsFmt(tsNum(r.inicial),1)} ${u}`:`${tsFmt(tsNum(r.estado==='usado'?r.inicial:r.restante),1)} ${u}`}</b>
+          ${r.devolucion&&r.estado==='entero'?'':`<span class="ts-estado ${e[1]}">${e[0]}</span>`}${r.devolucion&&r.estado!=='devuelto'?` <span class="ts-estado sobr">Devolución parcial · ${tsFmt(tsNum(r.devolucion.cantidad),2)} ${u}</span>`:''}${currentUser==='ariel'&&r.estado!=='devuelto'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}
+          ${tsPuedeCargar()&&r.estado!=='usado'&&r.estado!=='devuelto'?`<br><button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar en un corte</button>`:''}
+          ${currentUser==='ariel'&&!r.devolucion&&r.estado!=='usado'&&r.estado!=='revision'&&tsRestanteDe(r)>0&&tsDevForm.id!==id?`<br><button class="ts-link" onclick="tsDevAbrir('${id}')">↩ Devolver al proveedor</button>`:''}</div>
+      </div>${tsDevForm.id===id?tsDevFormHtml(id,r):''}${r.devolucion?tsDevInfoHtml(id,r):''}<div style="margin:-4px 0 10px 12px">${tsUsosHtml(id,r)}</div>`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
 }
 
 // ---- remitos cargados ----
@@ -12789,7 +12791,7 @@ function renderTsRemitos(){
           <div class="ts-sub">${tsEsc(r.proveedor)} · ${tsFechaCorta(r.fecha)} · cargó ${tsEsc(r.creadoPor||'')}</div></div>
           ${r.inicial?'<span class="ts-edad">Stock inicial</span>':`<span class="ts-edad ${r.facturado?'':'vieja'}">${r.facturado?'Facturado':'Sin facturar'}</span>`}
         </div>
-        <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)}${tsVerPlata()?` · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}`:''}</div>
+        <div class="ts-ult">${r.rollos} rollos · ${tsFmt(tsNum(r.cantidad),1)} ${tsUnidadTxt(r.unidad)}${(()=>{ const dv=Object.values(tsData.rollos).filter(x=>x&&x.remitoId===id&&x.devolucion); return dv.length?` · <b style="color:#9a2b1c">${dv.length} con devolución (${tsFmt(dv.reduce((a,x)=>a+tsNum(x.devolucion.cantidad),0),1)} ${tsUnidadTxt(r.unidad)})</b>`:''; })()}${tsVerPlata()?` · ${tsMoneda(r.moneda,tsNum(r.precio))} por ${tsUnidadTxt(r.unidad)} · Total <b>${tsMoneda(r.moneda,tsNum(r.importe))}</b>${r.moneda==='USD'&&r.cotizacionIngreso?` (≈ ${tsMoneda('ARS',tsNum(r.importe)*tsNum(r.cotizacionIngreso))} al dólar de ingreso)`:''}`:''}</div>
         ${tsRollosDeRemitoHtml(id)}
         <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
           ${tsPuedeCargar()&&(!usados||currentUser==='ariel')?`<button class="ts-link" style="color:var(--danger-text,#b42318)" onclick="tsBorrarRemito('${id}')">Borrar remito${usados?' (tiene rollos usados)':''}</button>`:''}
@@ -12803,7 +12805,7 @@ function tsRolloTocado(x){ return x.estado==='usado'||x.estado==='revision'||tsN
 function tsInlineColor(id,v){ if(currentUser!=='ariel') return; const r=tsData.rollos[id]; const c=String(v||'').trim(); if(!r||!c||c===r.color) return;
   db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({color:c,editadoPor:currentUser,editadoEn:Date.now()}); logActivity('Editó rollo de tela',`${r.codigo}: color ${r.color} → ${c}`); showToast(`✓ ${r.codigo}: ${c}`); }
 function tsInlineKg(id,v){ if(currentUser!=='ariel') return; const r=tsData.rollos[id]; if(!r) return; const n=tsNum(v); if(!(n>=0)){ showToast('Peso inválido'); renderTelasStock(); return; }
-  const usado=Object.values(r.usos||{}).some(Boolean); let nr,upd;
+  const usado=Object.values(r.usos||{}).some(Boolean)||!!r.devolucion; let nr,upd;
   if(!usado){ nr={...r,inicial:n,ajuste:0}; const rest=tsRestanteDe(nr); upd={inicial:n,ajuste:null,restante:rest,estado:tsEstadoDe(nr,rest)}; }
   else { const sin=tsRestanteDe({...r,ajuste:0}); const aj=Math.round((n-sin)*100)/100; nr={...r,ajuste:aj}; const rest=tsRestanteDe(nr); upd={ajuste:aj||null,restante:rest,estado:tsEstadoDe(nr,rest)}; }
   db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({...upd,editadoPor:currentUser,editadoEn:Date.now()});
@@ -12832,6 +12834,87 @@ function tsEditarRollo(id){
   logActivity('Editó rollo de tela',`${r.codigo}: ${r.color} → ${nr.color} · entró ${r.inicial} → ${nuevoIni} · queda ${rest}`);
   showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${un}`);
 }
+// ===== Devolución de rollos al proveedor (oct 2026) =====
+// Solo Ariel. Entera (sale todo lo que queda del rollo) o parcial (kilos/metros). El rollo queda con
+// su kilaje inicial a la vista; lo devuelto se resta del stock y de "Plata en tela". La app de Egresos
+// lee las devoluciones sin descontar (devolucion.egresos_cargo_id / repuesto) para bajarlas de la
+// cuenta del proveedor.
+let tsDevForm={id:null};
+const TS_DEV_MOTIVOS=['Fallado','Color distinto','Ancho','Otro'];
+function tsDevAbrir(id){
+  if(currentUser!=='ariel') return;
+  const r=tsData.rollos[id]; if(!r) return;
+  tsDevForm={id,tipo:'parcial',cantidad:'',motivo:'Fallado',nota:'',foto:'',fecha:tsHoyISO()};
+  renderTelasStock();
+  setTimeout(()=>{ const e=document.getElementById('ts-dev-cant'); if(e) e.focus(); },30);
+}
+function tsDevCerrar(){ tsDevForm={id:null}; renderTelasStock(); }
+function tsDevSet(campo,v){ tsDevForm[campo]=v; if(campo==='tipo'||campo==='motivo'||campo==='foto') renderTelasStock(); else if(campo==='cantidad'){ const r=tsData.rollos[tsDevForm.id]; const el=document.getElementById('ts-dev-queda'); if(r&&el) el.textContent=`queda ${tsFmt(Math.max(0,tsRestanteDe(r)-tsNum(v)),2)} ${tsUnidadTxt(r.unidad)} en stock`; } }
+function tsDevFormHtml(id,r){
+  const f=tsDevForm, u=tsUnidadTxt(r.unidad), disp=tsRestanteDe(r);
+  const seg=(k,t)=>`<button type="button" class="ts-chip ${f.tipo===k?'on':''}" onclick="tsDevSet('tipo','${k}')">${t}</button>`;
+  return `<div class="ts-card" style="margin:-4px 0 10px;border-color:#9cc3aa">
+    <div style="font-weight:800;font-size:13px;margin-bottom:8px">↩ Devolver ${tsEsc(r.codigo)} a ${tsEsc(r.proveedor||'el proveedor')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      ${seg('entero','Rollo entero')}${seg('parcial','Parcial')}
+      ${f.tipo==='parcial'
+        ?`<span style="font-size:13px">Devuelvo <input id="ts-dev-cant" inputmode="decimal" value="${tsEsc(f.cantidad)}" oninput="tsDevSet('cantidad',this.value)" style="width:76px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px;text-align:right"> ${u}</span>
+          <span class="ts-sub" style="display:inline" id="ts-dev-queda">queda ${tsFmt(Math.max(0,disp-tsNum(f.cantidad)),2)} ${u} en stock</span>`
+        :`<span class="ts-sub" style="display:inline">Sale todo lo que queda: <b>${tsFmt(disp,2)} ${u}</b></span>`}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${TS_DEV_MOTIVOS.map(m=>`<button type="button" class="ts-chip ${f.motivo===m?'on':''}" onclick="tsDevSet('motivo','${m}')">${m}</button>`).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input value="${tsEsc(f.nota)}" placeholder="Detalle (ej. manchas en los primeros metros)" oninput="tsDevSet('nota',this.value)" style="flex:1;min-width:180px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px">
+      <input type="date" value="${tsEsc(f.fecha)}" onchange="tsDevSet('fecha',this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:8px;font:inherit;font-size:13px">
+      ${f.foto?`<img src="${tsEsc(f.foto)}" style="width:40px;height:40px;object-fit:cover;border-radius:8px">`:''}<button type="button" class="ts-link" onclick="tsDevElegirFoto()">${f.foto?'Cambiar foto':'+ Foto'}</button>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px"><button type="button" class="ts-link" style="color:var(--text2)" onclick="tsDevCerrar()">Cancelar</button><button type="button" class="ts-btn" onclick="tsDevGuardar()">Guardar devolución</button></div>
+  </div>`;
+}
+function tsDevElegirFoto(){
+  const input=document.createElement('input'); input.type='file'; input.accept='image/*';
+  input.onchange=async e=>{ const file=e.target.files[0]; if(!file) return;
+    showToast('📤 Subiendo foto...');
+    const fd=new FormData(); fd.append('file',file); fd.append('upload_preset',CLOUDINARY_PRESET);
+    try{ const res=await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`,{method:'POST',body:fd}); const d=await res.json();
+      if(d.secure_url){ tsDevSet('foto',d.secure_url); showToast('✓ Foto cargada'); } else showToast('✗ Error al subir la foto');
+    }catch(err){ showToast('✗ Error al subir la foto'); } };
+  input.click();
+}
+function tsDevGuardar(){
+  if(currentUser!=='ariel') return;
+  const f=tsDevForm, id=f.id, r=tsData.rollos[id]; if(!r) return;
+  const disp=tsRestanteDe(r), u=tsUnidadTxt(r.unidad);
+  const cant=f.tipo==='entero'?disp:tsNum(f.cantidad);
+  if(!(cant>0)){ showToast(`Poné cuántos ${u} se devuelven`); return; }
+  if(cant>disp+0.005){ showToast(`El rollo tiene ${tsFmt(disp,2)} ${u}: no se puede devolver más`); return; }
+  const rem=(tsData.remitos||{})[r.remitoId]||{};
+  const precio=tsNum(rem.precio)||tsNum(r.precio), moneda=rem.moneda||r.moneda||'ARS';
+  const dev={tipo:f.tipo==='entero'||cant>=disp-0.05?'entero':'parcial',cantidad:Math.round(cant*100)/100,unidad:r.unidad||'kg',motivo:f.motivo||'Otro',nota:(f.nota||'').trim()||null,foto:f.foto||null,
+    fecha:f.fecha||tsHoyISO(),por:currentUser,ts:Date.now(),precio:precio||null,moneda,importe:precio?Math.round(cant*precio*100)/100:null,
+    proveedor:rem.proveedor||r.proveedor||'',remitoId:r.remitoId||null,remitoNumero:rem.numero||r.numeroRemito||'',tela:r.tela||'',color:r.color||'',codigo:r.codigo||''};
+  const nr={...r,devolucion:dev}, rest=tsRestanteDe(nr);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({devolucion:dev,restante:rest,estado:tsEstadoDe(nr,rest)});
+  logActivity('Devolución de tela al proveedor',`${r.codigo} · ${r.tela} ${r.color} · ${dev.tipo==='entero'?'rollo entero':'parcial'} ${tsFmt(cant,2)} ${u} · ${dev.motivo}`);
+  showToast(`↩ ${r.codigo}: devolución de ${tsFmt(cant,2)} ${u} — queda para descontar en Egresos`);
+  tsDevForm={id:null};
+}
+function tsDevInfoHtml(id,r){
+  const d=r.devolucion, u=tsUnidadTxt(d.unidad||r.unidad);
+  const est=d.egresos_cargo_id?'<b style="color:#245c3f">✓ Descontado en Egresos</b>':d.repuesto?'<b style="color:#245c3f">✓ Repuesto por el proveedor</b>':'<span style="color:#7a5200">Pendiente de descontar en Egresos</span>';
+  return `<div class="ts-sub" style="margin:-4px 0 8px 12px;line-height:1.6">↩ Devuelto ${tsFechaCorta(d.fecha)} · ${tsFmt(tsNum(d.cantidad),2)} ${u} · ${tsEsc(d.motivo||'')}${d.nota?' — '+tsEsc(d.nota):''}${d.foto?` · <a href="${tsEsc(d.foto)}" target="_blank" style="color:var(--accent)">foto</a>`:''}${tsVerPlata()&&d.importe?` · ${tsMoneda(d.moneda,tsNum(d.importe))}`:''} · ${est}
+    ${currentUser==='ariel'&&!d.egresos_cargo_id&&!d.repuesto?` <button class="ts-link" style="color:#b42318" onclick="tsDevDeshacer('${id}')">Deshacer</button>`:''}</div>`;
+}
+function tsDevDeshacer(id){
+  if(currentUser!=='ariel') return;
+  const r=tsData.rollos[id]; if(!r||!r.devolucion) return;
+  if(r.devolucion.egresos_cargo_id){ showToast('Ya se descontó en Egresos: borrá primero ese descuento allá'); return; }
+  if(!confirm(`¿Deshacer la devolución de ${r.codigo}? Vuelven ${tsFmt(tsNum(r.devolucion.cantidad),2)} ${tsUnidadTxt(r.unidad)} al stock.`)) return;
+  const nr={...r}; delete nr.devolucion; const rest=tsRestanteDe(nr);
+  db.ref(`fabrica_v5/telas_stock/rollos/${id}`).update({devolucion:null,restante:rest,estado:tsEstadoDe(nr,rest)});
+  logActivity('Deshizo devolución de tela',r.codigo||id);
+  showToast(`✓ ${r.codigo}: vuelve al stock`);
+}
 function tsQuitarUso(id,ctx){
   if(!tsPuedeCargar()) return;
   const r=tsData.rollos[id]; if(!r||!r.usos||!r.usos[ctx]) return;
@@ -12854,7 +12937,7 @@ function tsRollosDeRemitoHtml(remId){
   if(!rs.length) return '';
   return `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--accent)">Ver rollos y colores (${rs.length})</summary>
     ${rs.map(([id,x])=>`<div class="ts-fila" style="grid-template-columns:.8fr 1.4fr 1fr .6fr;cursor:default">
-      <b>${tsEsc(x.codigo)}</b><span>${tsEsc(x.color)}</span><span>${tsFmt(tsRestanteDe(x),1)} de ${tsFmt(tsNum(x.inicial),1)} ${tsUnidadTxt(x.unidad)}</span>
+      <b>${tsEsc(x.codigo)}</b><span>${tsEsc(x.color)}</span><span>${x.estado==='devuelto'?`<span class="ts-estado dev">Devuelto · ${tsFmt(tsNum(x.inicial),1)} ${tsUnidadTxt(x.unidad)}</span>`:`${tsFmt(tsRestanteDe(x),1)} de ${tsFmt(tsNum(x.inicial),1)} ${tsUnidadTxt(x.unidad)}${x.devolucion?` · <span class="ts-estado sobr">dev. ${tsFmt(tsNum(x.devolucion.cantidad),1)}</span>`:''}`}</span>
       ${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️ Editar</button>`:'<span></span>'}</div>`).join('')}
   </details>`;
 }
@@ -13030,10 +13113,12 @@ function tsCtxDe(secId,itemId,corteKey){
 // Lo que queda = lo que entró − lo consumido (aprobado) + ajuste (diferencia que cargó Ariel al pesarlo).
 function tsRestanteDe(r){
   const consumido=Object.values(r.usos||{}).filter(u=>u&&!u.pendiente).reduce((s,u)=>s+tsNum(u.usado),0);
-  return Math.max(0,Math.round((tsNum(r.inicial)-consumido+tsNum(r.ajuste))*100)/100);
+  const devuelto=r.devolucion?tsNum(r.devolucion.cantidad):0; // devolución al proveedor (oct 2026)
+  return Math.max(0,Math.round((tsNum(r.inicial)-consumido+tsNum(r.ajuste)-devuelto)*100)/100);
 }
 function tsEstadoDe(r,restante){
   const usos=Object.values(r.usos||{}).filter(Boolean);
+  if(r.devolucion&&(r.devolucion.tipo==='entero'||(restante<=0.05&&!usos.length))) return 'devuelto';
   if(usos.some(u=>u.pendiente)) return 'revision';
   if(restante<=0.05) return usos.length?'usado':'entero';
   if(usos.length) return 'sobrante';
@@ -13253,7 +13338,9 @@ function tsAprobarCompartido(id){
 // pasan a SEC_CMP_ENTREGADO (sin tablero) con la fecha y el corte con el que volvieron.
 function cmpEntregarConBase(baseItem,fecha){
   if(!baseItem||baseItem.es_complemento) return;
-  Object.values(baseItem.complementos||{}).forEach(c=>{ if(c&&c.numero) cmpMoverAEntregado(cmpFind(c.numero),baseItem.numero_corte,fecha); });
+  const hechos=new Set();
+  Object.values(baseItem.complementos||{}).forEach(c=>{ if(!c||!c.numero||hechos.has(corteKeyFrom(String(c.numero)))) return; hechos.add(corteKeyFrom(String(c.numero)));
+    cmpFindAll(c.numero).forEach(f=>cmpMoverAEntregado(f,baseItem.numero_corte,fecha)); });
 }
 function cmpMoverAEntregado(f,numBase,fecha){
   if(!f||!f.item||!f.item.es_complemento||f.secId===SEC_CMP_ENTREGADO||f.secId==='s3'||!cmpCortado(f)) return false;
@@ -13371,6 +13458,41 @@ function cmpFind(numero){
   }
   return null;
 }
+// Todos los ítems con ese N° (normalmente uno; puede haber dos si se renombró un duplicado a mano).
+function cmpFindAll(numero){
+  const key=corteKeyFrom(String(numero||'')); const l=[]; if(!key) return l;
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([itemId,item])=>{ if(item&&corteKeyFrom(item.numero_corte||'')===key) l.push({secId,itemId,item,sec}); }));
+  return l;
+}
+// Otras tarjetas de complemento con el mismo N° (ej. dos 130B, una por artículo, cuando el cuello es uno solo).
+function cmpDuplicados(itemId,item){
+  if(!item||!item.es_complemento) return [];
+  return cmpFindAll(item.numero_corte).filter(f=>f.itemId!==itemId&&f.item.es_complemento);
+}
+// Deja una sola tarjeta: suma la curva de las otras en esta (cada una tenía la parte de su artículo),
+// la marca como complemento de todo el corte y borra las demás sin tocar los enlaces de los artículos base.
+function cmpUnificarEn(secId,itemId){
+  if(currentUser!=='ariel'&&currentUser!=='peque') return;
+  const item=sectionsData[secId]?.items?.[itemId]; if(!item) return;
+  const dups=cmpDuplicados(itemId,item);
+  if(!dups.length) return;
+  const cortados=dups.filter(cmpCortado);
+  if(cortados.length){ showToast(`⚠️ La otra tarjeta ${item.numero_corte} ya está cortada: revisala a mano`); return; }
+  const curva={...(item.curva_valores||{})};
+  dups.forEach(d=>Object.entries(d.item.curva_valores||{}).forEach(([t,v])=>{ curva[t]=String((parseInt(curva[t])||0)+(parseInt(v)||0)); }));
+  const curvaTxt=Object.entries(curva).filter(([,v])=>parseInt(v)).map(([t,v])=>`${t}:${v}`).join(' ');
+  if(!confirm(`¿Dejar una sola tarjeta ${item.numero_corte} para todo el corte ${item.complemento_de&&item.complemento_de.numero||''}?
+
+Se borra${dups.length>1?'n':''} ${dups.length} tarjeta${dups.length>1?'s':''} repetida${dups.length>1?'s':''}. Los artículos del corte base siguen esperando este complemento.${curvaTxt?`
+Curva sumada: ${curvaTxt} — revisala.`:''}`)) return;
+  const up={}, b=`fabrica_v5/sections/${secId}/items/${itemId}`;
+  if(Object.keys(curva).length) up[`${b}/curva_valores`]=curva;
+  up[`${b}/complemento_de/code`]='';
+  dups.forEach(d=>{ up[`fabrica_v5/sections/${d.secId}/items/${d.itemId}`]=null; });
+  db.ref().update(up);
+  logActivity('Unificó complemento repetido',`${item.numero_corte}: quedó una sola tarjeta (borró ${dups.length})`);
+  showToast(`🧩 Quedó una sola tarjeta ${item.numero_corte}`);
+}
 function cmpEstado(f){ return f?cortesTabEstado(f.secId,f.sec,f.item):null; }
 function cmpCortado(f){ const e=cmpEstado(f); return !!(e&&['fabrica','taller','finalizado'].includes(e.key)); }
 function cmpEntregado(f){ const e=cmpEstado(f); return !!(e&&(e.key==='taller'||e.key==='finalizado')); }
@@ -13468,7 +13590,11 @@ function cmpStripHtml(secId,itemId,item,sec){
   if(item.es_complemento&&item.complemento_de){
     const p=cmpFind(item.complemento_de.numero);
     const cortado=cmpCortado(p);
-    return caja('#f3efe7',`<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+    const dups=cmpDuplicados(itemId,item);
+    const dupHtml=dups.length?`<div style="background:#fde8e4;color:#9a2b1c;border-radius:8px;padding:7px 10px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+        <span>⚠️ Hay ${dups.length} tarjeta${dups.length>1?'s':''} más con el <b>${cmpEsc(item.numero_corte)}</b>. Si es el mismo complemento para todo el corte, tiene que quedar una sola.</span>
+        ${currentUser==='ariel'||currentUser==='peque'?`<button class="btn-sm" onclick="cmpUnificarEn('${secId}','${itemId}')">Dejar solo esta</button>`:''}</div>`:'';
+    return caja('#f3efe7',`${dupHtml}<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
         <span>🧩 <b>Complemento del corte ${cmpEsc(item.complemento_de.numero)}</b> · ${cmpEsc(item.complemento_de.code)} · ${cmpEsc(item.complemento_de.que)} · va al mismo taller${p&&p.item.taller_corte?` (${cmpEsc(p.item.taller_corte)})`:''}</span>
         ${p?`<button class="btn-sm" onclick="irAItem('${p.secId}','${p.itemId}')">Ver corte ${cmpEsc(item.complemento_de.numero)}</button>`:''}
       </div>
@@ -13612,7 +13738,7 @@ function colAgregarRollo(secId,itemId){ if(!colPuedeUsos()) return; const it=sec
   const ya=new Set(Object.values(it.collareta.usos||{}).map(u=>u.stockId));
   // Misma búsqueda que el modal de rollos del corte: tela sin distinguir mayúsculas/acentos, solo con kilos disponibles, ordenado por color.
   const telaN=tsNorm(tela);
-  const disp=Object.entries(tsData.rollos||{}).filter(([id,r])=>r&&tsNorm(r.tela)===telaN&&r.estado!=='usado'&&tsRestanteDe(r)>0&&!ya.has(id))
+  const disp=Object.entries(tsData.rollos||{}).filter(([id,r])=>r&&tsNorm(r.tela)===telaN&&r.estado!=='usado'&&r.estado!=='devuelto'&&tsRestanteDe(r)>0&&!ya.has(id))
     .sort((a,b)=>String(a[1].color).localeCompare(String(b[1].color),'es')||String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
   if(!disp.length){ showToast(`No hay rollos de ${tela} en stock. Cargá el remito en Telas.`); return; }
   const et=([id,r])=>tsEtiquetaRollo(r); const m={}; disp.forEach(x=>m[et(x)]=x[0]);
@@ -15132,6 +15258,10 @@ function cortesTabFilas(){
       if(!item||!item.numero_corte) return;
       const est=cortesTabEstado(secId,sec,item);
       if(!est) return;
+      // Solo cortes realizados (oct 2026): lo que está en secciones previas al corte (ej. complementos
+      // en "Pendiente armar tizada") no se muestra. Si en una sección "otra" el ítem ya tiene fecha de
+      // corte (cortes viejos movidos a mano), se sigue mostrando.
+      if(est.key==='otro'&&!(item.fecha_corte||item.fecha_corte_ts||item.cortado_por)) return;
       filas.push({item,estado:est,secId,itemId,logiId:null});
     });
   });

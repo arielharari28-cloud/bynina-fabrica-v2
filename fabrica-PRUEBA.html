@@ -1050,8 +1050,9 @@
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
         <div id="logi-acciones" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <button class="btn-sm" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
-          <button class="btn-sm" onclick="logiOpenProveedorModal()">➕ Agregar prenda de proveedor</button>
+          <button class="btn-sm logi-btn-ingreso" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
+          <button class="btn-sm logi-btn-ingreso" onclick="logiOpenProveedorModal()">➕ Agregar prenda de proveedor</button>
+          <button class="btn-sm logi-btn-aviso hidden" onclick="abrirAvisoLlegada()">📣 Avisar que llegó mercadería</button>
         </div>
         <div id="logi-lista-wrap"></div>
         <div class="logi-stats-plegable">
@@ -3447,6 +3448,10 @@ function doLogin(user){
     pendAgrupar=tb?'tablero':'empleado';
     document.querySelectorAll('#pend-agrupar-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo===pendAgrupar));
     if(tb&&!tbEscuchando){ tbEscuchando=true; tbEscuchar(); }
+    const ing=puedeCargarIngreso();
+    document.querySelectorAll('.logi-btn-ingreso').forEach(b=>b.classList.toggle('hidden',!ing));
+    document.querySelectorAll('.logi-btn-aviso').forEach(b=>b.classList.toggle('hidden',ing));
+    actualizarBadgeTablero();
   }
   applyTabVisibility(user);
   applyTabOrder();
@@ -5209,6 +5214,7 @@ function etapaSalida(secId,itemId,id){
   showToast(`📤 Salió a ${e.taller}`);
 }
 function etapaEntrega(secId,itemId,id){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   const item=sectionsData[secId].items[itemId], e=(item.etapas||{})[id]; if(!e) return;
   const hab=e.momento==='antes'?etapasAntesHabilitadas(secId,item):etapasDespuesHabilitadas(secId);
   if(!hab){ showToast(e.momento==='antes'?'Esta etapa va antes de confección':'Esta etapa se entrega cuando el corte vuelve de confección'); return; }
@@ -5290,7 +5296,7 @@ function buildTallerCardHtml(f,idx,total){
     if(puedeAvioRecibido()) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();avioRecibidoDesdeTalleres('${secId}','${itemId}')">📦 Marcar avío recibido</button>`);
   } else if(secId==='sFIN'){
     // En taller: la entrega respeta el recorrido (terminación / estampado / revisión) y pasa por Logística.
-    if(it.retirado_taller&&(canEdit||currentUser==='emir')) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${destinoEntregaLabel(it)}</button>`);
+    if(it.retirado_taller&&puedeCargarIngreso()) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${destinoEntregaLabel(it)}</button>`);
   } else if(canEdit&&!PASOS_SIN_SIGUIENTE.includes(secId)) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`);
   const mv=buildMoveOptsForItem(secId,itemId); if(mv) acts.push(`<span onclick="event.stopPropagation()">${mv}</span>`);
   return `<div class="tc">
@@ -5310,6 +5316,7 @@ function buildTallerCardHtml(f,idx,total){
 }
 
 function marcarEntregadoCorte(secId,itemId){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   const item=sectionsData[secId].items[itemId];
   if(item&&item.es_complemento){ showToast(`🧩 El ${(item.complemento_de&&item.complemento_de.que)||'complemento'} se entrega con el corte ${(item.complemento_de&&item.complemento_de.numero)||'base'}`); return; }
   // El precio pactado con el taller es obligatorio antes de marcar la entrega: sin él, la
@@ -7638,7 +7645,7 @@ function buildItem(secId,itemId,item,sec){
           const btns=canCheck?`
             ${(!rec&&!hasDate)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}
             ${(!rec&&hasDate)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}
-            ${!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`:
+            ${!rec?(puedeRecibirAvio()?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`:''):
               `<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`}`:'' ;
           return `<div class="avio-item">
             <div class="avio-dot" style="background:${dot}"></div>
@@ -7709,8 +7716,8 @@ function buildItem(secId,itemId,item,sec){
         :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
       const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
-        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec&&hasDate?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:'')+(!rec?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
-          :`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`)):'';
+        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec&&hasDate?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:'')+(!rec?(puedeRecibirAvio()?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`:'')
+          :(puedeRecibirAvio()?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''))):'';
       return `<div class="avio-row-n">
         <div class="avio-dot" style="background:${dot}"></div>
         <span style="font-size:11px;color:var(--text2)">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
@@ -7790,6 +7797,8 @@ function buildMoveOptsForItem(secId,itemId){
 function esMinisur(item){
   return (item.marca||'').replace(/\s+/g,'').toLowerCase()==='minisur'; // "Mini Sur" o "Minisur"
 }
+// Cargar el corte (rollos, capas, encimado, marcar cortado): Noelia y Ariel; en Mini Sur también Peque.
+function puedeCargarCorte(item){ return ['ariel','noelia'].includes(quienSoy())||(quienSoy()==='peque'&&!!item&&esMinisur(item)); }
 function esMinisurPeque(item){
   return currentUser==='peque' && esMinisur(item);
 }
@@ -7883,7 +7892,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
             :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
             :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
           const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-          const canRecibir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
+          const canRecibir=puedeRecibirAvio();
           const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
             ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`
             :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
@@ -7957,7 +7966,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
     const avios=Object.entries(item.avios||{});
     const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
     const canPedir=esAutorizador||currentUser==='peque';
-    const canRecibir=esAutorizador||currentUser==='emir'||currentUser==='peque';
+    const canRecibir=puedeRecibirAvio();
     const aviosPendientes=llevaAvios===true&&avios.length>0&&!avios.every(([,a])=>a.recibido);
     let aviosPanel='';
     if(llevaAvios===true){
@@ -8654,7 +8663,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
         :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
         :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
       const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-      const canRecibir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
+      const canRecibir=puedeRecibirAvio();
       const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
         ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
         :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
@@ -8714,7 +8723,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
   const canEditCapasFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
   const capasHtml = secId==='s3' ? '' : buildCapasHtml(item,secId,itemId,canEditCapasFuera);
   // Emir carga rollos incluso fuera de s3 (ej. cortes que ya pasaron a Cortes Finalizados).
-  const canEditRollosFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && ((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron'||currentUser==='emir');
+  const canEditRollosFuera = POST_S3_SECS.includes(secId) && secId!=='s3' && puedeCargarCorte(item);
   const rollosHtml = secId==='s3' ? '' : buildRollosHtml(item,secId,itemId,canEditRollosFuera);
   const realesHtml = secId==='s3' ? '' : buildRealesHtml(item,secId,itemId);
   const fechaSalidaHtml = (secId==='sFIN'||secId==='s6')&&item.fecha_salida_taller
@@ -8785,8 +8794,9 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
   // Después de marcar cortado, Emir tiene que bajar el stock de la tela usada en el Excel a mano.
   // Es solo una confirmación (no pide rollo/texto): el detalle de rollos ya se cargó en el
   // paso de Encimado. Lo puede tildar Emir, o Ariel/Stef si hace falta corregir.
-  const canStockTela = currentUser==='emir'||currentUser==='ariel'||currentUser==='stef';
-  const stockBajadoHtml = item.done ? `<div class="cortada-row" id="foco-tela-${secId}-${itemId}">
+  const canStockTela = ['ariel','noelia'].includes(quienSoy());
+  // Oct 2026: ya no se usa (el stock de tela se descuenta solo desde Telas). Se deja el cálculo apagado.
+  const stockBajadoHtml = false ? `<div class="cortada-row" id="foco-tela-${secId}-${itemId}">
       <div class="c-check ${item.stock_bajado_tela?'checked':''}" onclick="${canStockTela?`toggleStockBajadoTela('${secId}','${itemId}')`:''}">${item.stock_bajado_tela?'✓':''}</div>
       <span class="c-label ${item.stock_bajado_tela?'done':''}">📦 Bajado de stock tela <span style="font-size:10px;color:var(--text2)">(Emir)</span>${(item.stock_bajado_tela&&item.stock_bajado_tela_ts)?` — ${new Date(item.stock_bajado_tela_ts).toLocaleDateString('es-AR')}`:''}</span>
     </div>` : '';
@@ -8978,7 +8988,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
         ${window.__sinRecorrido?'':buildRecorridoHtml(secId,itemId,item)}
         </div>
         <div class="item-actions">
-          ${((canCortar||(secId==='s3'&&currentUser==='emir'))&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
+          ${(secId==='s3'&&puedeCargarCorte(item)&&listoParaCortar)?`<button class="btn-advance" onclick="marcarCorteRealizado('${secId}','${itemId}')">✂️ Marcar cortado</button>`:''}
           ${sacarTallerHtml}
           ${canEntregarRevision?`<button class="btn-advance" ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||(item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item))?'title="Faltan movimientos a talleres extra por cerrar"':''} onclick="marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${(Object.values(item.pasos_extra||{}).some(p=>!p.hecho)||etapasPendientes(item,'despues').length)?'Taller de terminación':(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'} (manual, ya es automático)</button>`:''}
           ${canDeshacer?`<button class="btn-sm" onclick="deshacerCorte('${secId}','${itemId}')">↩ Deshacer</button>`:''}
@@ -9048,7 +9058,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const ordenCargada=!!grupo.orden_corte_cargada;
   const encimadoTerm=!!grupo.encimado_terminado;
   // Emir puede cargar rollos y marcar encimado/cortado, pero no cargar/editar la Orden de Corte en sí.
-  const canRollosEncimado=canCortar||currentUser==='emir';
+  const canRollosEncimado=puedeCargarCorte(item);
   // La Orden de Corte (colores/capas) la carga y edita ÚNICAMENTE Ariel — el resto (Stef, Peque,
   // Emir, Ari Morón) puede verla una vez cargada, pero no tocarla.
   const canEditOrdenCorte=currentUser==='ariel';
@@ -9082,7 +9092,8 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   // Una vez cargada la orden de corte, Emir tiene que imprimir la tiza (el molde/marker en papel)
   // antes de que se pueda arrancar el encimado — sin la tiza impresa, no hay sobre qué encimar la tela.
   const tizaImpresa=!!grupo.tiza_impresa;
-  const canMarcarTiza=currentUser==='emir'||currentUser==='ariel'||currentUser==='stef'||esMinisurPeque(item);
+  // Emir es quien imprime la tiza: la marca él (además de Noelia y Ariel).
+  const canMarcarTiza=['ariel','noelia','emir'].includes(quienSoy())||puedeCargarCorte(item);
   const tizaRow = !tizaImpresa
     ? `<div class="cortada-row" style="background:var(--warn-bg)">
         <span class="c-label" style="font-weight:600;color:var(--warn-text)">🖨️ Pendiente imprimir tiza <span style="font-weight:400;font-size:10px">(Emir)</span></span>
@@ -9162,7 +9173,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
       </div>${pedidoCapasHtml}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar&&faltantesRollos.length)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Faltan cargar rollos de: <strong>${faltantesRollos.join(', ')||coloresOrden.join(', ')}</strong></div>`:''}${(!rollosCompletos&&!pedidoCapas&&!esLiquidar&&!faltantesRollos.length&&faltanKg.length)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Falta cargar el Kg/Mts de: <strong>${faltanKg.join(', ')}</strong> (las capas ya están, pero sin el Kg/Mts Costeo no puede calcular el costo de tela)</div>`:''}${(!rollosCompletos&&esLiquidar)?`<div style="font-size:11px;color:var(--warn-text);padding:0 12px 8px">⚠️ Cargá al menos un rollo (tela a liquidar) para poder marcar el encimado terminado.</div>`:''}`
     : `<div class="cortada-row">
         <span class="c-label">🧷 Encimado: <strong style="color:var(--green-text)">Terminado</strong></span>
-        ${canCortar?`<button class="btn-sm" onclick="setEncimadoTerminado('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
+        ${canRollosEncimado?`<button class="btn-sm" onclick="setEncimadoTerminado('${secId}','${itemId}',false)">↩ Deshacer</button>`:''}
       </div>`;
 
   // Orden de corte cargada, encimado pendiente o recién terminado (acá ya puede aparecer Marcar cortado).
@@ -9949,6 +9960,7 @@ function rolColKg(row){
   return (r&&r.unidad==='m')?m:m*(rollosCtx.peso||0);
 }
 function openRollosModal(secId,itemId){
+  if(!puedeCargarCorte(sectionsData[secId]&&sectionsData[secId].items[itemId])){ showToast('Esto lo cargan solo Noelia o Ariel (Mini Sur también Peque)'); return; }
   const item=sectionsData[secId].items[itemId];
   // En "Cortes próximos a sacar" los rollos se comparten por N° de corte (misma tela física
   // para todos los artículos del grupo); en las etapas posteriores ya son por ítem individual.
@@ -10179,6 +10191,7 @@ document.getElementById('cancel-modal-rollos').onclick=()=>document.getElementBy
 document.getElementById('save-modal-rollos').onclick=saveRollos;
 
 function setTizaImpresa(secId,itemId,val){
+  if(!(['ariel','noelia','emir'].includes(quienSoy())||puedeCargarCorte(sectionsData[secId]&&sectionsData[secId].items[itemId]))){ showToast('La tiza la marcan Emir, Noelia o Ariel'); return; }
   const item=sectionsData[secId].items[itemId];
   const corteKey=corteKeyFrom(item.numero_corte);
   if(!corteKey) return;
@@ -10192,6 +10205,7 @@ function setTizaImpresa(secId,itemId,val){
 }
 
 function setEncimadoTerminado(secId,itemId,val){
+  if(!puedeCargarCorte(sectionsData[secId]&&sectionsData[secId].items[itemId])){ showToast('Esto lo cargan solo Noelia o Ariel (Mini Sur también Peque)'); return; }
   const item=sectionsData[secId].items[itemId];
   const corteKey=corteKeyFrom(item.numero_corte);
   if(!corteKey) return;
@@ -10274,6 +10288,7 @@ function ensureSeccionCorte(id){
 // fecha una sola vez y se mueven TODOS juntos, cada uno a la sección que le corresponda según
 // sus propios avíos (uno puede ir directo a taller y otro quedar esperando un avío pendiente).
 function marcarCorteRealizado(secId,itemId){
+  if(!puedeCargarCorte(sectionsData[secId]&&sectionsData[secId].items[itemId])){ showToast('Esto lo cargan solo Noelia o Ariel (Mini Sur también Peque)'); return; }
   const item=sectionsData[secId].items[itemId];
   const corteKey=corteKeyFrom(item.numero_corte);
   const grupo=corteKey?(gruposCorteData[corteKey]||{}):{};
@@ -10458,6 +10473,7 @@ function toggleChecklistTaller(secId,itemId,campo){
 // Confirmación de Emir de que ya descontó a mano, en el Excel, el stock de tela usada en este
 // corte (el detalle de qué rollo/color se usó ya quedó cargado en el paso de Encimado).
 function toggleStockBajadoTela(secId,itemId){
+  if(!puedeCargarCorte(sectionsData[secId]&&sectionsData[secId].items[itemId])){ showToast('Esto lo cargan solo Noelia o Ariel (Mini Sur también Peque)'); return; }
   const item=sectionsData[secId].items[itemId];
   const nv=!(item.stock_bajado_tela||false);
   const updates={stock_bajado_tela:nv, stock_bajado_tela_por: nv?currentUser:null, stock_bajado_tela_ts: nv?Date.now():null};
@@ -10934,9 +10950,64 @@ function destinoEntregaLabel(item){
 // Desde la lista de Talleres (corte en taller esperando avío): marca recibidos los avíos que
 // faltan, con la fecha real; al quedar todos recibidos el corte pasa solo a "En taller".
 // Solo Ariel, Peque y Emir pueden marcar el avío recibido desde Talleres.
-function puedeAvioRecibido(){ return ['ariel','peque','emir'].includes(currentUser); }
+// Oct 2026: los ingresos (tela, entregas de talleres, producto de proveedor) los cargan solo Ariel y
+// Noelia; los avíos también Peque (y a Noe le llega el aviso). El resto avisa que llegó mercadería.
+function quienSoy(){ return usuarioLogueado||currentUser; }
+function puedeCargarIngreso(){ return ['ariel','noelia'].includes(quienSoy()); }
+function puedeRecibirAvio(){ return ['ariel','noelia','peque'].includes(quienSoy()); }
+// Cuando Peque marca un avío recibido, a Noe le queda el aviso en el Tablero para revisarlo.
+function avisoAvioANoe(item,avios,secId,itemId){
+  if(quienSoy()!=='peque'||!item) return;
+  const nombres=(avios||[]).map(a=>a&&a.nombre).filter(Boolean).join(', ');
+  const prov=[...new Set((avios||[]).map(a=>a&&a.proveedor).filter(Boolean))].join(', ');
+  db.ref('fabrica_v5/avisos_llegada').push({tipo:'Avío',proveedor:prov,nota:`${nombres||'Avío'} · ${item.numero_corte?'corte '+String(item.numero_corte).replace(/^corte\s*/i,'')+' · ':''}${item.code||''} — lo marcó recibido Peque`,por:'peque',ts:Date.now(),origen:'avio_peque',secId:secId||'',itemId:itemId||''});
+}
+function sinPermisoIngreso(que){
+  if(confirm(`Los ingresos de ${que} los cargan Noelia o Ariel.\n\n¿Querés avisarle a Noe que llegó?`)) abrirAvisoLlegada(que);
+}
+function puedeAvioRecibido(){ return puedeRecibirAvio(); }
+// Aviso de llegada de mercadería (Emir u otro): le queda a Noe para cargar. fabrica_v5/avisos_llegada/{id}
+let avisosLlegadaData={};
+db.ref('fabrica_v5/avisos_llegada').limitToLast(200).on('value',snap=>{
+  avisosLlegadaData=snap.val()||{};
+  actualizarBadgeTablero();
+  if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
+});
+function avisosLlegadaPendientes(){
+  return Object.entries(avisosLlegadaData||{}).filter(([,a])=>a&&!a.resuelto_ts).map(([id,a])=>({id,...a})).sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
+function actualizarBadgeTablero(){
+  const b=document.getElementById('tab-btn-pendientes'); if(!b||!TB_USERS.includes(quienSoy())) return;
+  const n=['ariel','noelia'].includes(quienSoy())?avisosLlegadaPendientes().length:0;
+  b.textContent=n?`Tablero (${n})`:'Tablero';
+}
+function resolverAvisoLlegada(id){
+  db.ref(`fabrica_v5/avisos_llegada/${id}`).update({resuelto_ts:Date.now(),resuelto_por:quienSoy()});
+}
+function abrirAvisoLlegada(tipoInicial){
+  const tipos=['Tela','Entrega de taller','Avío','Producto de proveedor','Otro'];
+  const ini=tipos.find(t=>tipoInicial&&t.toLowerCase().startsWith(String(tipoInicial).toLowerCase().slice(0,4)))||'Entrega de taller';
+  let bg=document.getElementById('aviso-llegada-bg');
+  if(!bg){ bg=document.createElement('div'); bg.id='aviso-llegada-bg'; bg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px'; document.body.appendChild(bg); }
+  bg.innerHTML=`<div style="background:var(--surface);border-radius:14px;padding:18px;width:100%;max-width:420px;display:flex;flex-direction:column;gap:10px">
+    <div style="font-size:16px;font-weight:700">📣 Avisar que llegó mercadería</div>
+    <div style="font-size:12px;color:var(--text2)">Le queda a Noe en el Tablero para cargarlo.</div>
+    <div class="field"><label>Qué llegó</label><select id="al-tipo" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px">${tipos.map(t=>`<option ${t===ini?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="field"><label>Proveedor o taller</label><input type="text" id="al-prov" placeholder="Ej: Ciprian, Textil Avellaneda"></div>
+    <div class="field"><label>Nota</label><input type="text" id="al-nota" placeholder="Ej: corte 187, 6 rollos, remito 4410"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn-sm" onclick="document.getElementById('aviso-llegada-bg').remove()">Cancelar</button><button class="btn-primary" onclick="guardarAvisoLlegada()">Avisar a Noe</button></div>
+  </div>`;
+}
+function guardarAvisoLlegada(){
+  const tipo=document.getElementById('al-tipo').value, proveedor=document.getElementById('al-prov').value.trim(), nota=document.getElementById('al-nota').value.trim();
+  if(!proveedor&&!nota){ showToast('Poné el proveedor o una nota'); return; }
+  db.ref('fabrica_v5/avisos_llegada').push({tipo,proveedor,nota,por:quienSoy(),ts:Date.now()});
+  logActivity('Avisó llegada de mercadería',`${tipo}${proveedor?' — '+proveedor:''}${nota?' · '+nota:''}`);
+  document.getElementById('aviso-llegada-bg').remove();
+  showToast('📣 Listo, Noe ya lo ve en el Tablero');
+}
 function avioRecibidoDesdeTalleres(secId,itemId){
-  if(!puedeAvioRecibido()){ showToast('Solo Ariel, Peque o Emir pueden marcar el avío recibido'); return; }
+  if(!puedeAvioRecibido()){ sinPermisoIngreso('avíos'); return; }
   const item=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!item) return;
   const pend=Object.entries(item.avios||{}).filter(([,a])=>a&&!a.recibido);
   if(!pend.length){ checkCorteListoParaTaller(secId,itemId,item.avios||{}); return; }
@@ -10949,6 +11020,7 @@ function avioRecibidoDesdeTalleres(secId,itemId){
     up[`fabrica_v5/sections/${secId}/items/${itemId}/avios/${id}/fecha_recibido`]=fecha;
     aviosAct[id]={...a,recibido:true,fecha_recibido:fecha};
   });
+  avisoAvioANoe(item,pend.map(([,a])=>a),secId,itemId);
   db.ref().update(up);
   logActivity('Avío recibido',`${nombres} — ${item.code||''} (${fecha})`);
   showToast(`✓ Avío recibido el ${fecha}`);
@@ -11023,6 +11095,12 @@ function marcarAvioPedidoHoy(secId,itemId,avioId){
   }
   const hoy=new Date().toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_pedido`).set(hoy);
+  // Fecha en que el proveedor dijo que llega (para "Hoy tiene que pasar" en el Tablero).
+  { const est=new Date(sumarDiasHabiles(Date.now(),avio.tenido?7:2)).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const r=prompt(`¿Para qué día quedó la entrega de "${avio.nombre}"? (dd/mm/aaaa)\nSi no sabés, dejá la estimada.`,est);
+    const ts=r?logiParseFechaEntregado(r.trim()):0;
+    if(ts) db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_llegada`).set(isoFechaLocal(ts));
+  }
   logActivity('Avío pedido',`${avio.nombre} — ${item.code} (${hoy})`);
   showToast(`📅 Pedido hoy (${hoy})`);
   const aviosAct={...item.avios,[avioId]:{...avio,fecha_pedido:hoy,precio}};
@@ -11042,8 +11120,10 @@ function desmarcarAvioPedido(secId,itemId,avioId){
 }
 
 function marcarRecibido(secId,itemId,avioId){
+  if(!puedeRecibirAvio()){ sinPermisoIngreso('avíos'); return; }
   const item=sectionsData[secId].items[itemId];
   const avio=item.avios[avioId];
+  avisoAvioANoe(item,[avio],secId,itemId);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/recibido`).set(true);
   logActivity('Avío recibido',`${avio.nombre} — ${item.code}`);
   showToast('✓ Avío marcado como entregado');
@@ -11053,6 +11133,7 @@ function marcarRecibido(secId,itemId,avioId){
 }
 
 function desmarcarRecibido(secId,itemId,avioId){
+  if(!puedeRecibirAvio()){ showToast('Solo Noelia, Peque o Ariel'); return; }
   const item=sectionsData[secId].items[itemId];
   const avio=item.avios[avioId];
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/recibido`).set(false);
@@ -11384,7 +11465,7 @@ function openEditModal(secId,itemId){
   const filasExistentes=Object.entries(item.capas||{}).map(([id,f])=>({id,color:f.color||'',cant:{...(f.cant||{})}}));
   editCtx.capasRows=filasExistentes.length?filasExistentes:[{id:'r'+Date.now(),color:'',cant:{}}];
 
-  const capasSectionHtml=esCorte?`
+  const capasSectionHtml=(esCorte&&puedeCargarCorte(item))?`
     <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-top:10px">Capas por color</div>
     <div class="field"><label>Talles (separados por coma)</label>
       <div style="display:flex;gap:6px">
@@ -11409,13 +11490,14 @@ function openEditModal(secId,itemId){
         <div class="field"><label>Cantidad por unidad${esCorte?' *':''}</label><input type="text" id="aq-${avioId}" value="${avio.cantidad||''}" placeholder="Ej: 2"></div>
         <div class="field"><label>Precio${esCorte?' *':''}</label><input type="text" id="apr-${avioId}" value="${avio.precio||''}" placeholder="Ej: 150"></div>
         <div class="field"><label>Fecha pedido</label><input type="text" id="af-${avioId}" value="${avio.fecha_pedido||''}"></div>
+        <div class="field"><label>Llega el (fecha coordinada con el proveedor)</label><input type="date" id="al-${avioId}" value="${avio.fecha_llegada||''}"></div>
         <div class="field"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="at-${avioId}" ${avio.tenido?'checked':''} style="width:auto;margin:0"> Lleva teñido (tarda ~7 días hábiles en llegar)</label></div>
         ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" style="margin-top:4px;width:100%" onclick="deleteAvio('${secId}','${itemId}','${avioId}')">Eliminar avío</button>`:''}
       </div>`).join('')}
     </div>
     <button class="btn-sm" onclick="addAvioField()" style="width:100%;padding:8px">+ Agregar avío</button>`;
   document.getElementById('modal-edit').classList.remove('hidden');
-  if(esCorte) renderCapasEditor();
+  if(esCorte&&puedeCargarCorte(item)) renderCapasEditor();
 }
 
 // ---- Editor de capas por color/talle ----
@@ -11492,6 +11574,7 @@ function addAvioField(){
     <div class="field"><label>Cantidad por unidad${esCorte?' *':''}</label><input type="text" id="aq-${n}" placeholder="Ej: 2"></div>
     <div class="field"><label>Precio${esCorte?' *':''}</label><input type="text" id="apr-${n}" placeholder="Ej: 150"></div>
     <div class="field"><label>Fecha pedido</label><input type="text" id="af-${n}" placeholder="Ej: 8/6/2026"></div>
+    <div class="field"><label>Llega el (fecha coordinada con el proveedor)</label><input type="date" id="al-${n}"></div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="at-${n}" style="width:auto;margin:0"> Lleva teñido (tarda ~7 días hábiles en llegar)</label></div>`;
   document.getElementById('avios-edit').appendChild(d);
 }
@@ -11523,7 +11606,7 @@ function saveEditItem(){
     numero_corte:document.getElementById('e-numcorte').value.trim(),
   };
   const codigoAnterior=item.code||'';
-  if(esCorte){
+  if(esCorte&&puedeCargarCorte(item)){
     syncCapasFromDOM();
     const capasObj={};
     (editCtx.capasRows||[]).forEach(row=>{
@@ -11578,6 +11661,7 @@ function saveEditItem(){
       fecha_pedido:nuevaFechaPedido,
       tenido:!!document.getElementById(`at-${avioId}`)?.checked,
     };
+    { const al=document.getElementById(`al-${avioId}`); if(al) avioUpdate.fecha_llegada=al.value||null; }
     // Si cargan una fecha de pedido anterior a hoy (ej: Peque anota que lo pidió hace unos días
     // y recién ahora lo carga), se guarda igual — pero le queda un aviso a Ariel/Stef en "Mis
     // pendientes" para que lo revisen después, en vez de bloquear la carga en el momento.
@@ -11598,6 +11682,7 @@ function saveEditItem(){
         cantidad:(document.getElementById(`aq-new${i}`)?.value||'').trim(),
         precio:(document.getElementById(`apr-new${i}`)?.value||'').trim(),
         fecha_pedido:(document.getElementById(`af-new${i}`)?.value||'').trim(),
+        fecha_llegada:document.getElementById(`al-new${i}`)?.value||null,
         tenido:!!document.getElementById(`at-new${i}`)?.checked,
         recibido:false
       };
@@ -12043,6 +12128,8 @@ function getMisPendientesPeque(){
 }
 
 function getMisPendientesEmir(){
+  // Oct 2026: recibir avíos y cargar rollos del corte pasaron a Noelia/Peque — se ven en el Tablero.
+  return [];
   const list=[];
   forEachAvio((secId,itemId,item,avioId,avio)=>{
     if(avio.fecha_pedido&&!avio.recibido) list.push({secId,itemId,item,texto:`Avío pedido, falta recibir: ${avio.nombre}`,ts:item.fecha_etapa||item.fecha_ingreso||0});
@@ -12614,7 +12701,8 @@ db.ref('fabrica_v5/telas_stock').on('value', snap => {
   if(!document.getElementById('tab-telas').classList.contains('hidden') && tsVista.modo!=='form') renderTelasStock();
 });
 function tsEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function tsPuedeCargar(){ return currentUser==='ariel'||currentUser==='emir'; }
+// Oct 2026: usar rollos en cortes, quitar usos y cargar remitos pasa a Noelia (y Ariel); Emir ya no.
+function tsPuedeCargar(){ return ['ariel','noelia'].includes(quienSoy()); }
 function tsNum(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isFinite(n)?n:0; }
 // En Telas los kilos/metros se muestran siempre con 2 decimales (82,50); los pesos sin decimales.
 function tsFmt(n,dec){ const d=dec?2:0; return (Math.round((Number(n)||0)*100)/100).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
@@ -12702,7 +12790,7 @@ function renderTelasStock(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="ts-btn-out" onclick="tsVista.modo='remitos';renderTelasStock()">Remitos</button>
         ${currentUser==='ariel'?`<button class="ts-btn-out" onclick="tsVista.modo='nombres';renderTelasStock()">Nombres de telas${telasGruposRepetidas().length?` <b style="color:#b45309">(${telasGruposRepetidas().length})</b>`:''}</button>`:''}
-        ${tsPuedeCargar()?`<button class="ts-btn-out" onclick="tsNuevoRemito(true)">Cargar stock inicial</button><button class="ts-btn" onclick="tsNuevoRemito()">+ Ingresar remito</button>`:''}
+        ${puedeCargarIngreso()?`<button class="ts-btn-out" onclick="tsNuevoRemito(true)">Cargar stock inicial</button><button class="ts-btn" onclick="tsNuevoRemito()">+ Ingresar remito</button>`:`<button class="ts-btn-out" onclick="abrirAvisoLlegada('Tela')">📣 Avisar que llegó tela</button>`}
       </div>
     </div>
     ${tsPendientesRevision().length?`<button class="ts-aviso" onclick="tsVista.modo='revision';renderTelasStock()">🔁 ${tsPendientesRevision().length} rollo${tsPendientesRevision().length>1?'s':''} para revisar ›</button>`:''}
@@ -12782,7 +12870,7 @@ function renderTsTela(){
             ${ed?`<button class="ts-link" style="text-align:left;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="elegirColor(tsData.rollos['${id}'].tela,c=>tsInlineColor('${id}',c))">${tsEsc(r.color||'—')}</button>`:''}
             <span>${ed?`<input class="ts-in" inputmode="decimal" value="${(Number(rest)||0).toFixed(2).replace('.',',')}" aria-label="Kilos de ${tsEsc(r.codigo)}" onchange="tsInlineKg('${id}',this.value)" style="width:70px;padding:5px 7px;border:1px solid var(--border);border-radius:7px;font:inherit;font-size:13px;text-align:right"> ${u}`:`<b>${tsFmt(rest,1)} ${u}</b>`}${rest!==tsNum(r.inicial)?` <small style="color:var(--text2)">de ${tsFmt(tsNum(r.inicial),1)}</small>`:''}</span>
             <span><span class="ts-estado ${e[1]}">${e[0]}</span></span>
-            <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${tsPuedeCargar()?`<button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar</button>`:''}${currentUser==='ariel'&&!r.devolucion&&r.estado!=='revision'?` <button class="ts-link" title="Devolver al proveedor" onclick="tsVerColor(tsData.rollos['${id}'].tela,tsData.rollos['${id}'].color);tsDevAbrir('${id}')">↩</button>`:''}${r.devolucion?' <span class="ts-estado sobr">Dev. parcial</span>':''}</span>
+            <span style="text-align:right">${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️</button> `:''}${currentUser==='ariel'&&!r.devolucion&&r.estado!=='revision'?` <button class="ts-link" title="Devolver al proveedor" onclick="tsVerColor(tsData.rollos['${id}'].tela,tsData.rollos['${id}'].color);tsDevAbrir('${id}')">↩</button>`:''}${r.devolucion?' <span class="ts-estado sobr">Dev. parcial</span>':''}</span>
           </div>${tsUsosHtml(id,r)}`; }).join('')}
       </div>`; }).join('')||'<div class="empty-state">No hay rollos disponibles de esta tela.</div>'}`;
 }
@@ -12811,7 +12899,7 @@ function renderTsColor(){
         <div><b>${tsEsc(r.codigo)}</b><span class="ts-sub">${r.deInventario?'Stock inicial':'Remito '+tsEsc(r.numeroRemito||'')} · ${tsFechaCorta(r.fechaIngreso)}</span></div>
         <div style="text-align:right"><b>${r.estado==='devuelto'?`${tsFmt(tsNum(r.inicial),1)} ${u}`:(r.estado==='sobrante'||r.devolucion)&&tsNum(r.restante)!==tsNum(r.inicial)?`${tsFmt(tsNum(r.restante),1)} de ${tsFmt(tsNum(r.inicial),1)} ${u}`:`${tsFmt(tsNum(r.estado==='usado'?r.inicial:r.restante),1)} ${u}`}</b>
           ${r.devolucion&&r.estado==='entero'?'':`<span class="ts-estado ${e[1]}">${e[0]}</span>`}${r.devolucion&&r.estado!=='devuelto'?` <span class="ts-estado sobr">Devolución parcial · ${tsFmt(tsNum(r.devolucion.cantidad),2)} ${u}</span>`:''}${currentUser==='ariel'&&r.estado!=='devuelto'?` <button class="ts-link" style="margin-left:6px" onclick="tsEditarRollo('${id}')">✏️</button>`:''}
-          ${tsPuedeCargar()&&r.estado!=='usado'&&r.estado!=='devuelto'?`<br><button class="ts-link" onclick="tsAsignarACorte('${id}')">✂️ Usar en un corte</button>`:''}
+          
           ${currentUser==='ariel'&&!r.devolucion&&r.estado!=='usado'&&r.estado!=='revision'&&tsRestanteDe(r)>0&&tsDevForm.id!==id?`<br><button class="ts-link" onclick="tsDevAbrir('${id}')">↩ Devolver al proveedor</button>`:''}</div>
       </div>${tsDevForm.id===id?tsDevFormHtml(id,r):''}${r.devolucion?tsDevInfoHtml(id,r):''}<div style="margin:-4px 0 10px 12px">${tsUsosHtml(id,r)}</div>`; }).join(''):'<div class="empty-state">No hay rollos en este estado.</div>'}`;
 }
@@ -13002,6 +13090,7 @@ function tsBorrarRemito(id){
 // inicial=true: inventario de arranque. Mismo formulario, pero sin N° de remito ni facturación,
 // proveedor y precio opcionales, y cada grupo de rollos se puede marcar como sobrantes.
 function tsNuevoRemito(inicial){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('tela'); return; }
   tsForm={ inicial:!!inicial, numero:inicial?'INVENTARIO':'', fecha:tsHoyISO(), proveedor:'', tela:'', unidad:'kg', moneda:'ARS', precio:'', cotizacionIngreso:'', colores:[{color:'',rollos:[''],sobrante:false}] };
   tsVista.modo='form'; renderTelasStock(); window.scrollTo(0,0);
 }
@@ -13096,6 +13185,7 @@ function tsElegirLista(sel,campo){
   tsForm[campo]=limpio; renderTsForm();
 }
 async function tsGuardarRemito(){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('tela'); return; }
   const f=tsForm, t=tsTotales();
   const falta=[]; if(!f.inicial&&!f.numero.trim()) falta.push('N° de remito'); if(!f.inicial&&!f.proveedor) falta.push('proveedor'); if(!f.tela) falta.push('tela'); if(!f.inicial&&!tsNum(f.precio)) falta.push('precio'); if(!t.rollos) falta.push('al menos un rollo con su peso');
   if(f.colores.some(c=>c.rollos.some(x=>tsNum(x)>0)&&!c.color.trim())) falta.push('el color de cada grupo de rollos');
@@ -13681,7 +13771,7 @@ function cmpBannerCortesHtml(){
 // La tela y la combinación las cargan Ariel o Peque; los kilos de collareta usados, Emir (o Ariel/Peque).
 // Los kilos usados bajan del stock como cualquier rollo: lo que no carga Ariel queda pendiente de su revisión.
 const colPuedeConfig=()=>currentUser==='ariel'||currentUser==='peque';
-const colPuedeUsos=()=>currentUser==='ariel'||currentUser==='emir'||currentUser==='peque';
+const colPuedeUsos=()=>['ariel','noelia'].includes(quienSoy());
 const colK=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9]/g,'_')||'_';
 function colBaseColores(item){ const set=new Set(); const g=grupoCorteOf(item);
   [g&&g.capas,item.capas,g&&g.rollos,item.rollos].forEach(o=>Object.values(o||{}).forEach(x=>{ if(x&&x.color&&x.color.trim()) set.add(x.color.trim()); })); return [...set]; }
@@ -14292,7 +14382,7 @@ function tbFilasLogistica(){
 // "Hoy tiene que pasar": entregas prometidas, avíos que llegan y cortes programados.
 function tbHoyTienePasar(){
   const hoy=tbHoyIso(); const hoyAr=fmtFecha(Date.now());
-  const entregas=[], avios=[], cortes=[];
+  const entregas=[], avios=[], cortes=[], retiros=[];
   const entregaHoy=(it)=>Object.values(logiItemsData||{}).some(l=>l&&l.numero_corte===it.numero_corte&&l.code===it.code&&l.fecha_entregado===hoyAr);
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
     if(!sec||secId===SEC_CMP_ENTREGADO) return;
@@ -14311,6 +14401,16 @@ function tbHoyTienePasar(){
           entregas.push({secId,itemId,que:`${nombre}${it.taller_corte?' · '+it.taller_corte:''}`,
             detalle:`${it.name||''}${enTaller?' · '+enTaller+' en taller':''} · ${ef.fuente==='taller'?'el taller dijo':'estimada'} ${tbFmtIso(ef.fecha)}`,
             estado:llego?'Llegó':tarde?`${tarde} d tarde`:'Esperando',tipo:llego?'ok':tarde?'tarde':'pend',orden:llego?2:tarde?0:1});
+        }
+      }
+      // Retiros de talleres: la fecha coordinada de retiro (fecha_estimada_entrega) hoy o vencida.
+      if(secId==='sFIN'&&it.fecha_estimada_entrega&&it.fecha_estimada_entrega<=hoy&&!it.es_complemento){
+        const retiroHoy=it.retirado_taller&&it.fecha_retiro_confirmado&&isoFechaLocal(it.fecha_retiro_confirmado)===hoy;
+        if(!it.retirado_taller||retiroHoy){
+          const tarde=!it.retirado_taller&&it.fecha_estimada_entrega<hoy?tbDiasHabilesTarde(it.fecha_estimada_entrega):0;
+          retiros.push({secId,itemId,que:`${nombre}${it.taller_corte?' · '+it.taller_corte:''}`,
+            detalle:`${it.name||''} · retiro coordinado ${tbFmtIso(it.fecha_estimada_entrega)}`,
+            estado:it.retirado_taller?'Retiró':tarde?`${tarde} d tarde`:'Esperando',tipo:it.retirado_taller?'ok':tarde?'tarde':'pend',orden:it.retirado_taller?2:tarde?0:1});
         }
       }
       // Avíos sin recibir con llegada hoy o vencida (fecha cargada o estimada desde el pedido).
@@ -14341,6 +14441,7 @@ function tbHoyTienePasar(){
     {titulo:'Entregas de talleres',filas:ord(entregas)},
     {titulo:'Avíos que llegan',filas:ord(avios)},
     {titulo:'Cortes programados',filas:ord(cortes)},
+    {titulo:'Retiros de talleres',filas:ord(retiros)},
   ];
 }
 
@@ -14391,6 +14492,20 @@ function renderTablero(cont,filas){
       <div class="tb-kpi"><span>Vencen hoy</span><b style="color:var(--warn-text)">${nHoy}</b></div>
       <div class="tb-kpi"><span>Al día</span><b>${todas.length-nDem-nHoy}</b></div>
     </div>`;
+
+  // Avisos de llegada (Emir/otros) y avíos que marcó Peque: Noe los carga o revisa
+  const avL=avisosLlegadaPendientes();
+  if(avL.length){
+    const puedeRes=['ariel','noelia'].includes(quienSoy());
+    h+=`<div class="tb-box" style="border-color:#f59e0b;background:#fffbeb"><div class="tb-box-h"><b>📣 Llegó mercadería · para cargar o revisar</b><span>${avL.length}</span></div><div style="display:flex;flex-direction:column;gap:6px">`;
+    avL.forEach(a=>{
+      h+=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #fde68a;padding-top:6px;flex-wrap:wrap">
+        <div style="min-width:0;font-size:13px"><b>${e(a.tipo||'Mercadería')}${a.proveedor?' · '+e(a.proveedor):''}</b><div style="font-size:12px;color:var(--text2)">${e(a.nota||'')} · avisó ${e(USER_DISPLAY[a.por]||a.por||'')} ${cuandoAviso(a.ts)}</div></div>
+        ${puedeRes?`<div style="display:flex;gap:6px">${a.secId&&a.itemId?`<button class="btn-sm" onclick="irAItem('${a.secId}','${a.itemId}')">Ver</button>`:''}<button class="tb-chip-btn" onclick="resolverAvisoLlegada('${a.id}')">✓ ${a.origen==='avio_peque'?'Revisado':'Ya lo cargué'}</button></div>`:''}
+      </div>`;
+    });
+    h+=`</div></div>`;
+  }
 
   // Hoy tiene que pasar
   const hoyG=tbHoyTienePasar();
@@ -14652,6 +14767,7 @@ function fmtTime(ts){
 // cuentan y controlan con las mismas herramientas de siempre. Ese conteo es lo único que
 // mueve "Entregado"/"En taller" en la tarjeta de Fábrica — no hay carga por duplicado.
 function logiAbrirNuevaEntregaCorte(){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   // Busca candidatos en las TRES secciones donde un corte puede estar esperando que lo cuenten:
   // recién salido de costura (sFIN), en Taller de Estampado, o en Taller de Terminación. Antes
   // solo miraba sFIN, así que un corte que ya había pasado a Estampado/Terminación con el botón
@@ -14744,6 +14860,7 @@ function pedirFechaEntrega(msg){
   }
 }
 function logiCrearEntregaDesdeCorte(secId,itemId){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   const item=sectionsData[secId].items[itemId];
   if(item&&item.es_complemento){ showToast(`🧩 El ${(item.complemento_de&&item.complemento_de.que)||'complemento'} se entrega con el corte ${(item.complemento_de&&item.complemento_de.numero)||'base'}`); return; }
   // Antes esta entrega se creaba SIN fecha_entregado → aparecía "Entregado sin fecha de entrega".
@@ -15762,7 +15879,7 @@ function renderCortesTab(){
         :(cortado?(logiId?chip('Pendiente fecha',avisoBg,avisoCol):`<span onclick="event.stopPropagation();irAItem('${secId}','${itemId}','fecha')" title="Ir a cargar la fecha">${chip('Pendiente fecha ›',avisoBg,avisoCol)}</span>`):'<span style="color:var(--text3)">—</span>');
       const cant=cortesTabCantidad(item);
       const [bg,col]=EST_COL[estado.key]||EST_COL.otro;
-      const faltaTela=cortado&&!logiId&&item.done&&!item.stock_bajado_tela;
+      const faltaTela=false; // oct 2026: "Falta bajar tela" ya no se usa
       const onclick=logiId?`cortesTabVerCorte(null,null,'${logiId}')`:`cortesTabVerCorte('${secId}','${itemId}',null)`;
       return `<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="${onclick}">
         <td style="padding:8px;font-weight:700;color:var(--accent);white-space:nowrap">${esc(item.numero_corte)}</td>
@@ -16810,6 +16927,7 @@ function webExportarExcel(){
 
 // ===== Prendas de proveedor (mercadería que no sale de un corte propio) =====
 function logiOpenProveedorModal(){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('producto de proveedor'); return; }
   document.getElementById('logi-prov-code').value='';
   document.getElementById('logi-prov-name').value='';
   document.getElementById('logi-prov-proveedor').value='';
@@ -16838,6 +16956,7 @@ function logiProvTriggerFoto(){
   input.click();
 }
 async function logiConfirmarProveedor(){
+  if(!puedeCargarIngreso()){ sinPermisoIngreso('producto de proveedor'); return; }
   const code=document.getElementById('logi-prov-code').value.trim();
   const name=document.getElementById('logi-prov-name').value.trim();
   const proveedor=document.getElementById('logi-prov-proveedor').value.trim();

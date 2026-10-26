@@ -980,6 +980,7 @@
       <button class="tab" id="tab-btn-fabrica">Fábrica</button>
       <button class="tab" id="tab-btn-talleres">Talleres</button>
       <button class="tab" id="tab-btn-pendientes">Pendientes</button>
+      <button class="tab hidden" id="tab-btn-resumen">📋 Resumen del día</button>
       <button class="tab" id="tab-btn-galeria">Galería</button>
       <button class="tab hidden" id="tab-btn-prodmes">⭐ Productos del mes</button>
       <button class="tab hidden" id="tab-btn-telas">🧵 Telas</button>
@@ -1030,6 +1031,7 @@
       </div>
       <div id="pendientes-list"><div class="loading">Cargando...</div></div>
     </div>
+    <div id="tab-resumen" class="hidden"><div id="resumen-content"><div class="loading">Cargando...</div></div></div>
     <div id="tab-galeria" class="hidden">
       <div class="galeria-hint">📌 Arrastrá las fotos para acomodarlas como quieras — el orden queda guardado.</div>
       <div id="galeria-content"><div class="loading">Cargando...</div></div>
@@ -1201,6 +1203,13 @@
     <input type="text" id="logi-prov-proveedor" placeholder="Ej: Textil Once" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
     <label style="font-size:11px;color:var(--text2);font-weight:600">Fecha de entrega</label>
     <input type="text" id="logi-prov-fecha" placeholder="dd/mm/aaaa" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px">
+    <div style="display:flex;gap:8px">
+      <div style="flex:1"><label style="font-size:11px;color:var(--text2);font-weight:600">N° de remito</label>
+      <input type="text" id="logi-prov-remito" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px"></div>
+      <div style="flex:1"><label style="font-size:11px;color:var(--text2);font-weight:600">Precio por prenda</label>
+      <input type="text" id="logi-prov-precio" inputmode="decimal" placeholder="Ej: 23000" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin:-4px 0 10px">Con el precio, a Meli le llega para facturar cuando se cierra el control (cantidad contada × precio).</div>
     <div class="logi-mbtns">
       <button class="logi-cancel" onclick="logiCerrarProveedorModal()">Cancelar</button>
       <button class="logi-save" onclick="logiConfirmarProveedor()">Agregar</button>
@@ -10955,6 +10964,52 @@ function destinoEntregaLabel(item){
 function quienSoy(){ return usuarioLogueado||currentUser; }
 function puedeCargarIngreso(){ return ['ariel','noelia'].includes(quienSoy()); }
 function puedeRecibirAvio(){ return ['ariel','noelia','peque'].includes(quienSoy()); }
+// Ingreso de avíos para Meli (oct 2026): al marcar un avío recibido se cargan remito, cantidad y precio.
+// Queda en fabrica_v5/ingresos/{id} y Meli lo confirma contra la factura en egresos (suma al debe del proveedor).
+// "Cargar después" igual lo deja en la lista de Meli, sin importe, para que lo complete con la factura.
+// Número escrito a la argentina: "23.000" = 23000, "0,40" = 0.4, "8.5" = 8.5.
+function numAr(v){ let t=String(v==null?'':v).trim().replace(/[^\d.,-]/g,''); if(!t) return 0;
+  if(t.includes(',')) t=t.replace(/\./g,'').replace(',','.'); else if(/\.\d{3}(\.|$)/.test(t)) t=t.replace(/\./g,'');
+  const n=parseFloat(t); return isFinite(n)?n:0; }
+function pedirIngresoAvio(item,avio){
+  return new Promise(res=>{
+    let bg=document.getElementById('ing-avio-bg');
+    if(!bg){ bg=document.createElement('div'); bg.id='ing-avio-bg'; bg.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:400;display:flex;align-items:center;justify-content:center;padding:16px'; document.body.appendChild(bg); }
+    const e=etEsc, inp='width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 8px';
+    bg.innerHTML=`<div style="background:var(--surface);border-radius:14px;padding:18px;width:100%;max-width:400px">
+      <div style="font-size:16px;font-weight:700">📥 Ingreso de avío</div>
+      <div style="font-size:12px;color:var(--text2);margin:2px 0 12px"><b>${e(avio.nombre||'Avío')}</b>${avio.proveedor?' · '+e(avio.proveedor):''} · ${e(item.numero_corte?'corte '+String(item.numero_corte).replace(/^corte\s*/i,'')+' · ':'')}${e(item.code||'')}<br>Le llega a Meli para confirmar con la factura.</div>
+      <label style="font-size:11px;color:var(--text2);font-weight:600">Proveedor</label><input id="ia-prov" style="${inp}" value="${e(avio.proveedor||'')}">
+      <label style="font-size:11px;color:var(--text2);font-weight:600">N° de remito</label><input id="ia-rem" style="${inp}">
+      <div style="display:flex;gap:8px"><div style="flex:1"><label style="font-size:11px;color:var(--text2);font-weight:600">Cantidad que llegó</label><input id="ia-cant" inputmode="decimal" style="${inp}"></div>
+      <div style="flex:1"><label style="font-size:11px;color:var(--text2);font-weight:600">Precio unitario</label><input id="ia-pre" inputmode="decimal" style="${inp}" value="${e(avio.precio||'')}"></div></div>
+      <div id="ia-tot" style="font-size:13px;font-weight:700;margin:2px 0 12px">Total: —</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap"><button class="btn-sm" id="ia-luego">Cargar después</button><button class="btn-primary" id="ia-ok">Guardar ingreso</button></div></div>`;
+    const num=v=>numAr(v);
+    const tot=()=>{ const t=num(document.getElementById('ia-cant').value)*num(document.getElementById('ia-pre').value); document.getElementById('ia-tot').textContent='Total: '+(t?'$'+Math.round(t).toLocaleString('es-AR'):'—'); return t; };
+    ['ia-cant','ia-pre'].forEach(id=>document.getElementById(id).oninput=tot);
+    const cerrar=v=>{ bg.remove(); res(v); };
+    document.getElementById('ia-luego').onclick=()=>cerrar({luego:true,proveedor:document.getElementById('ia-prov').value.trim()||avio.proveedor||''});
+    document.getElementById('ia-ok').onclick=()=>{
+      const cantidad=num(document.getElementById('ia-cant').value), precio=num(document.getElementById('ia-pre').value);
+      if(!cantidad||!precio){ showToast('Poné cantidad y precio, o tocá "Cargar después"'); return; }
+      cerrar({proveedor:document.getElementById('ia-prov').value.trim(),remito:document.getElementById('ia-rem').value.trim(),cantidad,precio,total:Math.round(cantidad*precio*100)/100});
+    };
+  });
+}
+async function registrarIngresoAvio(secId,itemId,item,avioId,avio){
+  if(!item||!avio) return;
+  const d=await pedirIngresoAvio(item,avio);
+  const id=db.ref('fabrica_v5/ingresos').push().key;
+  const num=item.numero_corte?'corte '+String(item.numero_corte).replace(/^corte\s*/i,''):'';
+  await db.ref().update({
+    [`fabrica_v5/ingresos/${id}`]:{tipo:'Avío',proveedor:d.proveedor||avio.proveedor||'',remito:d.remito||'',detalle:[avio.nombre,num,item.code].filter(Boolean).join(' · '),
+      cantidad:d.cantidad||null,precio:d.precio||null,total:d.total||0,moneda:'ARS',sin_datos:d.luego||null,fecha:isoFechaLocal(Date.now()),por:quienSoy(),ts:Date.now(),ref:{secId,itemId,avioId}},
+    [`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/ingreso_id`]:id
+  });
+  logActivity('Cargó ingreso de avío',`${avio.nombre||'Avío'} — ${item.code||''}${d.total?' · $'+Math.round(d.total).toLocaleString('es-AR'):' · sin importe'}`);
+  showToast(d.luego?'Avío recibido · Meli lo completa con la factura':'📥 Ingreso guardado · le llega a Meli');
+}
 // Cuando Peque marca un avío recibido, a Noe le queda el aviso en el Tablero para revisarlo.
 function avisoAvioANoe(item,avios,secId,itemId){
   if(quienSoy()!=='peque'||!item) return;
@@ -11021,6 +11076,7 @@ function avioRecibidoDesdeTalleres(secId,itemId){
     aviosAct[id]={...a,recibido:true,fecha_recibido:fecha};
   });
   avisoAvioANoe(item,pend.map(([,a])=>a),secId,itemId);
+  (async()=>{ for(const [aid,a] of pend) await registrarIngresoAvio(secId,itemId,item,aid,a); })();
   db.ref().update(up);
   logActivity('Avío recibido',`${nombres} — ${item.code||''} (${fecha})`);
   showToast(`✓ Avío recibido el ${fecha}`);
@@ -11124,6 +11180,7 @@ function marcarRecibido(secId,itemId,avioId){
   const item=sectionsData[secId].items[itemId];
   const avio=item.avios[avioId];
   avisoAvioANoe(item,[avio],secId,itemId);
+  registrarIngresoAvio(secId,itemId,item,avioId,avio);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/recibido`).set(true);
   logActivity('Avío recibido',`${avio.nombre} — ${item.code}`);
   showToast('✓ Avío marcado como entregado');
@@ -11877,12 +11934,12 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
   stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
   // Peque ahora tiene Costeo para poder cargar/corregir Proveedor y Precio de los avíos ahí —
   // el resto de los campos de Costeo (kg, precio x kg, otros gastos, precios de venta) le
@@ -14334,8 +14391,9 @@ let tbSectorAbierto=new Set();
 let tbSoloDemorados=false;
 function tbPuedeVer(){ return TB_USERS.includes(usuarioLogueado||currentUser); }
 function tbEscuchar(){
-  db.ref('fabrica_v5/reuniones').limitToLast(14).on('value',s=>{
+  db.ref('fabrica_v5/reuniones').limitToLast(31).on('value',s=>{
     tbReuniones=s.val()||{};
+    try{ rdRefrescar(); }catch(e){}
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
   });
 }
@@ -14569,6 +14627,116 @@ function renderTablero(cont,filas){
   cont.innerHTML=h;
 }
 function tbIrLogistica(){ const b=document.getElementById('tab-btn-logistica'); if(b) b.click(); }
+
+// ===== Resumen del día (oct 2026, solo Ariel) =====
+// Lo que pasó en un día: pasos de diseño de Noe, cortes realizados, prendas que entraron de talleres,
+// lo que pasó a comercializar, ingresos (tela, avíos, prendas de proveedor) con su estado en egresos,
+// reuniones de Noe y la actividad completa de Noelia. Todo se arma con datos que ya existen.
+let rdFecha=null;
+let ingresosFabData={};
+db.ref('fabrica_v5/ingresos').limitToLast(400).on('value',s=>{ ingresosFabData=s.val()||{}; rdRefrescar(); });
+function rdRefrescar(){ const t=document.getElementById('tab-resumen'); if(t&&!t.classList.contains('hidden')) renderResumenDia(); }
+function rdMover(d){ rdFecha=isoFechaLocal(new Date(rdFecha+'T12:00:00').getTime()+d*86400000); renderResumenDia(); }
+function rdIrHoy(){ rdFecha=isoFechaLocal(Date.now()); renderResumenDia(); }
+function renderResumenDia(){
+  const cont=document.getElementById('resumen-content'); if(!cont) return;
+  if(quienSoy()!=='ariel'){ cont.innerHTML='<div class="empty-state">Solo Ariel ve el resumen del día.</div>'; return; }
+  if(!rdFecha) rdFecha=isoFechaLocal(Date.now());
+  const e=etEsc, dia=rdFecha, diaAr=fmtFecha(new Date(dia+'T12:00:00').getTime());
+  const esDia=ts=>ts&&isoFechaLocal(ts)===dia;
+  const hora=ts=>ts?new Date(ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}):'';
+  const OK=['var(--green-bg)','var(--green-text)'], PEND=['var(--warn-bg)','var(--warn-text)'];
+  const chip=(txt,c)=>`<span class="tb-chip" style="background:${c[0]};color:${c[1]}">${e(txt)}</span>`;
+  const nCorte=it=>it&&it.numero_corte?'Corte '+String(it.numero_corte).replace(/^corte\s*/i,''):'';
+  const prendasGrilla=g=>Object.values(g||{}).reduce((s,f)=>s+(parseInt(f.contado)||parseInt(f.esperado)||0),0);
+
+  // Diseño: pasos de Noe (avisos_noe)
+  const disenio=Object.values(avisosNoeData||{}).filter(a=>a&&esDia(a.ts)).sort((a,b)=>a.ts-b.ts)
+    .map(a=>({que:[a.code,a.name].filter(Boolean).join(' · ')||'(sin código)',det:a.texto||'',h:hora(a.ts)}));
+  // Cortes realizados ese día (fecha de corte real), agrupados por N° de corte
+  const cortes={};
+  Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
+    if(!it||it.es_complemento) return; const ts=fechaCorteTs(it); if(!esDia(ts)) return;
+    const k=String(it.numero_corte||it.code||'');
+    const c=cortes[k]||(cortes[k]={num:nCorte(it)||it.code||'',codes:new Set(),prendas:0,tela:it.tela||''});
+    c.codes.add(it.code||''); c.prendas+=calcularGrillaEsperada(it).reduce((s,f)=>s+(f.esperado||0),0);
+  }));
+  const cortesL=Object.values(cortes);
+  // Logística: lo que entró ese día y lo que pasó a comercializar
+  const logi=Object.entries(logiItemsData||{}).map(([id,it])=>({id,...it}));
+  const entraron=logi.filter(it=>it.fecha_entregado===diaAr&&it.origen!=='proveedor');
+  const aComerc=logi.filter(it=>it.estado==='cerrado'&&esDia(it.fecha_cerrado));
+  // Ingresos
+  const ingTela=Object.entries(tsData.remitos||{}).filter(([,r])=>r&&!r.inicial&&esDia(r.creadoEn));
+  const ingAvios=Object.values(ingresosFabData||{}).filter(x=>x&&x.fecha===dia);
+  const ingProv=logi.filter(it=>it.origen==='proveedor'&&esDia(it.fecha_creado));
+  const metaEstado=(confirmado,omitido)=>confirmado?chip('Meli confirmó',OK):omitido?chip('Sin cta. cte.',['var(--surface2)','var(--text2)']):chip('Esperando a Meli',PEND);
+
+  const bloques=[
+    {t:'Diseño',tot:`${disenio.length} paso${disenio.length!==1?'s':''}`,filas:disenio.map(d=>({que:d.que,det:d.det,h:d.h}))},
+    {t:'Cortes realizados',tot:`${cortesL.length} corte${cortesL.length!==1?'s':''} · ${cortesL.reduce((s,c)=>s+c.prendas,0).toLocaleString('es-AR')} prendas`,
+      filas:cortesL.map(c=>({que:`${c.num}${c.codes.size?' · '+[...c.codes].filter(Boolean).join(' + '):''}`,det:`${c.prendas.toLocaleString('es-AR')} prendas${c.tela?' · '+c.tela:''}`}))},
+    {t:'Prendas que entraron de talleres',tot:`${entraron.reduce((s,it)=>s+prendasGrilla(it.grilla),0).toLocaleString('es-AR')} prendas · ${entraron.length} entrega${entraron.length!==1?'s':''}`,
+      filas:entraron.map(it=>({que:`${nCorte(it)||it.code||''}${it.code&&nCorte(it)?' · '+it.code:''}${it.taller?' · '+it.taller:''}`,det:`${prendasGrilla(it.grilla).toLocaleString('es-AR')} prendas${it.proceso?' · '+it.proceso:''} · ${logiEstadoColumna(it)==='finalizado'?'controlada':'en '+logiEstadoColumna(it)}`,
+        st:it.facturado_cta_cte?chip('Meli facturó',OK):it.estado==='cerrado'?chip('Para facturar',PEND):''}))},
+    {t:'Finalizadas y a comercializar',tot:`${aComerc.length} artículo${aComerc.length!==1?'s':''}`,
+      filas:aComerc.map(it=>({que:`${it.code||''}${it.name?' · '+it.name:''}`,det:`${prendasGrilla(it.grilla).toLocaleString('es-AR')} prendas${nCorte(it)?' · '+nCorte(it):''}`,h:hora(it.fecha_cerrado)}))},
+    {t:'Ingresos de tela, avíos y producto',tot:`${ingTela.length+ingAvios.length+ingProv.length}`,
+      filas:[
+        ...ingTela.map(([,r])=>({que:`Tela · ${r.proveedor||''}${r.numero?' · remito '+r.numero:''}`,det:`${r.tela||''} · ${r.rollos||0} rollos · ${(+r.cantidad||0).toLocaleString('es-AR')} ${r.unidad==='m'?'m':'kg'} · ${r.moneda==='USD'?'US$':'$'} ${Math.round(+r.importe||0).toLocaleString('es-AR')}`,h:hora(r.creadoEn),st:metaEstado(r.egresos_cargo_id,r.egresos_omitido)})),
+        ...ingAvios.map(x=>({que:`Avío · ${x.proveedor||''}${x.remito?' · remito '+x.remito:''}`,det:`${x.detalle||''}${x.total?' · $ '+Math.round(x.total).toLocaleString('es-AR'):' · sin importe'} · cargó ${USER_DISPLAY[x.por]||x.por||''}`,h:hora(x.ts),st:metaEstado(x.egresos_cargo_id,x.egresos_omitido)})),
+        ...ingProv.map(it=>({que:`Producto · ${it.proveedor||''}${it.remito?' · remito '+it.remito:''}`,det:`${it.name||''}${it.precio_taller?' · $ '+Math.round(it.precio_taller).toLocaleString('es-AR')+' por prenda':' · sin precio'}`,h:hora(it.fecha_creado),
+          st:it.facturado_cta_cte?chip('Meli facturó',OK):chip(it.estado==='cerrado'?'Para facturar':'En conteo',PEND)})),
+      ]},
+  ];
+  const tot=[
+    ['Diseño',disenio.length,`paso${disenio.length!==1?'s':''} de diseño`],
+    ['Cortes',cortesL.length,`${cortesL.reduce((s,c)=>s+c.prendas,0).toLocaleString('es-AR')} prendas cortadas`],
+    ['Entraron',entraron.reduce((s,it)=>s+prendasGrilla(it.grilla),0).toLocaleString('es-AR'),`prendas · ${entraron.length} entrega${entraron.length!==1?'s':''}`],
+    ['A comercializar',aComerc.length,`artículo${aComerc.length!==1?'s':''}`],
+    ['Ingresos',ingTela.length+ingAvios.length+ingProv.length,'tela, avíos y producto'],
+  ];
+  // Reuniones y para mirar
+  const reg=tbReuniones[dia]||{};
+  const lun=new Date(dia+'T12:00:00').getDay()===1;
+  const reus=[['peque','Con Peque · diseño'],['emir_cortes','Con Emir · cortes'],...(lun?[['emir_semanal','Con Emir · semanal']]:[])];
+  const mirar=[];
+  const sinHacer=reus.filter(([k])=>!(reg[k]&&reg[k].hecha_ts)).map(([,n])=>n);
+  if(sinHacer.length) mirar.push(`Reuniones sin marcar: ${sinHacer.join(', ')}.`);
+  const sinMeli=ingTela.filter(([,r])=>!r.egresos_cargo_id&&!r.egresos_omitido).length+ingAvios.filter(x=>!x.egresos_cargo_id&&!x.egresos_omitido).length;
+  if(sinMeli) mirar.push(`${sinMeli} ingreso${sinMeli!==1?'s':''} de este día todavía sin confirmar por Meli.`);
+  const avP=avisosLlegadaPendientes().length; if(avP) mirar.push(`${avP} aviso${avP!==1?'s':''} de llegada de mercadería sin cargar.`);
+  // Actividad de Noelia ese día
+  const act=Object.values(actividadData||{}).filter(a=>a&&a.user==='Noelia'&&esDia(a.timestamp)).sort((a,b)=>a.timestamp-b.timestamp);
+
+  const fechaLbl=new Date(dia+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
+  let h=`<div class="tb-wrap">
+    <div class="tb-head"><div><div class="tb-h1">Resumen del día</div><div class="tb-sub">Lo que se cargó en diseño, fábrica y logística. Solo lo ves vos.</div></div>
+      <div style="display:flex;align-items:center;gap:6px"><button class="btn-sm" onclick="rdMover(-1)" aria-label="Día anterior">‹</button>
+      <b style="min-width:150px;text-align:center">${e(fechaLbl.charAt(0).toUpperCase()+fechaLbl.slice(1))}</b>
+      <button class="btn-sm" onclick="rdMover(1)" aria-label="Día siguiente">›</button>${dia!==isoFechaLocal(Date.now())?'<button class="btn-sm" onclick="rdIrHoy()">Hoy</button>':''}</div></div>
+    <div class="tb-tot">${tot.map(([l,v,sub])=>`<div class="tb-kpi"><span>${l}</span><b>${v}</b><span style="font-size:11px;color:var(--text3)">${sub}</span></div>`).join('')}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start">
+    <div style="flex:999 1 520px;min-width:0;display:flex;flex-direction:column;gap:12px">`;
+  bloques.forEach(b=>{
+    h+=`<div class="tb-box" style="padding:0;overflow:hidden;gap:0"><div style="display:flex;justify-content:space-between;gap:8px;padding:10px 14px;background:var(--surface2)"><b style="font-size:13px">${b.t}</b><b style="font-size:12px;color:var(--accent)">${e(b.tot)}</b></div>`;
+    if(!b.filas.length) h+=`<div class="tb-vacio" style="padding:8px 14px">Nada este día</div>`;
+    b.filas.forEach(f=>{ h+=`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 14px;border-top:1px solid var(--surface2);flex-wrap:wrap">
+      <div style="min-width:0"><div style="font-size:13px;font-weight:600">${e(f.que)}</div><div style="font-size:12px;color:var(--text2)">${e(f.det)}</div></div>
+      <div style="display:flex;gap:6px;align-items:center">${f.st||''}${f.h?`<span style="font-size:11px;color:var(--text3)">${f.h}</span>`:''}</div></div>`; });
+    h+=`</div>`;
+  });
+  h+=`</div><div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:12px">
+    <div class="tb-box"><b style="font-size:13px">Reuniones</b>${reus.map(([k,n])=>{const r=reg[k];const ok=r&&r.hecha_ts;
+      return `<div style="border-top:1px solid var(--surface2);padding-top:8px"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:13px;font-weight:600">${n}</span>${chip(ok?'Hecha '+hora(r.hecha_ts):'No se marcó',ok?OK:PEND)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:2px">${r&&r.nota?e(r.nota):'Sin nota.'}</div></div>`;}).join('')}</div>
+    ${mirar.length?`<div class="tb-box" style="background:var(--warn-bg);border-color:#f0d9a8"><b style="font-size:13px;color:var(--warn-text)">Para mirar</b>${mirar.map(m=>`<div style="font-size:12px;color:var(--warn-text)">${e(m)}</div>`).join('')}</div>`:''}
+    <details class="tb-box" ${act.length&&act.length<=15?'open':''}><summary style="cursor:pointer;font-size:13px;font-weight:700">Todo lo que hizo Noelia (${act.length})</summary>
+      ${act.length?act.map(a=>`<div style="display:flex;gap:8px;font-size:12px;border-top:1px solid var(--surface2);padding-top:6px"><span style="color:var(--text3);flex:none">${hora(a.timestamp)}</span><span><b>${e(a.action||'')}</b>${a.details?' · '+e(a.details):''}</span></div>`).join(''):'<div class="tb-vacio">Sin actividad registrada</div>'}
+    </details>
+  </div></div></div>`;
+  cont.innerHTML=h;
+}
 
 function renderPendientes(){
   const cont=document.getElementById('pendientes-list');
@@ -16931,6 +17099,8 @@ function logiOpenProveedorModal(){
   document.getElementById('logi-prov-code').value='';
   document.getElementById('logi-prov-name').value='';
   document.getElementById('logi-prov-proveedor').value='';
+  document.getElementById('logi-prov-remito').value='';
+  document.getElementById('logi-prov-precio').value='';
   const hoy=new Date();
   document.getElementById('logi-prov-fecha').value=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   window._logiProvFotoFile=null;
@@ -16961,7 +17131,10 @@ async function logiConfirmarProveedor(){
   const name=document.getElementById('logi-prov-name').value.trim();
   const proveedor=document.getElementById('logi-prov-proveedor').value.trim();
   const fecha=document.getElementById('logi-prov-fecha').value.trim();
+  const remitoProv=document.getElementById('logi-prov-remito').value.trim();
+  const precioProv=numAr(document.getElementById('logi-prov-precio').value);
   if(!name){ showToast('Cargá al menos el nombre de la prenda'); return; }
+  if(!precioProv&&!confirm('No pusiste el precio por prenda. Sin precio, a Meli le llega para facturar pero sin importe. ¿Guardar igual?')) return;
   let foto='';
   if(window._logiProvFotoFile){
     showToast('📤 Subiendo foto...');
@@ -16980,6 +17153,7 @@ async function logiConfirmarProveedor(){
     numero_corte:'', taller:'',
     proveedor,
     origen:'proveedor',
+    remito:remitoProv||null, precio_taller:precioProv||null, abierta_por:quienSoy(),
     fecha_entregado:fecha, fecha_creado:Date.now(),
     estado:'pendiente_conteo', grilla:{}
   };
@@ -19464,7 +19638,7 @@ function deleteCosteo(key){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-galeria','tab-prodmes','tab-telas','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-resumen','tab-galeria','tab-prodmes','tab-telas','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -19486,6 +19660,12 @@ document.getElementById('tab-btn-pendientes').onclick=function(){
   ocultarTabsMenosActiva('tab-pendientes');
   this.classList.add('active');
   renderPendientes();
+};
+document.getElementById('tab-btn-resumen').onclick=function(){
+  ocultarTabsMenosActiva('tab-resumen');
+  this.classList.add('active');
+  rdFecha=rdFecha||isoFechaLocal(Date.now());
+  renderResumenDia();
 };
 document.getElementById('tab-btn-telas').onclick=function(){
   ocultarTabsMenosActiva('tab-telas');

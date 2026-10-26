@@ -281,6 +281,36 @@
   /* --- Pendientes: filas compactas + grupos colapsables --- */
   .pend-group{margin-bottom:10px}
   /* Pendientes en columnas por persona */
+  .tb-wrap{display:flex;flex-direction:column;gap:14px}
+  .tb-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap}
+  .tb-h1{font-size:20px;font-weight:700}.tb-sub{font-size:12px;color:var(--text2);margin-top:2px}
+  .tb-tot{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .tb-kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+  .tb-kpi span{font-size:12px;color:var(--text2)}.tb-kpi b{font-size:22px}
+  .tb-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+  .tb-box-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}.tb-box-h b{font-size:14px}.tb-box-h span{font-size:12px;color:var(--text2)}
+  .tb-hoy{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+  .tb-hoy-col{background:var(--bg);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  .tb-hoy-t{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}.tb-hoy-t b{color:var(--text)}
+  .tb-hoy-f{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;font-size:12px;border-top:1px solid var(--border);padding-top:6px;cursor:pointer}
+  .tb-hoy-f>div{display:flex;flex-direction:column;gap:1px;min-width:0}.tb-hoy-f>div span{color:var(--text2)}
+  .tb-chip{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .tb-vacio{font-size:12px;color:var(--text3);padding:4px 0}
+  .tb-reus{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+  .tb-reu{border:1px solid var(--border);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  .tb-reu.pend{border-color:#f59e0b;background:#fffbeb}
+  .tb-reu-h{display:flex;justify-content:space-between;align-items:center;gap:8px}.tb-reu-h b{font-size:13px}
+  .tb-reu-q{font-size:12px;color:var(--text2);line-height:1.4}.tb-reu-d{font-size:12px;font-weight:600}
+  .tb-chip-btn{font-size:12px;font-weight:700;padding:6px 10px;border-radius:20px;border:1px solid var(--accent);background:var(--surface);color:var(--accent);cursor:pointer;white-space:nowrap}
+  .tb-chip-btn.ok{background:var(--green-bg);color:var(--green-text);border-color:var(--green-bg)}
+  .tb-nota{border:1px solid var(--border);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--surface)}
+  .tb-secs{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
+  .tb-sec{background:var(--surface2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+  .tb-sec-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 4px}
+  .tb-sec-h>div{display:flex;flex-direction:column}.tb-sec-h>div b{font-size:14px}.tb-sec-h>div span{font-size:11px;color:var(--text2)}
+  .tb-sec-n{font-size:20px}
+  .tb-sec-l{display:flex;flex-direction:column;gap:6px}
+  .tb-mas{border:0;background:transparent;font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;padding:6px}
   .pcols{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;align-items:flex-start;scroll-snap-type:x proximity}
   .pcol{flex:0 0 280px;max-width:88vw;background:var(--surface2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;scroll-snap-align:start}
   .pcol-head{display:flex;align-items:center;gap:8px}
@@ -989,7 +1019,8 @@
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--text2)">Agrupar por:</span>
         <div style="display:flex;gap:6px" id="pend-agrupar-selector">
-          <button class="btn-sm active" data-modo="empleado" onclick="pendSetAgrupar('empleado')">🧍 Por persona</button>
+          <button class="btn-sm hidden" id="pend-btn-tablero" data-modo="tablero" onclick="pendSetAgrupar('tablero')">📋 Tablero</button>
+          <button class="btn-sm" data-modo="empleado" onclick="pendSetAgrupar('empleado')">🧍 Por persona</button>
           <button class="btn-sm" data-modo="tarea" onclick="pendSetAgrupar('tarea')">👉 Tarea pendiente</button>
           <button class="btn-sm" data-modo="sector" onclick="pendSetAgrupar('sector')">🗂️ Sector</button>
         </div>
@@ -3408,6 +3439,14 @@ function doLogin(user){
     document.getElementById('pins-btn').classList.remove('hidden');
     document.getElementById('colores-tela-btn').classList.remove('hidden');
     document.getElementById('accesos-btn').classList.remove('hidden');
+  }
+  {
+    const tb=TB_USERS.includes(user);
+    document.getElementById('pend-btn-tablero').classList.toggle('hidden',!tb);
+    document.getElementById('tab-btn-pendientes').textContent=tb?'Tablero':'Pendientes';
+    pendAgrupar=tb?'tablero':'empleado';
+    document.querySelectorAll('#pend-agrupar-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo===pendAgrupar));
+    if(tb&&!tbEscuchando){ tbEscuchando=true; tbEscuchar(); }
   }
   applyTabVisibility(user);
   applyTabOrder();
@@ -13913,7 +13952,7 @@ function publishPendientesResumen(){
 let pendAgrupar='empleado'; // por defecto: columnas por persona
 function pendSetAgrupar(m){
   pendAgrupar=m;
-  document.querySelectorAll('.pend-expandir-btn').forEach(b=>b.style.display=m==='empleado'?'none':'');
+  document.querySelectorAll('.pend-expandir-btn').forEach(b=>b.style.display=(m==='empleado'||m==='tablero')?'none':'');
   document.querySelectorAll('#pend-agrupar-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo===m));
   renderPendientes();
 }
@@ -14194,6 +14233,228 @@ function renderObjetivoCortePanel(){
   </div>`;
 }
 
+// ===== Tablero (oct 2026): reemplaza la vista de Pendientes para Ariel, Stef y Noelia =====
+// Todo en una pantalla: totales, "Hoy tiene que pasar" (lo que tiene fecha coordinada para hoy),
+// reuniones diarias de Noe y una columna por sector con sus pendientes ordenados por urgencia.
+// Las reuniones se guardan en fabrica_v5/reuniones/{AAAA-MM-DD}/{clave} = {hecha_ts, por, nota}.
+const TB_USERS=['ariel','stef','noelia'];
+let tbEscuchando=false;
+let tbReuniones={};
+let tbSectorAbierto=new Set();
+let tbSoloDemorados=false;
+function tbPuedeVer(){ return TB_USERS.includes(usuarioLogueado||currentUser); }
+function tbEscuchar(){
+  db.ref('fabrica_v5/reuniones').limitToLast(14).on('value',s=>{
+    tbReuniones=s.val()||{};
+    if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
+  });
+}
+function tbHoyIso(){ return isoFechaLocal(Date.now()); }
+function tbSigHabilIso(){ return isoFechaLocal(sumarDiasHabiles(Date.now(),1)); }
+function tbIsoDeAr(s){ const ts=logiParseFechaEntregado(s); return ts?isoFechaLocal(ts):null; }
+function tbFmtIso(iso){ if(!iso) return ''; const [y,m,d]=iso.split('-'); return `${d}/${m}`; }
+function tbDiasHabilesTarde(iso){ const ts=new Date(iso+'T00:00:00').getTime(); return Math.max(0,-diasHabilesHasta(ts)); }
+
+// Sector de cada pendiente de sectionsData.
+function tbSectorDe(f){
+  const sec=sectionsData[f.secId]||{}; const tit=(sec.title||'');
+  if(esSeccionTalleres(f.secId,sec)||PIPELINE_TALLERES_SECS.includes(f.secId)) return 'talleres';
+  if(/armar tizada/i.test(tit)) return 'molderia';
+  if(getBoard(sec)==='diseno') return /molde|progresi|digitaliz|ficha/i.test(tit)?'molderia':'diseno';
+  return 'corte';
+}
+const TB_SECTORES=[
+  {k:'diseno',nombre:'Diseño y muestras'},
+  {k:'molderia',nombre:'Moldería y tizadas'},
+  {k:'corte',nombre:'Corte'},
+  {k:'talleres',nombre:'Talleres'},
+  {k:'logistica',nombre:'Logística'},
+];
+
+// Entregas abiertas de Logística como pendientes del sector Logística.
+function tbFilasLogistica(){
+  const out=[];
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+    if(!it||it.estado==='cerrado') return;
+    const col=logiEstadoColumna(it); if(col==='finalizado') return;
+    if(filtroMarca&&(it.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
+    const ts=logiParseFechaEntregado(it.fecha_entregado)||it.fecha_creado||null;
+    const dias=ts?diasHabilesEntre(ts):null;
+    const umbral=col==='dividir'?2:1;
+    const accion=col==='conteo'?'Contar':col==='control'?'Controlar':'Dividir';
+    const quien=col==='conteo'?'Nahuel · Noemí':col==='control'?'Alejandro · Noemí':'Nahuel';
+    out.push({logiId:id,item:{code:(it.numero_corte?('Corte '+String(it.numero_corte).replace(/^corte\s*/i,'')):'')+(it.code?' · '+it.code:''),name:it.name||''},
+      accion,resp:quien,dias,umbral,atrasado:dias!==null&&dias>=umbral,objetivo:false,prioridad:null,secTitle:'Logística'});
+  });
+  return out;
+}
+
+// "Hoy tiene que pasar": entregas prometidas, avíos que llegan y cortes programados.
+function tbHoyTienePasar(){
+  const hoy=tbHoyIso(); const hoyAr=fmtFecha(Date.now());
+  const entregas=[], avios=[], cortes=[];
+  const entregaHoy=(it)=>Object.values(logiItemsData||{}).some(l=>l&&l.numero_corte===it.numero_corte&&l.code===it.code&&l.fecha_entregado===hoyAr);
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    if(!sec||secId===SEC_CMP_ENTREGADO) return;
+    Object.entries(sec.items||{}).forEach(([itemId,it])=>{
+      if(!it||it.done&&secId!=='sFIN') return;
+      if(filtroMarca&&(it.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
+      const nombre=`${it.numero_corte?'Corte '+String(it.numero_corte).replace(/^corte\s*/i,''):''}${it.code?' · '+it.code:''}`||it.name||'(sin código)';
+      // Entregas de talleres: la fecha que dijo el taller (o la estimada), hoy o ya vencida.
+      if(['sFIN','s6',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION].includes(secId)&&!it.es_complemento){
+        const ef=entregaEfectivaTaller(it);
+        let enTaller=0, pendiente=false;
+        try{ const r=resumenEntregasFabrica(it,itemId); enTaller=r.enTaller||0; pendiente=r.totalEsperado?enTaller>0:!r.entregas.length; }catch(e){}
+        if(ef&&ef.fecha<=hoy&&(pendiente||entregaHoy(it))){
+          const llego=entregaHoy(it);
+          const tarde=ef.fecha<hoy?tbDiasHabilesTarde(ef.fecha):0;
+          entregas.push({secId,itemId,que:`${nombre}${it.taller_corte?' · '+it.taller_corte:''}`,
+            detalle:`${it.name||''}${enTaller?' · '+enTaller+' en taller':''} · ${ef.fuente==='taller'?'el taller dijo':'estimada'} ${tbFmtIso(ef.fecha)}`,
+            estado:llego?'Llegó':tarde?`${tarde} d tarde`:'Esperando',tipo:llego?'ok':tarde?'tarde':'pend',orden:llego?2:tarde?0:1});
+        }
+      }
+      // Avíos sin recibir con llegada hoy o vencida (fecha cargada o estimada desde el pedido).
+      Object.entries(it.avios||{}).forEach(([aid,a])=>{
+        if(!a||!a.fecha_pedido) return;
+        const llegaIso=a.fecha_llegada||isoFechaLocal(sumarDiasHabiles(logiParseFechaEntregado(a.fecha_pedido)||Date.now(),a.tenido?7:2));
+        const recHoy=a.recibido&&a.fecha_recibido&&tbIsoDeAr(a.fecha_recibido)===hoy;
+        if(a.recibido&&!recHoy) return;
+        if(llegaIso>hoy&&!recHoy) return;
+        const tarde=!a.recibido&&llegaIso<hoy?tbDiasHabilesTarde(llegaIso):0;
+        avios.push({secId,itemId,que:`${a.nombre||'Avío'}${a.proveedor?' · '+a.proveedor:''}`,
+          detalle:`Para ${nombre} · ${a.fecha_llegada?'coordinado':'estimado'} ${tbFmtIso(llegaIso)}`,
+          estado:a.recibido?'Llegó':tarde?`${tarde} d tarde`:'Esperando',tipo:a.recibido?'ok':tarde?'tarde':'pend',orden:a.recibido?2:tarde?0:1});
+      });
+      // Cortes confirmados con fecha objetivo hoy (o vencida y todavía sin cortar).
+      if(secId==='s3'&&!it.sin_confirmar&&it.fecha_objetivo_corte){
+        const iso=tbIsoDeAr(it.fecha_objetivo_corte);
+        if(iso&&iso<=hoy){
+          const tarde=iso<hoy?tbDiasHabilesTarde(iso):0;
+          cortes.push({secId,itemId,que:nombre,detalle:`${it.name||''}${it.tela?' · '+it.tela:''}`,
+            estado:tarde?`${tarde} d tarde`:'Hoy',tipo:tarde?'tarde':'pend',orden:tarde?0:1,corte:it.numero_corte});
+        }
+      }
+    });
+  });
+  const ord=l=>l.sort((a,b)=>a.orden-b.orden);
+  return [
+    {titulo:'Entregas de talleres',filas:ord(entregas)},
+    {titulo:'Avíos que llegan',filas:ord(avios)},
+    {titulo:'Cortes programados',filas:ord(cortes)},
+  ];
+}
+
+// Reuniones de Noe: Peque y Emir (cortes) todos los días hábiles; Emir semanal los lunes.
+function tbReunionesHoy(filasSector){
+  const hoy=new Date(); const lunes=hoy.getDay()===1;
+  const hoyIso=tbHoyIso(), manIso=tbSigHabilIso();
+  const dis=filasSector.filter(f=>f.sector==='diseno'||f.sector==='molderia');
+  const cortesDe=iso=>{ const s=new Set(); Object.values((sectionsData.s3||{}).items||{}).forEach(it=>{ if(it&&!it.sin_confirmar&&tbIsoDeAr(it.fecha_objetivo_corte)===iso) s.add(it.numero_corte||it.code); }); return s.size; };
+  const semanaAtras=Date.now()-7*86400000;
+  let entregasSem=0, prendasSem=0;
+  Object.values(logiItemsData||{}).forEach(l=>{ const ts=logiParseFechaEntregado(l&&l.fecha_entregado); if(ts&&ts>=semanaAtras&&!l.proceso){ entregasSem++; prendasSem+=Object.values(l.grilla||{}).reduce((s,f)=>s+(f.contado||f.esperado||0),0); } });
+  const lista=[
+    {k:'peque',con:'Con Peque · diseño',que:'Revisar diseño hasta Pendiente tizas: muestras, moldes y tizadas.',
+      detalle:(()=>{ const d=dis.filter(f=>f.atrasado).length; return `${dis.length} para revisar${d?' · '+d+' demorado'+(d!==1?'s':''):''}`; })()},
+    {k:'emir_cortes',con:'Con Emir · cortes',que:'Cortes de hoy y de mañana. Confirmar qué tela hay que bajar para que descanse.',
+      detalle:`Hoy ${cortesDe(hoyIso)} corte${cortesDe(hoyIso)!==1?'s':''} · próximo día hábil ${cortesDe(manIso)}`},
+  ];
+  if(lunes) lista.push({k:'emir_semanal',con:'Con Emir · semanal',que:'Ingresos de la semana para evaluar reposiciones y preparar las fotos del jueves (nuevos y reingresos).',
+    detalle:`${entregasSem} entrega${entregasSem!==1?'s':''}${prendasSem?' · '+prendasSem.toLocaleString('es-AR')+' prendas':''} en los últimos 7 días`});
+  const reg=tbReuniones[hoyIso]||{};
+  return lista.map(r=>({...r,reg:reg[r.k]||null}));
+}
+function tbMarcarReunion(k){
+  const hoy=tbHoyIso(); const r=(tbReuniones[hoy]||{})[k];
+  const ref=db.ref(`fabrica_v5/reuniones/${hoy}/${k}`);
+  if(r&&r.hecha_ts){ if(!confirm('¿Desmarcar la reunión como hecha?')) return; ref.update({hecha_ts:null,por:null}); return; }
+  ref.update({hecha_ts:Date.now(),por:usuarioLogueado||currentUser});
+}
+function tbNotaReunion(k,val){
+  db.ref(`fabrica_v5/reuniones/${tbHoyIso()}/${k}`).update({nota:String(val||'').trim()||null,nota_por:usuarioLogueado||currentUser,nota_ts:Date.now()});
+}
+function tbToggleSector(k){ tbSectorAbierto.has(k)?tbSectorAbierto.delete(k):tbSectorAbierto.add(k); renderPendientes(); }
+function tbToggleDemorados(){ tbSoloDemorados=!tbSoloDemorados; renderPendientes(); }
+
+function renderTablero(cont,filas){
+  const e=etEsc;
+  document.querySelectorAll('#pend-agrupar-selector button').forEach(b=>b.classList.toggle('active',b.dataset.modo==='tablero'));
+  const todas=[...filas.map(f=>({...f,sector:tbSectorDe(f)})),...tbFilasLogistica().map(f=>({...f,sector:'logistica'}))];
+  const venceHoy=f=>avisoPlazo(f.dias,f.umbral).venceHoy;
+  const nDem=todas.filter(f=>f.atrasado).length, nHoy=todas.filter(f=>!f.atrasado&&venceHoy(f)).length;
+  const hoyLbl=new Date().toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
+  let h=`<div class="tb-wrap">
+    <div class="tb-head"><div><div class="tb-h1">Tablero</div><div class="tb-sub">${hoyLbl.charAt(0).toUpperCase()+hoyLbl.slice(1)} · todo lo pendiente de cada sector en una pantalla</div></div>
+      <button class="btn-sm ${tbSoloDemorados?'active':''}" onclick="tbToggleDemorados()">⚠️ Solo demorados</button></div>
+    <div class="tb-tot">
+      <div class="tb-kpi"><span>Demorados</span><b style="color:var(--danger)">${nDem}</b></div>
+      <div class="tb-kpi"><span>Vencen hoy</span><b style="color:var(--warn-text)">${nHoy}</b></div>
+      <div class="tb-kpi"><span>Al día</span><b>${todas.length-nDem-nHoy}</b></div>
+    </div>`;
+
+  // Hoy tiene que pasar
+  const hoyG=tbHoyTienePasar();
+  const chipT={ok:['var(--green-bg)','var(--green-text)'],pend:['var(--surface2)','var(--text2)'],tarde:['var(--danger-bg)','var(--danger)']};
+  h+=`<div class="tb-box"><div class="tb-box-h"><b>Hoy tiene que pasar</b><span>Lo que tiene fecha coordinada para hoy (y lo atrasado)</span></div><div class="tb-hoy">`;
+  hoyG.forEach(g=>{
+    h+=`<div class="tb-hoy-col"><div class="tb-hoy-t"><span>${g.titulo}</span><b>${g.filas.length}</b></div>`;
+    if(!g.filas.length) h+=`<div class="tb-vacio">Nada para hoy</div>`;
+    g.filas.slice(0,8).forEach(f=>{ const [bg,c]=chipT[f.tipo];
+      h+=`<div class="tb-hoy-f" onclick="irAItem('${f.secId}','${f.itemId}')"><div><b>${e(f.que)}</b><span>${e(f.detalle)}</span></div><span class="tb-chip" style="background:${bg};color:${c}">${e(f.estado)}</span></div>`; });
+    if(g.filas.length>8) h+=`<div class="tb-vacio">y ${g.filas.length-8} más</div>`;
+    h+=`</div>`;
+  });
+  h+=`</div></div>`;
+
+  // Reuniones
+  const reus=tbReunionesHoy(todas);
+  const hechas=reus.filter(r=>r.reg&&r.reg.hecha_ts).length;
+  const puedeMarcar=['noelia','ariel'].includes(usuarioLogueado||currentUser);
+  h+=`<div class="tb-box"><div class="tb-box-h"><b>Reuniones de Noe hoy</b><span>${hechas} de ${reus.length} hechas</span></div><div class="tb-reus">`;
+  reus.forEach(r=>{ const hecha=r.reg&&r.reg.hecha_ts;
+    h+=`<div class="tb-reu ${hecha?'':'pend'}"><div class="tb-reu-h"><b>${r.con}</b>
+      ${puedeMarcar?`<button class="tb-chip-btn ${hecha?'ok':''}" onclick="tbMarcarReunion('${r.k}')">${hecha?'✓ Hecha '+new Date(r.reg.hecha_ts).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}):'Marcar hecha'}</button>`
+        :`<span class="tb-chip" style="background:${hecha?'var(--green-bg)':'var(--warn-bg)'};color:${hecha?'var(--green-text)':'var(--warn-text)'}">${hecha?'Hecha':'Pendiente'}</span>`}</div>
+      <div class="tb-reu-q">${r.que}</div><div class="tb-reu-d">${e(r.detalle)}</div>
+      ${puedeMarcar?`<input class="tb-nota" placeholder="Nota de la reunión…" value="${e((r.reg&&r.reg.nota)||'')}" onchange="tbNotaReunion('${r.k}',this.value)">`:(r.reg&&r.reg.nota?`<div class="tb-reu-q">📝 ${e(r.reg.nota)}</div>`:'')}
+    </div>`; });
+  h+=`</div></div>`;
+
+  // Sectores
+  const ord=l=>l.slice().sort((a,b)=>{
+    if(a.atrasado!==b.atrasado) return a.atrasado?-1:1;
+    const fa=a.dias==null?999:a.umbral-a.dias, fb=b.dias==null?999:b.umbral-b.dias; return fa-fb; });
+  h+=`<div class="tb-secs">`;
+  TB_SECTORES.forEach(s=>{
+    let l=ord(todas.filter(f=>f.sector===s.k));
+    const dem=l.filter(f=>f.atrasado).length, hoyN=l.filter(f=>!f.atrasado&&venceHoy(f)).length;
+    const personas=[...new Set(l.map(f=>f.resp))].slice(0,4).join(' · ');
+    if(tbSoloDemorados) l=l.filter(f=>f.atrasado);
+    const abierto=tbSectorAbierto.has(s.k), vis=abierto?l:l.slice(0,6);
+    h+=`<div class="tb-sec"><div class="tb-sec-h"><div><b>${s.nombre}</b><span>${e(personas)||'—'}</span></div><b class="tb-sec-n">${dem+hoyN+(todas.filter(f=>f.sector===s.k).length-dem-hoyN)}</b></div>
+      <div class="pcol-counts">${dem?`<span class="pcol-b" style="background:#fee2e2;color:#991b1b">${dem} demorado${dem!==1?'s':''}</span>`:''}${hoyN?`<span class="pcol-b" style="background:#fef3c7;color:#92400e">${hoyN} vence${hoyN!==1?'n':''} hoy</span>`:''}</div>
+      <div class="tb-sec-l">`;
+    if(!vis.length) h+=`<div class="tb-vacio">${tbSoloDemorados?'Sin demorados':'Sin pendientes'}</div>`;
+    vis.forEach(f=>{
+      const p=avisoPlazo(f.dias,f.umbral);
+      const borde=f.atrasado?'#dc2626':p.venceHoy?'#f59e0b':'var(--border)';
+      const click=f.logiId?`tbIrLogistica()`:`irAItem('${f.secId}','${f.itemId}')`;
+      h+=`<div class="pcard" style="border-left-color:${borde}" onclick="${click}">
+        <div style="display:flex;justify-content:space-between;gap:6px"><div class="pcard-code">${e(f.item.code||'(sin código)')}</div>${p.texto?`<span style="font-size:11px;font-weight:${p.peso};color:${p.color};white-space:nowrap">${p.texto}</span>`:''}</div>
+        ${f.item.name?`<div class="pcard-name">${e(f.item.name)}</div>`:''}
+        <div class="pcard-acc">👉 ${e(f.accion)}</div>
+        ${f.prioridad?`<div class="pcard-tags"><span class="pcard-tag" style="background:#ede9fe;color:#5b21b6;font-weight:700">⭐ Prioridad ${f.prioridad}</span></div>`:''}
+        <div class="pcard-foot"><span>${e(f.resp||'')}</span><span>${e(f.secTitle||'')}</span></div>
+      </div>`;
+    });
+    if(l.length>6) h+=`<button class="tb-mas" onclick="tbToggleSector('${s.k}')">${abierto?'Ver menos':'Ver '+(l.length-6)+' más'}</button>`;
+    h+=`</div></div>`;
+  });
+  h+=`</div></div>`;
+  cont.innerHTML=h;
+}
+function tbIrLogistica(){ const b=document.getElementById('tab-btn-logistica'); if(b) b.click(); }
+
 function renderPendientes(){
   const cont=document.getElementById('pendientes-list');
   const BOARD_ORDEN={diseno:0,fabrica:1};
@@ -14219,6 +14480,10 @@ function renderPendientes(){
   const verTodos=(currentUser==='ariel'||currentUser==='stef'||currentUser==='noelia');
   const miNombre=USER_DISPLAY[currentUser];
   const filasVisibles=verTodos?filas:filas.filter(f=>f.resp===miNombre);
+  if(pendAgrupar==='tablero'){
+    if(tbPuedeVer()){ renderTablero(cont,filas); return; }
+    pendAgrupar='empleado';
+  }
 
   // Clave de agrupamiento según el modo elegido arriba.
   const claveDe = f => pendAgrupar==='empleado' ? f.resp : pendAgrupar==='sector' ? f.secTitle : f.accion;

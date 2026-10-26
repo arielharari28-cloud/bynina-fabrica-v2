@@ -14635,7 +14635,11 @@ function tbIrLogistica(){ const b=document.getElementById('tab-btn-logistica'); 
 let rdFecha=null;
 let ingresosFabData={};
 db.ref('fabrica_v5/ingresos').limitToLast(400).on('value',s=>{ ingresosFabData=s.val()||{}; rdRefrescar(); });
-function rdRefrescar(){ const t=document.getElementById('tab-resumen'); if(t&&!t.classList.contains('hidden')) renderResumenDia(); }
+// Entregas con control cerrado que esperan que Ariel las divida (tarea de Ariel).
+function rdParaDividir(){ return Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='pendiente_dividir').map(([id,it])=>({id,...it}))
+  .sort((a,b)=>(a.fecha_control_cerrado||0)-(b.fecha_control_cerrado||0)); }
+function rdBadge(){ const b=document.getElementById('tab-btn-resumen'); if(!b) return; const n=rdParaDividir().length; b.textContent=n?`📋 Resumen del día (${n})`:'📋 Resumen del día'; }
+function rdRefrescar(){ try{ rdBadge(); }catch(e){} const t=document.getElementById('tab-resumen'); if(t&&!t.classList.contains('hidden')) renderResumenDia(); }
 function rdMover(d){ rdFecha=isoFechaLocal(new Date(rdFecha+'T12:00:00').getTime()+d*86400000); renderResumenDia(); }
 function rdIrHoy(){ rdFecha=isoFechaLocal(Date.now()); renderResumenDia(); }
 function renderResumenDia(){
@@ -14695,6 +14699,7 @@ function renderResumenDia(){
     ['Entraron',entraron.reduce((s,it)=>s+prendasGrilla(it.grilla),0).toLocaleString('es-AR'),`prendas · ${entraron.length} entrega${entraron.length!==1?'s':''}`],
     ['A comercializar',aComerc.length,`artículo${aComerc.length!==1?'s':''}`],
     ['Ingresos',ingTela.length+ingAvios.length+ingProv.length,'tela, avíos y producto'],
+    ['Para dividir',rdParaDividir().length,'esperando que las dividas'],
   ];
   // Reuniones y para mirar
   const reg=tbReuniones[dia]||{};
@@ -14726,7 +14731,16 @@ function renderResumenDia(){
       <div style="display:flex;gap:6px;align-items:center">${f.st||''}${f.h?`<span style="font-size:11px;color:var(--text3)">${f.h}</span>`:''}</div></div>`; });
     h+=`</div>`;
   });
+  const pDiv=rdParaDividir();
   h+=`</div><div style="flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:12px">
+    <div class="tb-box" style="${pDiv.length?'border-color:#2d6a4f;background:var(--accent-bg)':''}">
+      <div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:13px">🔀 Para dividir · te toca a vos</b><b style="font-size:13px">${pDiv.length}</b></div>
+      ${pDiv.length?pDiv.map(it=>{ const ts=it.fecha_control_cerrado; const nuevo=esDia(ts); const d=ts?diasHabilesEntre(ts):null;
+        return `<div onclick="tbIrLogistica()" style="cursor:pointer;border-top:1px solid #cde5d8;padding-top:6px;display:flex;justify-content:space-between;gap:8px;align-items:center">
+          <div style="min-width:0"><div style="font-size:13px;font-weight:600">${e([nCorte(it),it.code,it.name].filter(Boolean).join(' · '))}</div>
+          <div style="font-size:12px;color:var(--text2)">${prendasGrilla(it.grilla).toLocaleString('es-AR')} prendas${it.taller?' · '+e(it.taller):''}${it.control_cerrado_por?' · controló '+e(USER_DISPLAY[it.control_cerrado_por]||it.control_cerrado_por):''}</div></div>
+          ${nuevo?chip('Nuevo '+hora(ts),OK):d?chip(`Hace ${d} d`,d>=2?['var(--danger-bg)','var(--danger)']:PEND):''}</div>`; }).join(''):'<div class="tb-vacio">Nada para dividir 🎉</div>'}
+    </div>
     <div class="tb-box"><b style="font-size:13px">Reuniones</b>${reus.map(([k,n])=>{const r=reg[k];const ok=r&&r.hecha_ts;
       return `<div style="border-top:1px solid var(--surface2);padding-top:8px"><div style="display:flex;justify-content:space-between;gap:8px"><span style="font-size:13px;font-weight:600">${n}</span>${chip(ok?'Hecha '+hora(r.hecha_ts):'No se marcó',ok?OK:PEND)}</div>
       <div style="font-size:12px;color:var(--text2);margin-top:2px">${r&&r.nota?e(r.nota):'Sin nota.'}</div></div>`;}).join('')}</div>
@@ -15130,6 +15144,7 @@ let logiNotaPendiente = null;
 // "Entregas del taller" en Fábrica/Talleres siempre está al día, lo abra o no Emir.
 db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
+  try{ rdBadge(); rdRefrescar(); }catch(e){}
   cmpIntentarLimpieza();
   if(pmSumarBoard&&!document.getElementById('tab-prodmes').classList.contains('hidden')) renderPmSumar();
   logiBackfillFechaEntrega();

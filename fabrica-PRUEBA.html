@@ -2861,6 +2861,23 @@ function assignTela(secId,itemId,nombre){
   showToast(`✓ Tela: ${nombre||'sin asignar'}`);
 }
 
+// --- Reposición: los avíos del producto original pasan al artículo nuevo (oct 2026) ---
+// Se copia qué avío es (nombre, proveedor, cantidad por prenda, precio, teñido), pero con ID nuevo
+// y sin pedido/recibido/ingreso: los IDs de avío sirven para ubicar el corte de un ingreso, así que
+// no pueden repetirse entre el original y la reposición, y lo de esta producción hay que pedirlo de nuevo.
+function copiarAviosParaReposicion(avios){
+  const out={};
+  const base=Date.now();
+  Object.values(avios||{}).forEach((a,i)=>{
+    if(!a||typeof a!=='object'||!(a.nombre||'').trim()) return;
+    out['av'+base+'r'+i]={
+      nombre:(a.nombre||'').trim(),proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||'',
+      tenido:!!a.tenido,fecha_pedido:'',fecha_llegada:null,recibido:false
+    };
+  });
+  return out;
+}
+
 // --- Reposición: marcar si un desarrollo es reposición de un producto perfecto ya existente ---
 function toggleReposicion(secId,itemId){
   const item=sectionsData[secId].items[itemId];
@@ -2912,10 +2929,16 @@ function onRepoPerfectoChange(secId,itemId,sel){
     if(ref.name) updates.name=ref.name;
     if(ref.marca) updates.marca=ref.marca;
     if(ref.tela) updates.tela=ref.tela;
+    // Avíos: se copian del producto original solo si este artículo todavía no tiene ninguno cargado
+    // (no pisa lo que Peque ya haya cargado a mano).
+    const actual=sectionsData[secId]?.items?.[itemId];
+    const yaTiene=Object.values((actual&&actual.avios)||{}).some(a=>a&&(a.nombre||'').trim());
+    const copiados=copiarAviosParaReposicion(ref.avios);
+    if(!yaTiene&&Object.keys(copiados).length) updates.avios=copiados;
   }
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update(updates);
   logActivity('Reposición vinculada',`${ref?.code||ref?.name||''}`);
-  showToast('✓ Vinculado — código, nombre, marca y tela completados');
+  showToast(updates.avios?'✓ Vinculado — código, nombre, marca, tela y avíos completados (avíos sin pedir)':'✓ Vinculado — código, nombre, marca y tela completados');
 }
 
 // Selector de "de qué base salimos" en Pendiente armar tizada: a diferencia de Reposición
@@ -3897,6 +3920,8 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
   });
   db.ref('fabrica_v5/costeos').on('value',snap=>{
     costeosData=snap.val()||{};
+    // Una vez por sesión: los avíos que se cargaron en el corte DESPUÉS de marcarlo cortado pasan a Costeo.
+    if(!aviosCosteoSyncHecho){ aviosCosteoSyncHecho=true; setTimeout(()=>{ try{ sincronizarAviosCosteoTodos(); }catch(e){} },4000); }
     if(!document.getElementById('tab-costeo').classList.contains('hidden')) renderCosteoTab();
     const detailEl=document.getElementById('costeo-detail-screen');
     if(detailEl&&!detailEl.classList.contains('hidden')&&costeoDetailKey) renderCosteoDetail();
@@ -5138,7 +5163,7 @@ function editFaltanteCorte(secId,itemId){
 // item.etapas/{id} = {tipo, momento:'antes'|'despues', taller, detalle, factura, precio, orden,
 //                     estado:'pendiente'|'en_taller'|'hecho', cantidad_salida, fecha_salida, fecha_entrega}
 // talleres_config/{taller} = {nombre, factura} — si a ese taller se le factura (default al elegirlo).
-const ETAPA_TIPOS={estampado:{label:'Estampado',emoji:'🎨'},bordado:{label:'Bordado',emoji:'🪡'},plancha:{label:'Plancha',emoji:'🧺'}};
+const ETAPA_TIPOS={estampado:{label:'Estampado',emoji:'🎨'},bordado:{label:'Bordado',emoji:'🪡'},plancha:{label:'Plancha',emoji:'🧺'},aplique:{label:'Aplique',emoji:'🧷'}};
 const TALLER_INTERNO='Nina (interno)';
 let talleresConfigData={};
 db.ref('fabrica_v5/talleres_config').on('value',s=>{ talleresConfigData=s.val()||{}; });
@@ -5214,7 +5239,7 @@ function buildRecorridoHtml(secId,itemId,item){
     form=`<details class="rc-form" ${recorridoFormAbierto.has(k)?'open':''} ontoggle="event.stopPropagation();this.open?recorridoFormAbierto.add('${k}'):recorridoFormAbierto.delete('${k}')" onclick="event.stopPropagation()">
       <summary class="btn-sm">+ Agregar etapa (estampado, bordado, plancha)</summary>
       <div class="rc-fields">
-        <label>Qué<select data-k="q"><option value="estampado">🎨 Estampado</option><option value="bordado">🪡 Bordado</option><option value="plancha">🧺 Plancha (ojal, botón…)</option></select></label>
+        <label>Qué<select data-k="q"><option value="estampado">🎨 Estampado</option><option value="bordado">🪡 Bordado</option><option value="plancha">🧺 Plancha (ojal, botón…)</option><option value="aplique">🧷 Aplique</option></select></label>
         <label>Cuándo<select data-k="m"><option value="despues">Después de confección</option><option value="antes">Antes de confección</option></select></label>
         <label>Taller<select data-k="t" onchange="if(this.value!=='__nuevo__'){this.closest('.rc-form').querySelector('[data-k=f]').checked=tallerFactura(this.value);}"><option value="">Elegí…</option>${opts}<option value="${TALLER_INTERNO}">${TALLER_INTERNO}</option><option value="__nuevo__">+ Otro taller…</option></select></label>
         <label>Detalle<input data-k="d" type="text" placeholder="ej. ojal + botón, logo pecho"></label>
@@ -7732,7 +7757,7 @@ function renderSections(board){
     const addRow=(canAdd||canAddMold)?`<div class="sec-add"><input type="text" placeholder="Código de muestra..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
     const addRowPrep=canAddPrep?`<div class="sec-add"><input type="text" placeholder="Nombre de la prenda nueva..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button></div>`:'';
     const esPendienteArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
-    const canAddGeneral=((currentUser==='ariel'||currentUser==='stef')&&!FIXED_SECS.includes(secId))||(esPendienteArmarTizada&&currentUser==='noelia');
+    const canAddGeneral=((currentUser==='ariel'||currentUser==='stef')&&!FIXED_SECS.includes(secId))||(esPendienteArmarTizada&&(currentUser==='noelia'||currentUser==='peque'));
     const canAddDesdeBase=esPendienteArmarTizada&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='noelia');
     const btnDesdeBaseHtml=canAddDesdeBase?`<button class="btn-sm" onclick="openBaseAddModal('${secId}')">🔁 Agregar nuevo artículo desde base</button>`:'';
     const addRowGeneral=(canAddGeneral||canAddDesdeBase)?`<div class="sec-add">${canAddGeneral?`<input type="text" placeholder="Código / nombre..." id="qa-${secId}"><button onclick="quickAdd('${secId}')">+ Agregar</button><button class="btn-sm" onclick="openRepoAddModal('${secId}')">🔁 Agregar como reposición</button>`:''}${btnDesdeBaseHtml}</div>`:'';
@@ -8040,6 +8065,8 @@ function esMinisur(item){
 }
 // Cargar el corte (rollos, capas, encimado, marcar cortado): Noelia y Ariel; en Mini Sur también Peque.
 function puedeCargarCorte(item){ return ['ariel','noelia'].includes(quienSoy())||(quienSoy()==='peque'&&!!item&&esMinisur(item)); }
+// Nombre de la marca Mini Sur tal como está en la lista de marcas ("Mini Sur" si no la encuentra).
+function marcaMinisurNombre(){ return (marcasList||[]).find(n=>esMinisur({marca:n}))||'Mini Sur'; }
 function esMinisurPeque(item){
   return currentUser==='peque' && esMinisur(item);
 }
@@ -10654,6 +10681,52 @@ function marcarCorteRealizado(secId,itemId){
 // ya cargados (nombre/proveedor/cantidad/precio) se mantienen para no volver a tipearlos — pero
 // el pedido/recibido se reinicia: la cantidad que se pidió/recibió para la muestra no es la
 // cantidad de producción, así que Peque tiene que volver a pedirlo y Emir volver a confirmarlo.
+// --- Avíos del corte → Costeo (oct 2026) ---
+// Al marcar cortado, Costeo copia los avíos que había en ese momento. Si Peque carga o completa un
+// avío después, esto lo suma a Costeo: agrega los que faltan y completa cantidad/precio si en Costeo
+// estaban vacíos. Nunca pisa lo que ya se editó en Costeo ni borra nada.
+var aviosCosteoSyncHecho=false;
+function aviosCosteoClave(nombre,articulo){ return String(nombre||'').trim().toLowerCase()+'||'+String(articulo||'').trim().toLowerCase(); }
+function sincronizarAviosCosteo(corteKey,updates){
+  const e=costeosData&&costeosData[corteKey];
+  if(!e||!e.numero_corte) return false;
+  const lista=Array.isArray(e.avios)?e.avios.map(a=>a?{...a}:a):[];
+  const porClave={}, porNombre={};
+  lista.forEach((a,i)=>{ if(a){ porClave[aviosCosteoClave(a.nombre,a.articulo)]=i; const n=aviosCosteoClave(a.nombre,''); if(porNombre[n]==null) porNombre[n]=i; } });
+  let cambio=false;
+  Object.values(sectionsData||{}).forEach(sec=>{
+    Object.values((sec&&sec.items)||{}).forEach(it=>{
+      if(!it||corteKeyFrom(it.numero_corte)!==corteKey) return;
+      const articulo=it.code||it.name||'';
+      Object.values(it.avios||{}).forEach(a=>{
+        if(!a||!(a.nombre||'').trim()) return;
+        const k=aviosCosteoClave(a.nombre,articulo);
+        // Si en Costeo se reasignó el avío a otro artículo o a "compartido", se lo reconoce por el nombre
+        // (para no duplicarlo y contar el costo dos veces).
+        const idx=porClave[k]!=null?porClave[k]:porNombre[aviosCosteoClave(a.nombre,'')];
+        if(idx==null){
+          lista.push({nombre:(a.nombre||'').trim(),proveedor:a.proveedor||'',cantidad:a.cantidad||'',precio:a.precio||'',articulo});
+          porClave[k]=lista.length-1; porNombre[aviosCosteoClave(a.nombre,'')]=lista.length-1; cambio=true; return;
+        }
+        const c=lista[idx];
+        ['cantidad','precio','proveedor'].forEach(f=>{
+          if((c[f]===undefined||c[f]===null||String(c[f]).trim()==='')&&a[f]&&String(a[f]).trim()!==''){ c[f]=a[f]; cambio=true; }
+        });
+      });
+    });
+  });
+  if(!cambio) return false;
+  if(updates){ updates[`fabrica_v5/costeos/${corteKey}/avios`]=lista; return true; }
+  db.ref(`fabrica_v5/costeos/${corteKey}/avios`).set(lista);
+  return true;
+}
+function sincronizarAviosCosteoTodos(){
+  if(!sectionsData||!Object.keys(sectionsData).length||!costeosData) return;
+  const up={};
+  Object.keys(costeosData).forEach(k=>{ try{ sincronizarAviosCosteo(k,up); }catch(e){} });
+  if(Object.keys(up).length) db.ref().update(up).then(()=>logActivity('Costeo','Sumó avíos cargados después del corte ('+Object.keys(up).length+' corte/s)')).catch(()=>{});
+}
+
 function resetAviosParaCorte(avios){
   const out={};
   Object.entries(avios||{}).forEach(([id,a])=>{
@@ -11502,6 +11575,7 @@ function editAvioCantidadPrompt(secId,itemId,avioId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/cantidad`).set(val.trim());
   logActivity('Editó cantidad de avío',`${avio.nombre} — ${item.code}`);
   showToast('✓ Cantidad guardada');
+  { const ck=corteKeyFrom(item.numero_corte); if(ck&&costeosData&&costeosData[ck]) setTimeout(()=>{ try{ sincronizarAviosCosteo(ck); }catch(e){} },1500); }
 }
 
 function editAvioPrecioPrompt(secId,itemId,avioId){
@@ -11512,6 +11586,7 @@ function editAvioPrecioPrompt(secId,itemId,avioId){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/precio`).set(val.trim());
   logActivity('Editó precio de avío',`${avio.nombre} — ${item.code}`);
   showToast('✓ Precio guardado');
+  { const ck=corteKeyFrom(item.numero_corte); if(ck&&costeosData&&costeosData[ck]) setTimeout(()=>{ try{ sincronizarAviosCosteo(ck); }catch(e){} },1500); }
 }
 
 function checkListaParaTaller(secId,itemId,ficha,llevaAvios,avios){
@@ -11537,6 +11612,8 @@ function quickAdd(secId){
   } else {
     ni={code:val,name:'',done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora};
     if(sec.tipo==='muestra_pend'||sec.tipo==='muestra_cort'){ni.ficha=false;ni.lleva_avios=null;}
+    // Peque en Pendiente armar tizada solo carga artículos de Mini Sur (oct 2026).
+    if(currentUser==='peque'&&(sec.title||'').trim()==='Pendiente armar tizada') ni.marca=marcaMinisurNombre();
   }
   db.ref(`fabrica_v5/sections/${secId}/items`).push(ni);
   logActivity('Agregó ítem',val);inp.value='';showToast('Ítem agregado');
@@ -11576,6 +11653,7 @@ function confirmRepoAdd(){
   const [refSec,refId]=sel.value.split('::');
   const ref=sectionsData[refSec]?.items?.[refId];
   if(!ref){ showToast('No encontré ese producto'); return; }
+  if(currentUser==='peque'&&!esMinisur(ref)){ showToast('Solo podés agregar reposiciones de Mini Sur'); return; }
   const ahora=Date.now();
   const ni={
     code:ref.code||'',name:ref.name||'',marca:ref.marca||'',tela:ref.tela||'',
@@ -11586,11 +11664,12 @@ function confirmRepoAdd(){
     base_aprobada:true,
     base_ref_sec:refSec,base_ref_id:refId,
     reposicion:true,reposicion_ref_sec:refSec,reposicion_ref_id:refId,
-    done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora
+    done:false,avios:copiarAviosParaReposicion(ref.avios),fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora
   };
+  const nAv=Object.keys(ni.avios).length;
   db.ref(`fabrica_v5/sections/${repoAddSecId}/items`).push(ni);
   logActivity('Agregó ítem (reposición)',ref.code||ref.name||'');
-  showToast('✓ Reposición agregada — falta Curva, Ancho y armar la tizada');
+  showToast(`✓ Reposición agregada${nAv?` con ${nAv} avío${nAv>1?'s':''} del original (sin pedir)`:''} — falta Curva, Ancho y armar la tizada`);
   closeRepoAddModal();
 }
 document.getElementById('close-modal-repo').onclick=closeRepoAddModal;
@@ -11842,7 +11921,7 @@ function openEditModal(secId,itemId){
         <div class="field"><label>Fecha pedido</label><input type="text" id="af-${avioId}" value="${avio.fecha_pedido||''}"></div>
         <div class="field"><label>Llega el (fecha coordinada con el proveedor)</label><input type="date" id="al-${avioId}" value="${avio.fecha_llegada||''}"></div>
         <div class="field"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="at-${avioId}" ${avio.tenido?'checked':''} style="width:auto;margin:0"> Lleva teñido (tarda ~7 días hábiles en llegar)</label></div>
-        ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" style="margin-top:4px;width:100%" onclick="deleteAvio('${secId}','${itemId}','${avioId}')">Eliminar avío</button>`:''}
+        ${(currentUser==='ariel'||currentUser==='stef'||currentUser==='peque')?`<button class="btn-danger" style="margin-top:4px;width:100%" onclick="if(confirm('¿Eliminar este avío?')){deleteAvio('${secId}','${itemId}','${avioId}');this.closest('.avio-block').remove();}">Eliminar avío</button>`:''}
       </div>`).join('')}
     </div>
     <button class="btn-sm" onclick="addAvioField()" style="width:100%;padding:8px">+ Agregar avío</button>`;
@@ -12039,6 +12118,11 @@ function saveEditItem(){
       nuevosAviosGuardados[nuevoId]=nuevoAvio;
       db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${nuevoId}`).set(nuevoAvio);
     }
+  }
+  // Si este corte ya está en Costeo, los avíos nuevos o completados pasan también ahí.
+  {
+    const ckAv=corteKeyFrom(updates.numero_corte||item.numero_corte);
+    if(ckAv&&costeosData&&costeosData[ckAv]) setTimeout(()=>{ try{ sincronizarAviosCosteo(ckAv); }catch(e){} },1500);
   }
   // Si el corte ya estaba en "Listo para taller" o "Finalizados" y se le acaba de cargar un
   // avío nuevo sin recibir, lo devuelve a bloqueado — antes esto solo pasaba al DESmarcar un

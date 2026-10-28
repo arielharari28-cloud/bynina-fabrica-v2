@@ -3671,6 +3671,41 @@ function backfillAvioPendienteEnTaller(){
 // cualquier ítem viejo que ya lo tuviera tildado por el motivo anterior hay que destildarlo,
 // para que quien corresponda lo vuelva a confirmar a mano (nunca movemos solos por las dudas).
 let fotoDriveOkResetChecking=false;
+// La nota del corte lleva UN solo bloque "📋 Ficha a ajustar": cada pedido o edición reemplaza el
+// anterior en vez de sumarse (antes se pegaba entero cada vez y la aclaración quedaba repetida).
+// El historial de cada pedido/edición, con autor y fecha, sigue en notas_log.
+function notaSinFichaAjuste(nota){
+  return String(nota||'').split('\n').filter(l=>!l.trim().startsWith('📋 Ficha a ajustar')).join('\n').trim();
+}
+function notaConFichaAjuste(nota,linea){ const base=notaSinFichaAjuste(nota); return (base?base+'\n':'')+linea; }
+// Limpia las notas que ya quedaron repetidas: deja solo el último bloque "Ficha a ajustar" y saca
+// renglones idénticos. Guarda la nota original en nota_antes_limpieza por las dudas.
+function limpiarNotaRepetida(nota){
+  const lineas=String(nota||'').split('\n');
+  const fichas=lineas.filter(l=>l.trim().startsWith('📋 Ficha a ajustar'));
+  const vistos=new Set(), out=[];
+  lineas.forEach(l=>{
+    const t=l.trim();
+    if(t.startsWith('📋 Ficha a ajustar')&&l!==fichas[fichas.length-1]) return;
+    if(t&&vistos.has(t)) return;
+    if(t) vistos.add(t);
+    out.push(l);
+  });
+  return out.join('\n');
+}
+function backfillNotasRepetidas(){
+  const up={};
+  Object.entries(sectionsData||{}).forEach(([sid,sec])=>{
+    Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
+      if(!it||typeof it.nota!=='string'||!it.nota.includes('\n')) return;
+      const limpia=limpiarNotaRepetida(it.nota);
+      if(limpia===it.nota) return;
+      up[`fabrica_v5/sections/${sid}/items/${iid}/nota`]=limpia;
+      if(!it.nota_antes_limpieza) up[`fabrica_v5/sections/${sid}/items/${iid}/nota_antes_limpieza`]=it.nota;
+    });
+  });
+  if(Object.keys(up).length) db.ref().update(up).catch(()=>{});
+}
 function backfillFotoDriveOkPendiente(){
   if(!(currentUser==='ariel'||currentUser==='stef')) return;
   if(fotoDriveOkResetChecking) return;
@@ -3768,6 +3803,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     backfillAvioPendienteEnTaller();
     backfillFotoDriveOkPendiente();
     limpiarFantasmasAvio();
+    backfillNotasRepetidas();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
@@ -5824,7 +5860,7 @@ function pedirAjusteFichaDiseno(secId,itemId){
     ficha_ajuste_por:USER_DISPLAY[currentUser]||currentUser,
     ficha_ajuste_nota_actual:notas.trim(),
     ficha_confirmada_ok:false,
-    nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (pedido en Diseño): ${notas.trim()}`
+    nota:notaConFichaAjuste(item.nota,`📋 Ficha a ajustar (pedido en Diseño): ${notas.trim()}`)
   });
   logNotaAuto(secId,itemId,`⚠️ Pidió ajustar la ficha técnica: ${notas.trim()}`);
   logActivity('Pidió ajustar ficha (Diseño)',item.code);
@@ -5845,7 +5881,7 @@ function editarAjusteFichaDiseno(secId,itemId){
   }
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({
     ficha_ajuste_nota_actual:notas.trim(),
-    nota:(item.nota?item.nota+'\n':'')+`📋 Ficha a ajustar (editado): ${notas.trim()}`
+    nota:notaConFichaAjuste(item.nota,`📋 Ficha a ajustar (editado): ${notas.trim()}`)
   });
   logNotaAuto(secId,itemId,`✏️ Editó el pedido de ajuste de ficha: ${notas.trim()}`);
   logActivity('Editó pedido de ajuste de ficha (Diseño)',item.code);

@@ -3767,6 +3767,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     backfillIncompletosAPendienteTizada();
     backfillAvioPendienteEnTaller();
     backfillFotoDriveOkPendiente();
+    limpiarFantasmasAvio();
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
@@ -6446,7 +6447,7 @@ function renderResumenPipelineTalleres(){
     const sec=sectionsData[secId];
     if(!sec) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(!item||item.es_complemento) return;   // el complemento se ve como marca dentro de la fila de su corte base
+      if(!item||item.es_complemento||esFantasmaAvio(item)) return;   // el complemento se ve como marca dentro de la fila de su corte base
       const {totalEsperado}=resumenEntregasFabrica(item,itemId);
       const estado=utEstadoDe(secId,item);
       const ts=(secId==='sFIN'&&item.retirado_taller&&item.fecha_retiro_confirmado)?item.fecha_retiro_confirmado:item.fecha_etapa;
@@ -8831,8 +8832,19 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
       const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
         ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
         :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
-      const costoLine=`<div style="font-size:10px;color:var(--text3);margin-left:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span>Cantidad: <strong style="color:var(--text2)">${avio.cantidad||'—'}</strong></span>
+      const ing=rec?ingresoDeAvio(avioId,avio):null;
+      let ingresoLine='';
+      if(ing){
+        const completo=!ing.sin_datos||(ing.total>0);
+        const fmtN=n=>Number(n).toLocaleString('es-AR',{maximumFractionDigits:2});
+        const quien=ing.por?ing.por.charAt(0).toUpperCase()+ing.por.slice(1):'';
+        const fch=ing.fecha?ing.fecha.split('-').reverse().slice(0,2).join('/'):'';
+        ingresoLine=completo
+          ?`<div style="margin:4px 0 2px 14px;background:#eef5ef;border:1px solid #b9d6bf;border-radius:8px;padding:4px 8px;font-size:11px;color:#1f4d2b">📥 Ingreso${fch?' '+fch:''}${ing.remito?' · remito '+etEsc(ing.remito):''}${ing.cantidad?' · llegaron '+fmtN(ing.cantidad):''}${ing.precio?' · $'+fmtN(ing.precio)+' c/u':''}${ing.total?' · total $'+Math.round(ing.total).toLocaleString('es-AR'):''}${quien?' · cargó '+etEsc(quien):''}</div>`
+          :`<div style="margin:4px 0 2px 14px;background:#fdf3dc;border:1px solid #ecd3a0;border-radius:8px;padding:4px 8px;font-size:11px;color:#7a4b06">🕓 Ingreso sin datos${fch?' ('+fch+')':''} · Meli lo completa con la factura</div>`;
+      }
+      const costoLine=ingresoLine+`<div style="font-size:10px;color:var(--text3);margin-left:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span>${ing?'Costeo · ':''}Cantidad: <strong style="color:var(--text2)">${avio.cantidad||'—'}</strong></span>
         <span>Precio: <strong style="color:var(--text2)">${avio.precio||'—'}</strong></span>
         ${canCosto?`<button class="avio-btn" onclick="editAvioCantidadPrompt('${secId}','${itemId}','${avioId}')">✏️ Cantidad</button>
         <button class="avio-btn" onclick="editAvioPrecioPrompt('${secId}','${itemId}','${avioId}')">✏️ Precio</button>`:''}
@@ -11152,15 +11164,47 @@ function pedirIngresoAvio(item,avio){
     };
   });
 }
+// Un corte "fantasma" es lo que queda si se escribe en la dirección vieja de un corte que ya se movió:
+// un ítem que solo tiene avios con ingreso_id (sin código, nombre ni N° de corte).
+function esFantasmaAvio(item){
+  if(!item||typeof item!=='object') return false;
+  if(Object.keys(item).some(k=>k!=='avios')) return false;
+  const av=item.avios; if(!av||typeof av!=='object') return true;
+  return Object.values(av).every(a=>a&&typeof a==='object'&&Object.keys(a).every(k=>k==='ingreso_id'));
+}
+// Busca dónde está HOY el corte que tiene este avío (los ID de avío no cambian al mover el corte).
+function ubicarItemPorAvio(avioId,secIdPrev,itemIdPrev){
+  const prev=sectionsData[secIdPrev]&&sectionsData[secIdPrev].items&&sectionsData[secIdPrev].items[itemIdPrev];
+  if(prev&&!esFantasmaAvio(prev)&&prev.avios&&prev.avios[avioId]) return {secId:secIdPrev,itemId:itemIdPrev,item:prev};
+  for(const [sid,sec] of Object.entries(sectionsData||{})){
+    for(const [iid,it] of Object.entries((sec&&sec.items)||{})){
+      if(it&&!esFantasmaAvio(it)&&it.avios&&it.avios[avioId]) return {secId:sid,itemId:iid,item:it};
+    }
+  }
+  return null;
+}
+// El ingreso vinculado a un avío: por ingreso_id, o buscándolo en los ingresos por el ID del avío
+// (así se recuperan también los que quedaron mal vinculados por el bug del corte que se movía).
+function ingresoDeAvio(avioId,avio){ try{ return ingresoDeAvio_(avioId,avio); }catch(e){ return null; } }
+function ingresoDeAvio_(avioId,avio){
+  if(avio&&avio.ingreso_id&&ingresosFabData[avio.ingreso_id]) return {id:avio.ingreso_id,...ingresosFabData[avio.ingreso_id]};
+  let mejor=null;
+  Object.entries(ingresosFabData||{}).forEach(([id,g])=>{ if(g&&g.ref&&g.ref.avioId===avioId&&(!mejor||(g.ts||0)>(mejor.ts||0))) mejor={id,...g}; });
+  return mejor;
+}
 async function registrarIngresoAvio(secId,itemId,item,avioId,avio){
   if(!item||!avio) return;
   const d=await pedirIngresoAvio(item,avio);
+  // Mientras el cartel estaba abierto, el corte puede haberse movido (ej. "Avío sin pedir" → "Listo para
+  // taller") y cambiado de ID. Escribir en la dirección vieja creaba un corte fantasma "s/n°".
+  const aca=ubicarItemPorAvio(avioId,secId,itemId);
+  if(aca){ secId=aca.secId; itemId=aca.itemId; }
   const id=db.ref('fabrica_v5/ingresos').push().key;
   const num=item.numero_corte?'corte '+String(item.numero_corte).replace(/^corte\s*/i,''):'';
   await db.ref().update({
     [`fabrica_v5/ingresos/${id}`]:{tipo:'Avío',proveedor:d.proveedor||avio.proveedor||'',remito:d.remito||'',detalle:[avio.nombre,num,item.code].filter(Boolean).join(' · '),
       cantidad:d.cantidad||null,precio:d.precio||null,total:d.total||0,moneda:'ARS',sin_datos:d.luego||null,fecha:isoFechaLocal(Date.now()),por:quienSoy(),ts:Date.now(),ref:{secId,itemId,avioId}},
-    [`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/ingreso_id`]:id
+    ...(aca?{[`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/ingreso_id`]:id}:{})
   });
   logActivity('Cargó ingreso de avío',`${avio.nombre||'Avío'} — ${item.code||''}${d.total?' · $'+Math.round(d.total).toLocaleString('es-AR'):' · sin importe'}`);
   showToast(d.luego?'Avío recibido · Meli lo completa con la factura':'📥 Ingreso guardado · le llega a Meli');
@@ -14789,7 +14833,29 @@ function tbIrLogistica(){ const b=document.getElementById('tab-btn-logistica'); 
 // reuniones de Noe y la actividad completa de Noelia. Todo se arma con datos que ya existen.
 let rdFecha=null;
 let ingresosFabData={};
-db.ref('fabrica_v5/ingresos').limitToLast(400).on('value',s=>{ ingresosFabData=s.val()||{}; rdRefrescar(); });
+// Limpia los cortes fantasma "s/n°" que dejó el bug del ingreso de avío: pasa el ingreso_id a su
+// corte real (buscado por el ID del avío) y borra el fantasma. Solo toca ítems que tienen únicamente
+// avios con ingreso_id, así que nunca borra un corte de verdad.
+let limpiandoFantasmas=false;
+function limpiarFantasmasAvio(){
+  if(limpiandoFantasmas) return;
+  const up={};
+  Object.entries(sectionsData||{}).forEach(([sid,sec])=>{
+    Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
+      if(!esFantasmaAvio(it)) return;
+      Object.entries(it.avios||{}).forEach(([aid,a])=>{
+        const real=ubicarItemPorAvio(aid,null,null);
+        if(real&&a&&a.ingreso_id&&!(real.item.avios[aid]||{}).ingreso_id)
+          up[`fabrica_v5/sections/${real.secId}/items/${real.itemId}/avios/${aid}/ingreso_id`]=a.ingreso_id;
+      });
+      up[`fabrica_v5/sections/${sid}/items/${iid}`]=null;
+    });
+  });
+  if(!Object.keys(up).length) return;
+  limpiandoFantasmas=true;
+  db.ref().update(up).then(()=>{ logActivity('Limpieza automática','Cortes fantasma de ingreso de avío'); }).catch(()=>{}).finally(()=>{ limpiandoFantasmas=false; });
+}
+db.ref('fabrica_v5/ingresos').limitToLast(400).on('value',s=>{ ingresosFabData=s.val()||{}; rdRefrescar(); try{ renderSections('diseno'); renderSections('fabrica'); }catch(e){} });
 // Entregas con control cerrado que esperan que Ariel las divida (tarea de Ariel).
 function rdParaDividir(){ return Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='pendiente_dividir').map(([id,it])=>({id,...it}))
   .sort((a,b)=>(a.fecha_control_cerrado||0)-(b.fecha_control_cerrado||0)); }

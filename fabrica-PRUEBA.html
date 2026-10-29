@@ -7388,6 +7388,11 @@ function getBoard(sec){
   return (sec.tipo||'').startsWith('muestra_') ? 'diseno' : 'fabrica';
 }
 
+// Cola de aprobación ordenada por N° de corte (168, 179, 179B, 183...). Los que no tienen número van al final.
+function ordenarColaPorNumero(l){
+  const k=it=>{const m=String(it.numero_corte||'').trim().match(/^(\d+)\s*(.*)$/);return m?[parseInt(m[1],10),m[2].toUpperCase()]:[Infinity,''];};
+  return l.slice().sort((a,b)=>{const x=k(a[1]),y=k(b[1]);return x[0]-y[0]||x[1].localeCompare(y[1])||String(a[1].name||'').localeCompare(String(b[1].name||''));});
+}
 function extractCorteNumber(item){
   const src = item.numero_corte || item.code || '';
   const m = src.match(/(\d+)/);
@@ -7783,7 +7788,7 @@ function renderSections(board){
         return header+buildItem(secId,itemId,item,sec,idx,sortedItems.length);
       }).join('');
     } else if(secId==='s3'){
-      const enCola=items.filter(([,item])=>item.sin_confirmar);
+      const enCola=ordenarColaPorNumero(items.filter(([,item])=>item.sin_confirmar));
       const confirmados=ordenarS3PorFecha(items.filter(([,item])=>!item.sin_confirmar),sec);
       const colaHtml=enCola.length
         ? `<div class="group-header" style="font-size:12px;font-weight:700;color:var(--warn-text);margin:4px 0 6px;padding-bottom:4px;border-bottom:1px dashed var(--border);cursor:pointer;display:flex;align-items:center;gap:6px" onclick="toggleColaCollapsed()">
@@ -7815,7 +7820,7 @@ function renderSections(board){
         itemsHtml=buildFiltroCorteBarHtml(items)+buildCompactRowsHtml(secId,itemsF,sec);
       } else if(secId==='s3'){
         // Igual que en tarjetas: la cola (pendientes de aprobación) arriba y plegable, después los confirmados.
-        const enColaC=items.filter(([,it])=>it.sin_confirmar);
+        const enColaC=ordenarColaPorNumero(items.filter(([,it])=>it.sin_confirmar));
         const confC=ordenarS3PorFecha(items.filter(([,it])=>!it.sin_confirmar),sec);
         const hdr=(txt,extra)=>`<div style="font-size:12px;font-weight:700;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;${extra||''}">${txt}</div>`;
         itemsHtml=(enColaC.length

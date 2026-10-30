@@ -16319,7 +16319,7 @@ function cortesTabVerCorte(secId,itemId,logiId){
   // Rollos: cargado, capas, observación, calculado, sobrante y a distribuir
   let tCarg=0,tCapas=0,tCalc=0,tSob=0;
   const rolloRows=rollos.map(r=>{
-    const carg=numAr2(r.kgmts),capas=numAr2(r.capas),sob=numAr2(r.sobrante);
+    const carg=numAr2(r.kgmts),capas=numAr2(r.capas),sR=costeoSobRollo(r,{largo,peso:pesoM}),sob=sR.v;
     const calc=(largo&&pesoM&&capas)?capas*largo*pesoM:null;
     tCarg+=carg;tCapas+=capas;tSob+=sob;if(calc)tCalc+=calc;
     return `<tr style="border-bottom:1px solid var(--border)">
@@ -16328,10 +16328,10 @@ function cortesTabVerCorte(secId,itemId,logiId){
       <td style="padding:5px 6px;text-align:right">${capas||'—'}</td>
       <td style="padding:5px 6px;color:var(--text2)">${r.nota?esc(r.nota):'—'}</td>
       <td style="padding:5px 6px;text-align:right;color:var(--text3)">${calc!=null?fmt(calc):'—'}</td>
-      <td style="padding:5px 6px;text-align:right">${vacio(r.sobrante)?'<span style="color:var(--text3)">sin cargar</span>':fmt(sob)}</td>
+      <td style="padding:5px 6px;text-align:right">${sR.modo==='sin'?'<span style="color:var(--text3)">sin cargar</span>':sR.modo==='auto'?`<span style="color:var(--text2)" title="cargado − capas × largo × peso">${fmt(sob)} <span style="font-size:10px;color:var(--text3)">calc.</span></span>`:fmt(sob)}</td>
       <td style="padding:5px 6px;text-align:right;font-weight:700">${carg?fmt(Math.max(0,carg-sob)):'—'}</td></tr>`}).join('');
   const kgDist=e?costeoTotales(e).kgTotal:Math.max(0,tCarg-tSob);
-  const sinSobrante=rollos.some(r=>vacio(r.sobrante));
+  const sinSobrante=rollos.some(r=>costeoSobRollo(r,{largo,peso:pesoM}).modo==='sin');
   const th=(t,r)=>`<th style="padding:5px 6px;font-size:11px;color:var(--text2);text-align:${r?'right':'left'};white-space:nowrap">${t}</th>`;
   const dato=(l,v)=>`<div style="background:var(--surface2);border-radius:8px;padding:6px 10px;min-width:110px;flex:1"><div style="font-size:11px;color:var(--text2)">${l}</div><div style="font-weight:700;font-size:14px">${v}</div></div>`;
   const ts=fechaCorteTs(item);
@@ -16363,7 +16363,7 @@ function cortesTabVerCorte(secId,itemId,logiId){
         ${dato('Consumo por prenda',kgDist&&prendas?(kgDist/prendas).toLocaleString('es-AR',{minimumFractionDigits:3,maximumFractionDigits:3})+' kg':'—')}
       </div>
       ${e&&costeoTotales(e).kgDeArticulos?'<div style="font-size:11px;color:var(--text3);margin-top:4px">La tela a distribuir sale de los kilos repartidos por artículo en Costeo.</div>':''}
-      ${sinSobrante&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:6px">⚠️ Hay rollos sin sobrante cargado: el consumo puede estar inflado hasta que se cargue en Costeo.</div>':''}
+      ${sinSobrante&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:6px">⚠️ Hay rollos sin sobrante: faltan capas, largo de capa o peso x m para calcularlo.</div>':''}
     </div>
     <div class="modal-footer">
       ${!logiId&&!['finalizado'].includes((filasCorte.find(f=>f.itemId===itemId)||{}).estado?.key)?`<button class="btn-secondary" onclick="cortesTabCerrarCorte();cortesTabIr('${secId}','${itemId}',null)">Ver dónde está</button>`:''}
@@ -16452,7 +16452,7 @@ function renderCortesTab(){
   const EST_COL={porcortar:['var(--surface2)','var(--text2)'],fabrica:['var(--surface2)','var(--text)'],taller:['#dbeafe','#1e40af'],logistica:['#ede9fe','#5b21b6'],finalizado:['#dcfce7','#166534'],otro:['var(--surface2)','var(--text2)']};
   const avisoBg='#fef3c7', avisoCol='#92400e';
   const thC=(t,x='')=>`<th style="padding:8px;font-size:11px;color:var(--text2);text-align:left;font-weight:600;white-space:nowrap;${x}">${t}</th>`;
-  const kgDeCorte=k=>{ const e=costeosData[k], g=gruposCorteData[k]; const rollos=(e&&e.rollos)||(g&&g.rollos)||{}; let c=0,s=0; Object.values(rollos).forEach(r=>{ if(r){ c+=numAr2(r.kgmts); s+=numAr2(r.sobrante); } }); return Math.max(0,c-s); };
+  const kgDeCorte=k=>{ const e=costeosData[k], g=gruposCorteData[k]; const rollos=(e&&e.rollos)||(g&&g.rollos)||{}; const md=costeoMedidas(e||g); let c=0,s=0; Object.values(rollos).forEach(r=>{ if(r){ c+=numAr2(r.kgmts); s+=costeoSobRollo(r,md).v; } }); return Math.max(0,c-s); };
   const filasHtml=lista.map(g=>{
     const it0=g.filas[0].item;
     const tela=(costeosData[g.key]&&costeosData[g.key].tela)||it0.tela||it0.tela_nombre||'';
@@ -18888,15 +18888,31 @@ function costoTallerAutomaticoCantidad(entry,articuloCode){
   });
   return cantidad;
 }
+// Sobrante de un rollo en Costeo. Orden: lo cargado a mano en Costeo > lo pesado en "Rollos utilizados"
+// (sobranteReal) > automático: cargado − capas × largo capa × peso x m (− collareta). Si falta algún dato, 0.
+function costeoMedidas(e){
+  e=e||{};const vac=v=>v===undefined||v===null||v==='';
+  const it=e.numero_corte&&typeof estadoCorteVinculado==='function'?(estadoCorteVinculado(e.numero_corte)||{}).item:null;
+  return {largo:numAr2(!vac(e.largo_capa)?e.largo_capa:(it?getLargoCapaEfectivo(it):0)),peso:numAr2(!vac(e.peso_metro)?e.peso_metro:(it?getPesoMetroEfectivo(it):0))};
+}
+function costeoSobRollo(r,med){
+  const vac=v=>v===undefined||v===null||String(v).trim()==='';
+  if(!r) return {v:0,modo:'sin'};
+  if(!vac(r.sobrante)) return {v:numAr2(r.sobrante),modo:'mano'};
+  if(!vac(r.sobranteReal)) return {v:numAr2(r.sobranteReal),modo:'pesado'};
+  const carg=numAr2(r.kgmts),capas=numAr2(r.capas);
+  if(med&&med.largo&&med.peso&&capas&&carg) return {v:Math.max(0,Math.round((carg-capas*med.largo*med.peso-numAr2(r.colKg))*100)/100),modo:'auto'};
+  return {v:0,modo:'sin'};
+}
 function costeoTotales(entry){
   // Kg cargado: suma automática de lo cargado por rollo (no se toca).
   // Kg sobrante: lo carga Ariel/Stef a mano por rollo (no siempre el cálculo por capas
   // refleja la realidad del corte). Kg a distribuir/usado para el costo = cargado - sobrante.
-  let kgCargado=0, kgSobrante=0;
+  let kgCargado=0, kgSobrante=0;const medT=costeoMedidas(entry);
   Object.values(entry.rollos||{}).forEach(r=>{
     if(!r) return;
     kgCargado+=numAr2(r.kgmts);
-    kgSobrante+=numAr2(r.sobrante);
+    kgSobrante+=costeoSobRollo(r,medT).v;
   });
   const kgTotalRollos=Math.max(0,kgCargado-kgSobrante);
   // Si ya repartiste el kilaje por artículo (aunque no hayas cargado rollos con sobrante),
@@ -19129,7 +19145,7 @@ function costeoArtCalc(e,i,mapa){
   const piezasTot=piezasLista.reduce((s,p)=>s+p,0);
   // Kilos: los cargados a mano se respetan; el resto del corte se reparte en proporción a las prendas.
   let kgCarg=0,kgSob=0;
-  Object.values(e.rollos||{}).forEach(r=>{ if(r){ kgCarg+=numAr2(r.kgmts); kgSob+=numAr2(r.sobrante); } });
+  const medA=costeoMedidas(e);Object.values(e.rollos||{}).forEach(r=>{ if(r){ kgCarg+=numAr2(r.kgmts); kgSob+=costeoSobRollo(r,medA).v; } });
   const kgCorte=Math.max(0,kgCarg-kgSob);
   const manualDe=x=>x&&x.kg!=null&&x.kg!==''&&numAr2(x.kg)>0;
   let kg, kgManual=manualDe(a);
@@ -19357,17 +19373,17 @@ function renderCosteoDetail(){
   {const up={};if((e.largo_capa==null||e.largo_capa==='')&&lcVal!=='')up.largo_capa=String(lcVal);if((e.peso_metro==null||e.peso_metro==='')&&pmVal!=='')up.peso_metro=String(pmVal);
    if(Object.keys(up).length)db.ref(`fabrica_v5/costeos/${key}`).update(up);}
   const rollos=Object.entries(e.rollos||{}).filter(([,x])=>x&&(x.color||x.kgmts));
-  const sinSob=rollos.some(([,x])=>x.sobrante==null||x.sobrante==='');
+  const medD={largo,peso:pesoM};const sinSob=rollos.some(([,x])=>costeoSobRollo(x,medD).modo==='sin');
   const colTot=rollos.reduce((s,[,x])=>s+numAr2(x.colKg),0);
   const rollosHtml=costeoRollosAbierto?(rollos.length?`<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">
       <tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)"><td style="padding:4px 6px">Rollo</td><td style="padding:4px 6px">Color</td><td style="padding:4px 6px;text-align:right">Cargado</td><td style="padding:4px 6px;text-align:right">Capas</td><td style="padding:4px 6px">Observación</td><td style="padding:4px 6px;text-align:right">Calculado</td>${colTot?'<td style="padding:4px 6px;text-align:right">Collareta</td>':''}<td style="padding:4px 6px;text-align:right">Sobrante</td><td style="padding:4px 6px;text-align:right">A distribuir</td></tr>
-      ${rollos.map(([rk,x])=>{const carg=numAr2(x.kgmts),sob=numAr2(x.sobrante),capas=numAr2(x.capas);const calc=largo&&pesoM&&capas?capas*largo*pesoM:null;
+      ${rollos.map(([rk,x])=>{const sR=costeoSobRollo(x,medD),carg=numAr2(x.kgmts),sob=sR.v,capas=numAr2(x.capas);const calc=largo&&pesoM&&capas?capas*largo*pesoM:null;
         return `<tr style="border-bottom:1px solid var(--border)">${costeoRolloOrigenHtml(x,carg,e.numero_corte)}<td style="padding:4px 6px;font-weight:600">${currentUser==='ariel'?`<span style="cursor:pointer;border-bottom:1px dashed var(--text3)" title="Tocá para corregir el color" onclick="editCosteoColorRollo('${key}','${rk}')">${costeoEsc(x.color||'—')} <span style="font-size:10px;color:var(--text3)">✏️</span></span>`:costeoEsc(x.color||'—')}</td>
         <td style="padding:4px 6px;text-align:right">${canEdit?inp(x.kgmts,`setCosteoKgRollo('${key}','${rk}',this.value)`,70):costeoKg(carg)}</td>
         <td style="padding:4px 6px;text-align:right">${currentUser==='ariel'?inp(x.capas,`setCosteoCapasRollo('${key}','${rk}',this.value)`,50,'—','step="1"'):(x.capas||'—')}</td><td style="padding:4px 6px;color:var(--text2)">${x.nota?costeoEsc(x.nota):'—'}</td>
         <td style="padding:4px 6px;text-align:right;color:var(--text3)">${calc!=null?costeoKg(calc):'—'}</td>
         ${colTot?`<td style="padding:4px 6px;text-align:right;color:var(--text2)">${numAr2(x.colKg)?costeoKg(numAr2(x.colKg)):'—'}</td>`:''}
-        <td style="padding:4px 6px;text-align:right">${canEdit?inp(x.sobrante,`setCosteoSobranteRollo('${key}','${rk}',this.value)`,70):(x.sobrante?costeoKg(sob):'—')}</td>
+        <td style="padding:4px 6px;text-align:right">${canEdit?inp(sR.modo==='mano'?x.sobrante:null,`setCosteoSobranteRollo('${key}','${rk}',this.value)`,70,sR.modo==='sin'?'0':String(sob).replace('.',','),sR.modo!=='mano'?'title="'+(sR.modo==='auto'?'Automático: cargado − capas × largo × peso. Escribí para pisarlo.':sR.modo==='pesado'?'Pesado en Rollos utilizados. Escribí para pisarlo.':'Falta capas, largo o peso')+'"':'')+(sR.modo==='auto'?'<div style="font-size:10px;color:var(--text3)">automático</div>':sR.modo==='pesado'?'<div style="font-size:10px;color:var(--text3)">pesado</div>':''):(sR.modo!=='sin'?costeoKg(sob):'—')}</td>
         <td style="padding:4px 6px;text-align:right;font-weight:700">${carg?costeoKg(Math.max(0,carg-sob)):'—'}</td></tr>`}).join('')}
     </table></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px">
@@ -19384,7 +19400,7 @@ function renderCosteoDetail(){
     </div>
     ${costeoPrecioHtml(e,key,canEdit,inp)}
     <div style="margin-top:6px;font-size:12px;color:var(--text2)">${rollos.length} rollo${rollos.length!==1?'s':''} · ${costeoKg(r0.kgCarg)} kg cargados · ${costeoKg(r0.kgSob)} kg sobrante · <b style="color:var(--text)">${costeoKg(r0.kgCorte)} kg a distribuir</b>${r0.piezasTot?` entre ${r0.piezasTot.toLocaleString('es-AR')} prendas · ${costeoKg(r0.kgCorte/r0.piezasTot,3)} kg/u promedio`:''}</div>
-    ${sinSob&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Hay rollos sin sobrante cargado: el consumo puede estar inflado.</div>':''}
+    ${sinSob&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Hay rollos sin sobrante: faltan capas, largo de capa o peso x m para calcularlo.</div>':''}
     ${!e.precio_kg?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Falta el precio x kg: sin él no se puede calcular el costo.</div>':''}
     ${rollosHtml}
   </div>`;
@@ -19687,7 +19703,7 @@ function renderCosteoDetailViejo(){
   const pesoMetroMostrado=(e.peso_metro!==undefined&&e.peso_metro!==null&&e.peso_metro!=='')?e.peso_metro:livePesoMetro;
   const largoNum=numAr2(largoCapaMostrado), pesoMNum=numAr2(pesoMetroMostrado);
   const rollosRows=Object.entries(e.rollos||{}).filter(([,r])=>r&&(r.color||r.kgmts)).map(([rk,r])=>{
-    const kgmts=numAr2(r.kgmts), sobrante=numAr2(r.sobrante), capas=numAr2(r.capas);
+    const sR=costeoSobRollo(r,{largo:largoNum,peso:pesoMNum}),kgmts=numAr2(r.kgmts), sobrante=sR.v, capas=numAr2(r.capas);
     const usado=Math.max(0,kgmts-sobrante);
     const calc=(largoNum&&pesoMNum&&capas)?capas*largoNum*pesoMNum:null;
     return `<tr>
@@ -19701,7 +19717,7 @@ function renderCosteoDetailViejo(){
       <td style="padding:3px 6px;font-size:11px;color:var(--text2);font-style:${r.nota?'normal':'italic'}">${r.nota?r.nota.replace(/</g,'&lt;'):'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center;color:var(--text3)">${calc!=null?calc.toFixed(2)+' kg':'—'}</td>
       <td style="padding:3px 6px;font-size:12px;text-align:center">
-        <input type="number" min="0" step="0.01" value="${r.sobrante||''}" placeholder="0" ${canEdit?'':'disabled'} style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoSobranteRollo('${costeoDetailKey}','${rk}',this.value)">
+        <input type="number" min="0" step="0.01" value="${sR.modo==='mano'?r.sobrante:''}" placeholder="${sR.modo==='sin'?'0':sobrante.toFixed(2)}" ${canEdit?'':'disabled'} style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="setCosteoSobranteRollo('${costeoDetailKey}','${rk}',this.value)">
       </td>
       <td style="padding:3px 6px;font-size:12px;text-align:center;font-weight:600">${kgmts?usado.toFixed(2)+' kg':'—'}</td>
     </tr>`;

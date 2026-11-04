@@ -6391,7 +6391,7 @@ function confirmarRetiroTaller(secId,itemId){
     pendCmp.forEach(([L])=>{ extraCmp[`sin_complemento/${L}`]=true; });
   }
   if(item.es_complemento&&item.complemento_de){
-    const p=cmpFind(item.complemento_de.numero);
+    const p=cmpBaseDe(item);
     if(p&&p.item.taller_corte&&item.taller_corte!==p.item.taller_corte){
       extraCmp.taller_corte=p.item.taller_corte;
       showToast(`🧩 Va al mismo taller que el ${item.complemento_de.numero}: ${p.item.taller_corte}`);
@@ -7587,7 +7587,7 @@ function s3GruposPorDia(items){
   const sueltos=[], comps=[];
   grupos.forEach(g=>{
     if(!g.esComp){ sueltos.push(g); return; }
-    const base=porCk[corteKeyFrom(String(((g.items[0][1].complemento_de)||{}).numero||''))];
+    const bsC=cmpBaseDe(g.items[0][1]); const base=porCk[corteKeyFrom(String((bsC&&bsC.item.numero_corte)||((g.items[0][1].complemento_de)||{}).numero||''))];
     if(base&&!base.esComp) base.comps.push(g); else comps.push(g);
   });
   const ord=(a,b)=>(a.ts||Infinity)-(b.ts||Infinity)||a.orden-b.orden||extractCorteNumber(a.items[0][1])-extractCorteNumber(b.items[0][1]);
@@ -9610,7 +9610,7 @@ function buildOrdenCtx(secId,itemId){
 }
 function openOrdenCorteModal(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  if(item.es_complemento&&item.complemento_de&&!cmpCortado(cmpFind(item.complemento_de.numero))){
+  if(item.es_complemento&&item.complemento_de&&!cmpCortado(cmpBaseDe(item))){
     showToast(`⏳ Primero se tiene que terminar de cortar el ${item.complemento_de.numero}`);
     return;
   }
@@ -10694,7 +10694,7 @@ function marcarCorteRealizado(secId,itemId){
     }
     // Complemento: si el corte base ya salió a un taller, va directo a "Pendiente retiro" con ese taller.
     if(mItem.es_complemento&&mItem.complemento_de){
-      const pb=cmpFind(mItem.complemento_de.numero);
+      const pb=cmpBaseDe(mItem);
       if(pb&&pb.item.taller_corte&&!['s4','s5','sLT'].includes(pb.secId)){
         targetSec='sFIN';
         newItem.taller_corte=pb.item.taller_corte; newItem.fecha_salida_taller=Date.now(); newItem.retirado_taller=false;
@@ -11271,6 +11271,10 @@ function editNumeroCortePrompt(secId,itemId){
   const val=prompt('N° de corte:',item.numero_corte||'');
   if(val===null) return;
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/numero_corte`).set(val.trim());
+  if(!item.es_complemento&&item.complementos&&val.trim()&&val.trim()!==String(item.numero_corte||'').trim()){
+    const siguen=cmpArticulosDeCorte(item.numero_corte).filter(a=>a.itemId!==itemId);
+    if(!siguen.length) cmpSeguirNumeroBase(item,val.trim());
+  }
   logActivity('Editó N° de corte',`${item.code||item.name||''}: ${val.trim()||'(vacío)'}`);
   showToast('✓ N° de corte guardado');
 }
@@ -14072,7 +14076,7 @@ function cmpLimpiezaDuplicados(){
 }
 function cmpIntentarLimpieza(){
   if(window.__cmpLimpiezaHecha||currentUser!=='ariel'||!sectionsData||!Object.keys(sectionsData).length||!logiItemsData||!Object.keys(logiItemsData).length) return;
-  window.__cmpLimpiezaHecha=true; setTimeout(cmpLimpiezaEntregasPropias,3000); setTimeout(cmpLimpiezaDuplicados,6000);
+  window.__cmpLimpiezaHecha=true; setTimeout(cmpRepararBasesRenombradas,2000); setTimeout(cmpLimpiezaEntregasPropias,3000); setTimeout(cmpLimpiezaDuplicados,6000);
 }
 function cmpLimpiezaEntregasPropias(){
   if(currentUser!=='ariel'||!logiItemsData||!sectionsData) return;
@@ -14114,6 +14118,61 @@ function cmpFind(numero){
     }
   }
   return null;
+}
+// Corte base de un complemento. Si al base le cambiaron el N° después de crear el complemento
+// (ej. "Rustico" pasó a ser 212), se lo encuentra por el vínculo que guarda el propio base.
+function cmpBaseDe(item){
+  if(!item||!item.complemento_de) return null;
+  const p=cmpFind(item.complemento_de.numero);
+  if(p&&!p.item.es_complemento) return p;
+  const num=String(item.numero_corte||'').trim();
+  if(!num) return null;
+  for(const [secId,sec] of Object.entries(sectionsData||{})){
+    for(const [itemId,it] of Object.entries((sec&&sec.items)||{})){
+      if(it&&!it.es_complemento&&it.complementos&&Object.values(it.complementos).some(c=>c&&String(c.numero||'').trim()===num)) return {secId,itemId,item:it,sec};
+    }
+  }
+  return null;
+}
+// El corte base tiene N° nuevo: el complemento lo sigue. Si todavía no se cortó también cambia su
+// propio N° (Rustico B → 212B), llevándose lo que ya tenga cargado de la orden de corte.
+function cmpSeguirNumeroBase(item,nuevoNum){
+  const nn=String(nuevoNum||'').trim();
+  if(!nn||!item||!item.complementos) return;
+  const upd={};
+  Object.entries(item.complementos).forEach(([L,c])=>{
+    if(!c||!c.numero) return;
+    const f=cmpFind(c.numero);
+    if(!f||!f.item.es_complemento) return;
+    const base=`fabrica_v5/sections/${f.secId}/items/${f.itemId}`;
+    upd[`${base}/complemento_de/numero`]=nn;
+    const numNuevo=nn+L;
+    if(String(c.numero)===numNuevo||cmpFind(numNuevo)||cmpCortado(f)) return;
+    upd[`${base}/numero_corte`]=numNuevo;
+    Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
+      Object.entries((it&&it.complementos)||{}).forEach(([L2,c2])=>{ if(c2&&c2.numero===c.numero) upd[`fabrica_v5/sections/${sid}/items/${iid}/complementos/${L2}/numero`]=numNuevo; });
+    }));
+    const kOld=corteKeyFrom(String(c.numero)), kNew=corteKeyFrom(numNuevo);
+    if(kOld&&kNew&&gruposCorteData&&gruposCorteData[kOld]&&!gruposCorteData[kNew]){
+      upd[`fabrica_v5/grupos_corte/${kNew}`]=gruposCorteData[kOld];
+      upd[`fabrica_v5/grupos_corte/${kOld}`]=null;
+    }
+    logActivity('Complemento sigue al corte base',`${c.numero} → ${numNuevo}`);
+  });
+  if(Object.keys(upd).length) db.ref().update(upd);
+}
+// Arregla los complementos que quedaron apuntando a un N° viejo del corte base.
+function cmpRepararBasesRenombradas(){
+  if(currentUser!=='ariel'||!sectionsData) return;
+  const hechos=new Set();
+  Object.values(sectionsData).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
+    if(!it||!it.es_complemento||!it.complemento_de) return;
+    if(cmpFind(it.complemento_de.numero)) return;
+    const b=cmpBaseDe(it);
+    if(!b||!b.item.numero_corte||hechos.has(b.itemId)) return;
+    hechos.add(b.itemId);
+    cmpSeguirNumeroBase(b.item,b.item.numero_corte);
+  }));
 }
 // Todos los ítems con ese N° (normalmente uno; puede haber dos si se renombró un duplicado a mano).
 function cmpFindAll(numero){
@@ -14245,7 +14304,7 @@ function cmpStripHtml(secId,itemId,item,sec){
   }
   const caja=(bg,html)=>`<div style="margin:-4px 0 10px;padding:9px 12px;border-radius:0 0 10px 10px;background:${bg};font-size:12px;border:1px solid var(--border);border-top:0">${html}</div>`;
   if(item.es_complemento&&item.complemento_de){
-    const p=cmpFind(item.complemento_de.numero);
+    const p=cmpBaseDe(item);
     const cortado=cmpCortado(p);
     const dups=cmpDuplicados(itemId,item);
     const dupHtml=dups.length?`<div style="background:#fde8e4;color:#9a2b1c;border-radius:8px;padding:7px 10px;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
@@ -14303,7 +14362,7 @@ const colPuedeUsos=()=>['ariel','noelia'].includes(quienSoy());
 const colK=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9]/g,'_')||'_';
 function colBaseColores(item){ const set=new Set(); const g=grupoCorteOf(item);
   [g&&g.capas,item.capas,g&&g.rollos,item.rollos].forEach(o=>Object.values(o||{}).forEach(x=>{ if(x&&x.color&&x.color.trim()) set.add(x.color.trim()); })); return [...set]; }
-function colBaseComplemento(item){ const p=item.complemento_de&&cmpFind(item.complemento_de.numero); if(!p) return [];
+function colBaseComplemento(item){ const p=item.complemento_de&&cmpBaseDe(item); if(!p) return [];
   const ck=corteKeyFrom(p.item.numero_corte),grupo=ck?(gruposCorteData[ck]||{}):{}; const filas=calcularGrillaEsperada({...p.item,rollos:grupo.rollos||p.item.rollos});
   const m={}; filas.forEach(f=>{ m[f.color]=(m[f.color]||0)+(f.esperado||0); }); const l=Object.keys(m).map(c=>({c,n:m[c]})); return l.length?l:colBaseColores(p.item).map(c=>({c,n:null})); }
 function colRef(secId,itemId){ return db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`); }

@@ -5301,6 +5301,8 @@ function etapaPrecio(secId,itemId,id,val){
 function etapaSalida(secId,itemId,id){
   const item=sectionsData[secId].items[itemId], e=(item.etapas||{})[id]; if(!e) return;
   let tot=''; try{ tot=resumenEntregasFabrica(item,itemId).totalEsperado||''; }catch(err){}
+  const tanda=grillaEntregaPlancha(e);
+  if(tanda) tot=Object.values(tanda).reduce((s,f)=>s+f.esperado,0);
   const r=prompt(`¿Cuántas prendas salen a ${etapaLabel(e)} · ${e.taller}?`,tot);
   if(r===null) return;
   const n=parseInt(r,10);
@@ -5322,6 +5324,8 @@ function etapaEntrega(secId,itemId,id){
   if(fecha===null) return;
   const extra={taller:e.taller,proceso:'terminacion',proceso_detalle:etapaLabel(e).replace(/^\S+\s/,''),etapa_tipo:e.tipo,etapa_momento:e.momento};
   if(e.factura){ if(e.precio) extra.precio_taller=e.precio; } else extra.no_facturar=true;
+  const tanda=grillaEntregaPlancha(e);
+  if(tanda) extra.grilla=tanda;
   const hecho={...e,estado:'hecho',fecha_entrega:fecha,entregado_por:currentUser};
   const restantes=etapasPendientes(item,'despues').filter(([k])=>k!==id);
   if(e.momento==='despues'&&!restantes.length){
@@ -6551,6 +6555,15 @@ function renderResumenPipelineTalleres(){
       if(!parcial) return;
       filas.push({secId,itemId,item,sec,estado:'parcial',parcial,avio:null,cantidad:parcial.cantidad,dias:diasEntre(parcial.desde)});
     });
+  });
+  // Una tanda en plancha y el resto todavía en confección: el saldo se ve en su propia fila, a
+  // nombre del taller de confección (por eso va con la sección de Revisión final y no la de terminación).
+  const secRevSaldo=getSectionIdByTipo('revision_final');
+  if(secRevSaldo&&sectionsData[secRevSaldo]) Object.entries(((sectionsData[SEC_TALLER_TERMINACION]||{}).items)||{}).forEach(([itemId,item])=>{
+    if(!item||item.es_complemento) return;
+    const parcial=utSaldoParcial(item,itemId);
+    if(!parcial) return;
+    filas.push({secId:secRevSaldo,itemId,item,sec:sectionsData[secRevSaldo],estado:'parcial',parcial,avio:null,cantidad:parcial.cantidad,dias:diasEntre(parcial.desde)});
   });
   if(filtroMarca) filas=filas.filter(f=>(f.item.marca||marcasList[0]||'By Nina')===filtroMarca);
   // Talleres presentes (antes de filtrar por taller, así el selector siempre muestra todos)
@@ -15620,7 +15633,7 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
 // Solo se puede facturar lo finalizado (control cerrado y dividido), igual que en la vista por taller.
 const LISTA_ENT_EST_LABEL={conteo:'🕓 Conteo',control:'🟡 Control',dividir:'🔀 División',finalizado:'✅ Finalizado'};
 const listaEntState={
-  logistica:{filtro:'pendientes',taller:'',buscar:'',verTodas:false},
+  logistica:{filtro:'pendientes',taller:'',marca:'',buscar:'',verTodas:false},
   facturacion:{filtro:'sinfac',taller:'',buscar:'',verTodas:false}
 };
 // Precio y facturación: los ven Ariel, Emir y Meli (Stef no). Facturar: Ariel y Meli.
@@ -15636,6 +15649,7 @@ function listaEntBase(ctx){
   const st=listaEntState[ctx];
   let filas=Object.entries(logiItemsData||{}).map(([id,it])=>({id,it,col:logiEstadoColumna(it)}));
   if(st.taller) filas=filas.filter(f=>listaEntDestino(f.it)===st.taller);
+  if(st.marca) filas=filas.filter(f=>logiMarcaDe(f.it)===st.marca);
   const q=(st.buscar||'').trim().toLowerCase();
   if(q) filas=filas.filter(f=>[f.it.code,f.it.name,f.it.numero_corte,listaEntDestino(f.it)].some(v=>String(v||'').toLowerCase().includes(q)));
   return filas;
@@ -15762,6 +15776,9 @@ function listaEntHtml(ctx){
     <select class="filtro-corte-select" onchange="listaEntSet('${ctx}','taller',this.value)">
       <option value="">Taller o proveedor: todos</option>${talleres.map(t=>`<option value="${esc(t)}" ${st.taller===t?'selected':''}>${esc(t)}</option>`).join('')}
     </select>
+    ${ctx==='logistica'?`<select class="filtro-corte-select" onchange="listaEntSet('${ctx}','marca',this.value)">
+      <option value="">Marca: todas</option>${[...new Set(Object.values(logiItemsData||{}).map(logiMarcaDe))].sort((a,b)=>a===LOGI_SIN_MARCA?1:b===LOGI_SIN_MARCA?-1:a.localeCompare(b,'es')).map(m=>`<option value="${esc(m)}" ${st.marca===m?'selected':''}>${esc(m)}</option>`).join('')}
+    </select>`:''}
     <input type="text" placeholder="Buscar código, artículo o N° de corte..." value="${esc(st.buscar)}"
       onchange="listaEntSet('${ctx}','buscar',this.value)"
       style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
@@ -15845,7 +15862,7 @@ function listaEntHtml(ctx){
         <div class="le-sub">${it.proceso==='estampado'?'🎨':it.proceso==='terminacion'?'🧺':'🧵'} ${esc(listaEntDestino(it))}${it.proceso_detalle?' ('+esc(it.proceso_detalle)+')':''}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
         <div class="le-nums">${nums}</div>
         ${solHtml}
-        <div class="le-bot"><span style="display:flex;gap:6px;flex-wrap:wrap"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${logiEsMinisur(it)?'<span class="le-est" style="background:var(--surface2);color:var(--text2)">Mini Sur · va al cliente</span>':''}</span>${facHtml}</div>
+        <div class="le-bot"><span style="display:flex;gap:6px;flex-wrap:wrap"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${logiEsMinisur(it)?'<span class="le-est" style="background:var(--surface2);color:var(--text2)">Mini Sur · va al cliente</span>':''}${it.mandada_plancha?`<span class="le-est" style="background:#ede9fe;color:#5b21b6">Sigue a plancha · ${esc(it.mandada_plancha.taller||'')}</span>`:''}</span>${facHtml}</div>
       </div>
     </div>`;
   });
@@ -18287,7 +18304,7 @@ function logiRenderDetail(id){
   // dividir), así Noemí/Nahuel/Emir las completan desde Logística sin pasar por la pestaña Web.
   const medEl=document.getElementById('logi-detail-medidas');
   if(medEl){ const mh=buildMedidasHtml(id,it,true); medEl.innerHTML=mh?`<div class="ld-card">${mh}</div>`:''; }
-  let html = '';
+  let html = logiPlanchaHtml(id,it);
 
   if(cerrado){
     const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');
@@ -18415,7 +18432,7 @@ function logiMarcaMapa(){
   const m={}; _logiMarcaCache=m; setTimeout(()=>{_logiMarcaCache=null},0);
   const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
   Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(item=>{
-    if(item&&item.numero_corte&&item.marca) m[norm(item.numero_corte)+'|'+norm(item.code)]=item.marca;
+    if(item&&item.numero_corte) m[norm(item.numero_corte)+'|'+norm(item.code)]=item.marca||(marcasList&&marcasList[0])||'By Nina';
   }));
   return m;
 }
@@ -18428,6 +18445,111 @@ function logiEsMinisur(it){
   const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
   const marca=logiMarcaMapa()[norm(it.numero_corte)+'|'+norm(it.code)];
   return !!marca&&esMinisur({marca});
+}
+// Marca de una entrega para el filtro de Logística. "Sin identificar": su corte ya no está en la app.
+const LOGI_SIN_MARCA='Sin identificar';
+function logiMarcaDe(it){
+  if(!it) return LOGI_SIN_MARCA;
+  const base=(marcasList&&marcasList[0])||'By Nina';
+  if(it.solo_cliente) return marcaMinisurNombre();
+  const snap=it.avance_pendiente&&it.avance_pendiente.item_snapshot;
+  if(snap) return snap.marca||base;
+  if(it.origen==='proveedor') return base;
+  const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
+  return logiMarcaMapa()[norm(it.numero_corte)+'|'+norm(it.code)]||LOGI_SIN_MARCA;
+}
+// ===== Mandar a plancha desde Logística (nov 2026) =====
+// Se puede antes de terminar el control y con una entrega parcial: suma una etapa de plancha al
+// recorrido, el corte aparece en Talleres en ese taller y la entrega queda facturable a su taller
+// al cerrar el control. Irma recibe la tanda de ESTA entrega, no el corte entero; cada tanda se
+// manda desde su propia entrega.
+function logiPuedeMandarPlancha(){ return ['ariel','stef','emir'].includes(currentUser); }
+function logiCorteDeEntrega(it){
+  if(!it||!it.numero_corte) return null;
+  const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
+  const nc=norm(it.numero_corte), code=norm(it.code);
+  for(const [secId,sec] of Object.entries(sectionsData||{})){
+    for(const [itemId,item] of Object.entries((sec&&sec.items)||{})){
+      if(item&&!item.es_complemento&&norm(item.numero_corte)===nc&&norm(item.code)===code) return {secId,itemId,item};
+    }
+  }
+  return null;
+}
+function logiPlanchaHtml(id,it){
+  if(!it||!it.numero_corte||it.origen==='proveedor') return '';
+  if(it.mandada_plancha){
+    const mp=it.mandada_plancha;
+    return `<div style="text-align:center;font-size:12px;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:8px;padding:6px 8px;margin-bottom:10px">🧺 Mandada a plancha · ${utEsc(mp.taller||'')}${mp.detalle?' ('+utEsc(mp.detalle)+')':''}</div>`;
+  }
+  if(!logiPuedeMandarPlancha()||it.etapa_tipo==='plancha') return '';
+  const lista=(talleresCorteList||[]).filter(t=>t!==TALLER_INTERNO);
+  const irma=lista.find(t=>String(t).trim().toLowerCase()==='irma');
+  const opciones=(irma?lista:['Irma',...lista]).map(t=>`<option value="${utEsc(t)}" ${String(t).trim().toLowerCase()==='irma'?'selected':''}>${utEsc(t)}</option>`).join('');
+  return `<div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:10px">
+    <div style="font-weight:700;font-size:12px;margin-bottom:8px">🧺 Mandar a plancha</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="logi-plancha-taller" class="filtro-corte-select">${opciones}</select>
+      <input id="logi-plancha-detalle" type="text" placeholder="Detalle: ojal + botón" style="flex:1;min-width:150px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
+      <button class="btn-sm" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="logiMandarAPlancha('${id}')">Mandar a plancha</button>
+    </div></div>`;
+}
+function logiMandarAPlancha(id){
+  if(!logiPuedeMandarPlancha()){ showToast('Esto lo hacen Ariel, Stef o Emir'); return; }
+  const it=logiItemsData[id];
+  if(!it||it.mandada_plancha) return;
+  const taller=((document.getElementById('logi-plancha-taller')||{}).value||'').trim();
+  const detalle=((document.getElementById('logi-plancha-detalle')||{}).value||'').trim();
+  if(!taller){ showToast('Elegí el taller'); return; }
+  const av=it.avance_pendiente;
+  const retenida=!!(av&&!av.avanzado&&av.item_snapshot);
+  const f=retenida?null:logiCorteDeEntrega(it);
+  const item=retenida?av.item_snapshot:(f&&f.item);
+  if(!item){ showToast('No encontré el corte en la app — avisale a Ariel'); return; }
+  if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
+  if(!confirm(`¿Mandar ${it.name||it.code||'esta entrega'} (corte ${it.numero_corte}) a plancha con ${taller}?`)) return;
+  const etapaId='e'+Date.now();
+  const etapa={tipo:'plancha',momento:'despues',taller,detalle:detalle||null,factura:tallerFactura(taller),orden:Date.now(),estado:'pendiente',creado_por:currentUser,entrega_id:id};
+  const label=`Terminación (Plancha · ${taller})`;
+  const upd={};
+  const key=sanitizeStr(taller);
+  if(!talleresConfigData[key]||talleresConfigData[key].factura==null) upd[`fabrica_v5/talleres_config/${key}`]={nombre:taller,factura:etapa.factura};
+  if(!(talleresCorteList||[]).includes(taller)){ talleresCorteList=[...(talleresCorteList||[]),taller]; upd['fabrica_v5/talleres_corte']=talleresCorteList; }
+  const base=`fabrica_v5/logistica/items/${id}`;
+  upd[`${base}/mandada_plancha`]={taller,detalle:detalle||null,etapa_id:etapaId,fecha:Date.now(),por:currentUser};
+  if(it.estado==='cerrado'||it.estado==='pendiente_dividir'){
+    upd[`${base}/estado`]='cerrado';
+    upd[`${base}/sigue_a_estampado`]=true;
+    upd[`${base}/sigue_a`]=label;
+    upd[`${base}/solo_cliente`]=null;
+    upd[`${base}/dividido`]=null;
+    if(!it.fecha_cerrado){ upd[`${base}/fecha_cerrado`]=Date.now(); upd[`${base}/cerrado_por`]=currentUser; }
+  }
+  if(f&&f.secId===SEC_TALLER_TERMINACION){
+    upd[`fabrica_v5/sections/${f.secId}/items/${f.itemId}/etapas/${etapaId}`]=etapa;
+    db.ref().update(upd);
+  } else {
+    const nuevo={...item,etapas:{...(item.etapas||{}),[etapaId]:etapa},fecha_etapa:Date.now(),fecha_entregado_taller_armado:Date.now()};
+    if(retenida){
+      upd[`${base}/avance_pendiente/avanzado`]=true;
+      db.ref(`fabrica_v5/sections/${SEC_TALLER_TERMINACION}/items`).push(nuevo);
+    } else moveItemUndoable(f.secId,f.itemId,SEC_TALLER_TERMINACION,nuevo);
+    db.ref().update(upd);
+  }
+  logActivity('Mandó a plancha desde Logística',`${it.code||''} — Corte ${it.numero_corte||'?'} · ${taller}${detalle?' ('+detalle+')':''}`);
+  showToast(`🧺 Mandada a plancha con ${taller} — ya está en Talleres`);
+}
+// Lo que tiene que volver de plancha: lo controlado de la entrega (OK + Detalle) o, si todavía no
+// se controló, lo contado. Sin datos, null: se usa la grilla del corte.
+function grillaEntregaPlancha(e){
+  const ent=e&&e.entrega_id&&(logiItemsData||{})[e.entrega_id];
+  if(!ent) return null;
+  const obj={}; let i=0;
+  Object.values(ent.grilla||{}).forEach(f=>{
+    const ctrl=(parseInt(f.ok)||0)+(parseInt(f.detalle)||0);
+    const n=ctrl||(parseInt(f.contado)||0);
+    if(n>0) obj['f'+(i++)]={color:f.color||'',talle:f.talle||'',esperado:n,ok:0,detalle:0,fallado:0};
+  });
+  return i?obj:null;
 }
 // Entregas de Mini Sur que quedaron en División antes de este cambio.
 function logiMinisurEnDividir(){
@@ -18490,6 +18612,7 @@ function logiSigueAEstampado(it){
 // próximo paso, o null si esta entrega es la final (→ Pendiente dividir).
 function logiSigueA(it){
   if(!it) return null;
+  if(it.mandada_plancha) return `Terminación (Plancha · ${it.mandada_plancha.taller||'taller'})`;
   const av=it.avance_pendiente;
   if(av&&!av.avanzado) return av.destino_tipo==='en_estampado_taller'?'Estampado':null;
   if(it.proceso==='estampado') return null;

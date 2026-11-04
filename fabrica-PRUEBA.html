@@ -15110,7 +15110,7 @@ function renderResumenDia(){
   // Logística: lo que entró ese día y lo que pasó a comercializar
   const logi=Object.entries(logiItemsData||{}).map(([id,it])=>({id,...it}));
   const entraron=logi.filter(it=>it.fecha_entregado===diaAr&&it.origen!=='proveedor');
-  const aComerc=logi.filter(it=>it.estado==='cerrado'&&esDia(it.fecha_cerrado));
+  const aComerc=logi.filter(it=>it.estado==='cerrado'&&esDia(it.fecha_cerrado)&&!logiEsMinisur(it));
   // Ingresos
   const ingTela=Object.entries(tsData.remitos||{}).filter(([,r])=>r&&!r.inicial&&esDia(r.creadoEn));
   const ingAvios=Object.values(ingresosFabData||{}).filter(x=>x&&x.fecha===dia);
@@ -15767,7 +15767,7 @@ function listaEntHtml(ctx){
       style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
   </div>`;
   const filas=listaEntFiltrar(ctx);
-  const resumenEst=listaEntResumenEstampado();
+  const resumenEst=listaEntAvisoMinisur(ctx)+listaEntResumenEstampado();
   if(!filas.length) return resumenEst+filtrosHtml+'<div class="empty">No hay entregas con ese filtro.</div>';
   const LIM=60;
   const visibles=st.verTodas?filas:filas.slice(0,LIM);
@@ -15845,7 +15845,7 @@ function listaEntHtml(ctx){
         <div class="le-sub">${it.proceso==='estampado'?'🎨':it.proceso==='terminacion'?'🧺':'🧵'} ${esc(listaEntDestino(it))}${it.proceso_detalle?' ('+esc(it.proceso_detalle)+')':''}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
         <div class="le-nums">${nums}</div>
         ${solHtml}
-        <div class="le-bot"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${facHtml}</div>
+        <div class="le-bot"><span style="display:flex;gap:6px;flex-wrap:wrap"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${logiEsMinisur(it)?'<span class="le-est" style="background:var(--surface2);color:var(--text2)">Mini Sur · va al cliente</span>':''}</span>${facHtml}</div>
       </div>
     </div>`;
   });
@@ -17291,7 +17291,7 @@ function webToggleFila(id){ if(webAbiertos.has(id)) webAbiertos.delete(id); else
 function renderWebTab(){
   const cont=document.getElementById('web-board');
   if(!cont) return;
-  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
+  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado&&!logiEsMinisur(it));
   // Orden: el último finalizado primero (si un corte viejo no tiene fecha de cierre, usa la de ingreso).
   items.sort((a,b)=>(b[1].fecha_cerrado||b[1].fecha_creado||0)-(a[1].fecha_cerrado||a[1].fecha_creado||0));
   // Filtro por estado de subida a la web
@@ -17393,7 +17393,7 @@ function comercTodoOk(e){
   return e.costoHecho&&e.preciosCount===3&&e.recAvellaneda!==false&&e.recDeposito!==false&&e.webOk!==false&&e.medidasOk;
 }
 function comercItemsFiltrados(){
-  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
+  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado&&!logiEsMinisur(it));
   // De más recién finalizado a más viejo (fecha en que se cerró/dividió el corte).
   items.sort((a,b)=>(b[1].fecha_cerrado||b[1].fecha_creado||0)-(a[1].fecha_cerrado||a[1].fecha_creado||0));
   if(comercSearch.trim()){
@@ -17514,7 +17514,7 @@ function renderComercializarTab(){
   if(resumenEl) resumenEl.textContent=`${listos} de ${items.length} completamente listos para comercializar`;
 }
 function webItemsFiltrados(){
-  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado);
+  let items=Object.entries(logiItemsData||{}).filter(([id,it])=>it.estado==='cerrado'&&!it.sigue_a_estampado&&!logiEsMinisur(it));
   items.sort((a,b)=>(b[1].fecha_creado||0)-(a[1].fecha_creado||0));
   if(webSearch.trim()){
     const q=webSearch.trim().toLowerCase();
@@ -17643,7 +17643,8 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   if(it.division_avellaneda) botones.push(btn(it.recibido_avellaneda,`Recibido en Avellaneda <small>(${it.division_avellaneda})</small>`,`Recibido en Avellaneda <small>${quien(it.recibido_avellaneda_por)}</small>`,`logiToggleRecibido('${id}','avellaneda',${!it.recibido_avellaneda})`));
   if(it.division_deposito) botones.push(btn(it.recibido_deposito,`Recibido en Depósito <small>(${it.division_deposito})</small>`,`Recibido en Depósito <small>${quien(it.recibido_deposito_por)}</small>`,`logiToggleRecibido('${id}','deposito',${!it.recibido_deposito})`));
   botones.push(btn(it.costo_sacado,'Sacar costo',`Costo sacado <small>${quien(it.costo_sacado_por)}</small>`,`logiToggleCostoSacado('${id}',${!it.costo_sacado})`));
-  botones.push(btn(it.cargado_ninox,'Cargar a Ninox',`Cargado a Ninox <small>${quien(it.cargado_ninox_por)}</small>`,`logiToggleCargadoNinox('${id}',${!it.cargado_ninox})`));
+  const minisurCliente=logiEsMinisur(it);
+  if(!minisurCliente) botones.push(btn(it.cargado_ninox,'Cargar a Ninox',`Cargado a Ninox <small>${quien(it.cargado_ninox_por)}</small>`,`logiToggleCargadoNinox('${id}',${!it.cargado_ninox})`));
   pend.innerHTML=`<div class="ld-card ld-pend"><div class="ld-pend-t">Pendientes de este corte</div><div class="ld-pend-row">${botones.join('')}</div></div>`;
   // Plata: solo Ariel y Meli
   if(currentUser==='ariel'||currentUser==='meli'){
@@ -17671,7 +17672,7 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   const may=colores.filter(c=>it.web_colores_may&&it.web_colores_may[webColorSlug(c)]).length;
   const min=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
   let medOk=false; try{ medOk=medidasCompletas(it); }catch(e){}
-  web.innerHTML=colores.length?`<div class="ld-card"><div class="ld-title">Web</div>
+  web.innerHTML=(colores.length&&!minisurCliente)?`<div class="ld-card"><div class="ld-title">Web</div>
     <div class="ld-row"><span>Minorista</span><b style="color:${min===colores.length?'#15803d':'#b91c1c'}">${min}/${colores.length} colores</b></div>
     <div class="ld-row"><span>Mayorista</span><b style="color:${may===colores.length?'#15803d':'#b91c1c'}">${may}/${colores.length} colores</b></div>
     <div class="ld-row"><span>Medidas</span><b style="color:${medOk?'#15803d':'#b91c1c'}">${medOk?'cargadas':'sin cargar'}${it.medidas_subidas_web?' · en web':''}</b></div>
@@ -17836,6 +17837,8 @@ function logiCardHtml(id,it,cerrado){
   let badgeHtml;
   if(cerrado&&it.sigue_a_estampado){
     badgeHtml = `<span class="logi-badge" style="background:#dbeafe;color:#1e3a8a">${String(it.sigue_a||'').startsWith('Terminación')?'🧺':'🎨'} Controlado · sigue a ${utEsc(it.sigue_a||'estampado')}</span>`;
+  } else if(cerrado&&logiEsMinisur(it)){
+    badgeHtml = '<span class="logi-badge logi-done">Cerrado · Mini Sur, va al cliente</span>';
   } else if(cerrado){
     badgeHtml = '<span class="logi-badge logi-done">Cerrado</span>';
   } else if(logiEstadoColumna(it)==='dividir'){
@@ -18145,7 +18148,7 @@ function logiRenderDetail(id){
 
   // Mover a cualquier etapa a mano (solo Ariel) — para destrabar cortes viejos que no
   // respetan el flujo normal (conteo → control → pendiente dividir → finalizado/web).
-  const etapaActual = (it.estado==='cerrado'&&it.sigue_a_estampado) ? 'sigue' : logiEstadoColumna(it);
+  const etapaActual = (it.estado==='cerrado'&&it.solo_cliente) ? 'minisur' : (it.estado==='cerrado'&&it.sigue_a_estampado) ? 'sigue' : logiEstadoColumna(it);
   document.getElementById('logi-detail-etapa-ariel').innerHTML = currentUser==='ariel' ? `
     <label style="font-size:11px;color:var(--text2);margin-right:6px">🔧 Forzar etapa (Ariel):</label>
     <select class="logi-prio-select" onchange="logiForzarEtapa('${id}',this.value)">
@@ -18154,6 +18157,7 @@ function logiRenderDetail(id){
       <option value="dividir" ${etapaActual==='dividir'?'selected':''}>🔀 Pendiente dividir</option>
       <option value="finalizado" ${etapaActual==='finalizado'?'selected':''}>✅ Finalizado (habilita Web)</option>
       <option value="sigue" ${etapaActual==='sigue'?'selected':''}>✅ Cerrada — siguió a otro taller (se factura, no se divide)</option>
+      <option value="minisur" ${etapaActual==='minisur'?'selected':''}>✅ Mini Sur — va al cliente (se factura, sin dividir ni comercializar)</option>
     </select>` : '';
   const avPend=it.avance_pendiente&&!it.avance_pendiente.avanzado;
   document.getElementById('logi-detail-eliminar').innerHTML = (currentUser==='ariel'||currentUser==='stef') ? `
@@ -18287,7 +18291,7 @@ function logiRenderDetail(id){
 
   if(cerrado){
     const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');
-    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">${it.sigue_a_estampado?`✅ Controlado — facturable a ${it.taller||'el taller'} · sigue a ${utEsc(it.sigue_a||'Estampado')} (se divide con la última entrega)`:'✅ Conteo cerrado'}</div>` +
+    html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">${it.sigue_a_estampado?`✅ Controlado — facturable a ${it.taller||'el taller'} · sigue a ${utEsc(it.sigue_a||'Estampado')} (se divide con la última entrega)`:logiEsMinisur(it)?`✅ Controlado — Mini Sur: facturable a ${utEsc(it.taller||'el taller')}, va al cliente (no se divide ni se comercializa)`:'✅ Conteo cerrado'}</div>` +
       (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
     const avisoControl = totalPorControlar>0 ? `<div style="text-align:center;font-size:12px;color:#b8860b;margin-bottom:6px">Faltan controlar ${totalPorControlar} prenda${totalPorControlar!==1?'s':''} (contadas pero sin clasificar en OK/Detalle/Fallado)</div>`
@@ -18301,7 +18305,7 @@ function logiRenderDetail(id){
       : '';
     html += avisoControl + yaMarcado + `<div class="logi-summary-bar">
       <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
-      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">${(()=>{const s=logiSigueA(it);return s?'Cerrar control → Facturar y sigue a '+utEsc(s):'Cerrar control → Pendiente dividir';})()}</button></div>
+      <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">${(()=>{const s=logiSigueA(it);return s?'Cerrar control → Facturar y sigue a '+utEsc(s):logiEsMinisur(it)?'Cerrar control → Finalizar (Mini Sur)':'Cerrar control → Pendiente dividir';})()}</button></div>
     </div>`;
   }
   document.getElementById('logi-final-summary').innerHTML = html;
@@ -18401,6 +18405,60 @@ function logiConfirmarNota(){
 // queda "cerrada" (así Facturación la toma) pero marcada sigue_a_estampado: no pasa por
 // Pendiente dividir, no aparece en Web/Comercializar. La división se hace sobre la entrega
 // de estampado, que después se abre con lo que pasó el control (OK + Detalle).
+// ===== Mini Sur (nov 2026) =====
+// Lo de Mini Sur no lo vende By Nina: va a un cliente. Se cuenta, se controla, se factura al taller
+// y se costea igual, pero no se divide y no pasa por Comercializar ni Web. La entrega no guarda la
+// marca: se toma del corte por N° de corte + código (solo_cliente queda guardado al cerrarla).
+let _logiMarcaCache=null;
+function logiMarcaMapa(){
+  if(_logiMarcaCache) return _logiMarcaCache;
+  const m={}; _logiMarcaCache=m; setTimeout(()=>{_logiMarcaCache=null},0);
+  const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
+  Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(item=>{
+    if(item&&item.numero_corte&&item.marca) m[norm(item.numero_corte)+'|'+norm(item.code)]=item.marca;
+  }));
+  return m;
+}
+function logiEsMinisur(it){
+  if(!it) return false;
+  if(it.solo_cliente) return true;
+  const snap=it.avance_pendiente&&it.avance_pendiente.item_snapshot;
+  if(snap&&snap.marca) return esMinisur(snap);
+  if(!it.numero_corte) return false;
+  const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
+  const marca=logiMarcaMapa()[norm(it.numero_corte)+'|'+norm(it.code)];
+  return !!marca&&esMinisur({marca});
+}
+// Entregas de Mini Sur que quedaron en División antes de este cambio.
+function logiMinisurEnDividir(){
+  return Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='pendiente_dividir'&&logiEsMinisur(it));
+}
+function listaEntAvisoMinisur(ctx){
+  if(ctx!=='logistica'||currentUser!=='ariel') return '';
+  const ents=logiMinisurEnDividir();
+  if(!ents.length) return '';
+  const filas=ents.map(([,it])=>`<li>Corte ${utEsc(it.numero_corte||'?')} · ${utEsc(it.code||'')} ${utEsc(it.name||'')} — ${utEsc(it.taller||'sin taller')}</li>`).join('');
+  return `<div class="le-sol" style="display:block;margin-bottom:10px"><b>Hay ${ents.length} entrega${ents.length!==1?'s':''} de Mini Sur en División.</b> Al cerrarlas quedan finalizadas y facturables, sin dividir.
+    <ul style="margin:6px 0 8px 18px">${filas}</ul>
+    <button class="le-sol-ok" onclick="logiCerrarMinisurDividir()">✓ Cerrar ${ents.length===1?'esta entrega':'estas '+ents.length+' entregas'}</button></div>`;
+}
+function logiCerrarMinisurDividir(){
+  if(currentUser!=='ariel'){ showToast('Solo Ariel puede cerrarlas'); return; }
+  const ents=logiMinisurEnDividir();
+  if(!ents.length) return;
+  if(!confirm(`¿Cerrar ${ents.length} entrega${ents.length!==1?'s':''} de Mini Sur sin dividir?`)) return;
+  ents.forEach(([id,it])=>{
+    logiCerrarMinisur(id,it);
+    logiLiberarAvance(id,it);
+  });
+  showToast(`✅ ${ents.length} entrega${ents.length!==1?'s':''} de Mini Sur cerrada${ents.length!==1?'s':''}`);
+}
+function logiCerrarMinisur(itemId,it){
+  const upd={estado:'cerrado',solo_cliente:true,dividido:null,fecha_cerrado:Date.now(),cerrado_por:currentUser};
+  if(!it.fecha_control_cerrado){ upd.fecha_control_cerrado=Date.now(); upd.control_cerrado_por=currentUser; }
+  db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upd);
+  logActivity('Cerró entrega de Mini Sur — va al cliente (no se divide ni se comercializa)',`${it.code||''} — Corte ${it.numero_corte||'?'}`);
+}
 function logiCorteFabricaDe(it){
   if(!it||!it.numero_corte) return null;
   const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
@@ -18478,7 +18536,7 @@ function logiCerrarSiguioOtroTaller(itemId,silencioso){
   const post=logiEntregaPosterior(itemId,it);
   const sigueA=post?logiSigueALabelDe(post.it):(logiSigueA(it)||'otro taller');
   if(!silencioso&&!confirm(`¿Cerrar la entrega de ${it.taller||'el taller'} (corte ${it.numero_corte||'?'})? Queda facturable a ${it.taller||'ese taller'} y NO se divide: siguió a ${sigueA}, que es la que se divide.`)) return;
-  const upd={estado:'cerrado',sigue_a_estampado:true,sigue_a:sigueA,dividido:null,fecha_cerrado:Date.now(),cerrado_por:currentUser};
+  const upd={estado:'cerrado',sigue_a_estampado:true,sigue_a:sigueA,solo_cliente:null,dividido:null,fecha_cerrado:Date.now(),cerrado_por:currentUser};
   if(!it.fecha_control_cerrado){ upd.fecha_control_cerrado=Date.now(); upd.control_cerrado_por=currentUser; }
   db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upd);
   logActivity(`Cerró entrega — siguió a ${sigueA} (no se divide)`,`${it.code||''} — Corte ${it.numero_corte||'?'}`);
@@ -18493,6 +18551,10 @@ function logiCerrarConteo(itemId){
     db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upd);
     logActivity(`Control cerrado — facturable, sigue a ${sigueA}`,`${it.code||''} — Corte ${it.numero_corte||'?'}`);
     showToast(`✅ Control cerrado — facturable a ${it.taller||'el taller'}, sigue a ${sigueA}`);
+  } else if(logiEsMinisur(it)){
+    if(!confirm(`¿Cerrar el control? Es Mini Sur: queda finalizada y facturable a ${it.taller||'el taller'}, sin dividir y sin pasar por Comercializar ni Web.`)) return;
+    logiCerrarMinisur(itemId,it);
+    showToast('✅ Control cerrado — Mini Sur finalizada');
   } else {
     if(!confirm('¿Cerrar el control de este corte? Pasa a "Pendiente dividir" — Ariel tiene que marcarlo dividido para que quede Finalizado.')) return;
     db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('pendiente_dividir');
@@ -18504,8 +18566,11 @@ function logiCerrarConteo(itemId){
   // bloqueada esperando que se cuente y controle, cerrar el control es lo que la destraba: el
   // corte reaparece solo en Fábrica, en la sección de destino — sin que nadie tenga que tocar
   // nada más en Fábrica.
+  logiLiberarAvance(itemId,it);
+}
+function logiLiberarAvance(itemId,it){
   const avance=it&&it.avance_pendiente;
-  if(avance&&avance.item_snapshot){
+  if(avance&&avance.item_snapshot&&!avance.avanzado){
     const destSecId=getSectionIdByTipo(avance.destino_tipo);
     if(destSecId){
       db.ref(`fabrica_v5/sections/${destSecId}/items`).push({...avance.item_snapshot,fecha_etapa:Date.now()});
@@ -18579,9 +18644,17 @@ function logiForzarEtapa(itemId,etapa){
   const it=logiItemsData[itemId];
   if(!it){ showToast('No encontré el corte'); return; }
   if(etapa==='sigue'){ logiCerrarSiguioOtroTaller(itemId); return; }
+  if(etapa==='minisur'){
+    if(!confirm(`¿Marcar "${it.code||itemId}" como Mini Sur? Queda finalizada y facturable, fuera de División, Comercializar y Web.`)) return;
+    logiCerrarMinisur(itemId,it);
+    logiLiberarAvance(itemId,it);
+    showToast('✅ Marcada como Mini Sur');
+    return;
+  }
   if(!confirm(`¿Forzar "${it.code||itemId}" a la etapa "${etapa}"? Esto salta los controles normales.`)) return;
   const updates={};
   const base=`fabrica_v5/logistica/items/${itemId}`;
+  updates[`${base}/solo_cliente`]=null;
   if(etapa!=='finalizado'){ updates[`${base}/sigue_a_estampado`]=null; updates[`${base}/sigue_a`]=null; }
   if(etapa==='conteo'){
     updates[`${base}/estado`]=null;
@@ -18625,6 +18698,7 @@ function logiReabrirConteo(itemId){
   db.ref(`fabrica_v5/logistica/items/${itemId}/estado`).set('abierto');
   db.ref(`fabrica_v5/logistica/items/${itemId}/sigue_a_estampado`).set(null);
   db.ref(`fabrica_v5/logistica/items/${itemId}/sigue_a`).set(null);
+  db.ref(`fabrica_v5/logistica/items/${itemId}/solo_cliente`).set(null);
   db.ref(`fabrica_v5/logistica/items/${itemId}/fecha_reabierto`).set(Date.now());
   db.ref(`fabrica_v5/logistica/items/${itemId}/reabierto_por`).set(currentUser);
   logActivity('Reabrió un conteo de Logística',itemId);

@@ -15612,6 +15612,13 @@ function renderTableroEmir(cont){
   const filaEntrega=x=>{ const it=x.item, tal=it.fecha_estimada_entrega_taller||'', d=diasEntre(x.ts);
     return `<div class="pq-f">${foto(it)}<div class="pq-b pq-click" style="min-width:180px" onclick="${ir(x)}"><div class="pq-art">${nombreArt(it)}</div><div class="pq-sub">${e(utTallerDe(it,x.secId))}${x.atraso?` · <span style="color:var(--danger);font-weight:700">atrasada ${x.atraso} día${x.atraso!==1?'s':''}</span>`:d!=null?` · hace ${d} día${d!==1?'s':''} en taller`:''}</div></div><span class="pq-sub" style="${tal?'':'color:var(--danger);font-weight:700'}">${tal?'':'Sin fecha '}<input class="ut-in${tal?'':' falta'}" type="date" value="${e(tal)}" onchange="setFechaEntregaTallerCorte('${x.secId}','${x.itemId}',this.value)"></span>${botonAviso(x,false)}</div>`; };
   const diario=Object.values(avisosLlegadaData||{}).filter(a=>a&&a.por==='emir'&&a.ts&&isoFechaLocal(a.ts)===dia).sort((a,b)=>a.ts-b.ts);
+  // Nov 2026: avíos pedidos que tienen que llegar, y cortes en plancha/terminación (Irma u otro taller).
+  const avRec=[]; forEachAvio((secId,itemId,item,avioId,avio)=>{ if(item.done||!avio||!avio.fecha_pedido||avio.recibido) return; avRec.push({secId,itemId,item,avioId,avio}); });
+  avRec.sort((a,b)=>String(a.avio.fecha_pedido).localeCompare(String(b.avio.fecha_pedido)));
+  const plancha=Object.entries((sectionsData[SEC_TALLER_TERMINACION]&&sectionsData[SEC_TALLER_TERMINACION].items)||{}).filter(([,it])=>it&&!it.done&&!it.es_complemento)
+    .map(([itemId,item])=>({secId:SEC_TALLER_TERMINACION,itemId,item,ts:item.fecha_etapa||0})).sort((a,b)=>(a.ts||0)-(b.ts||0));
+  const filaAvio=x=>`<div class="pq-f">${foto(x.item)}<div class="pq-b pq-click" style="min-width:180px" onclick="${ir(x)}"><div class="pq-art">${e(x.avio.nombre||'Avío')} · ${nombreArt(x.item)}</div><div class="pq-sub">${x.avio.proveedor?e(x.avio.proveedor)+' · ':''}pedido ${e(x.avio.fecha_pedido)}${x.avio.cantidad?' · '+e(x.avio.cantidad):''}</div></div>${puedeOperar?`<button class="btn-sm em-pri" onclick="marcarRecibido('${x.secId}','${x.itemId}','${x.avioId}')">Recibido</button>`:''}</div>`;
+  const filaPlancha=x=>{ const d=diasEntre(x.ts); return `<div class="pq-f">${foto(x.item)}<div class="pq-b pq-click" style="min-width:180px" onclick="${ir(x)}"><div class="pq-art">${nombreArt(x.item)}</div><div class="pq-sub">${e(utTallerDe(x.item,x.secId)||'Sin taller')}${d!=null?' · hace '+d+' día'+(d!==1?'s':'')+' en plancha':''}${x.item.precio_plancha?' · $ '+e(x.item.precio_plancha):''}</div></div></div>`; };
   const fechaTxt=new Date(dia+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
   cont.innerHTML=`<div class="pq-wrap">
     <div class="pq-head"><div><div class="pq-h1">${currentUser==='emir'?'Mi día':'Día de Emir'}</div><div class="pq-sub">${currentUser==='emir'?'':'Emir · '}${e(fechaTxt)}</div></div>
@@ -15625,6 +15632,10 @@ function renderTableroEmir(cont){
     <div class="pq-card">${q.estampa.map(filaEstampa).join('')||vacio}</div>
     <div class="pq-lab">Entregas de talleres <span class="pq-n">${q.entregas.length}</span></div>
     <div class="pq-card">${q.entregas.map(filaEntrega).join('')||vacio}</div>
+    <div class="pq-lab">Cortes en plancha <span class="pq-n">${plancha.length}</span></div>
+    <div class="pq-card">${plancha.map(filaPlancha).join('')||vacio}</div>
+    <div class="pq-lab">Avíos para recibir <span class="pq-n">${avRec.length}</span></div>
+    <div class="pq-card">${avRec.map(filaAvio).join('')||vacio}</div>
     <div class="pq-lab">Pasarle a Noe</div>
     <div class="pq-card">
       ${puedeOperar?`<div class="pq-f" style="background:var(--bg)"><select class="filtro-corte-select" aria-label="Qué llegó" onchange="emForm.tipo=this.value">${EM_TIPOS.map(t=>`<option ${t===emForm.tipo?'selected':''}>${t}</option>`).join('')}</select>
@@ -15886,9 +15897,14 @@ function renderTableroPeque(){
   const pend=getMisPendientesPeque().filter(x=>!x.esPedido);
   const fichas=pend.filter(x=>/^Falta /.test(x.texto));
   const avios=pend.filter(x=>/^Avío /.test(x.texto));
-  const {moldes,otras,minisur}=pqTareas();
+  const {moldes,otras:otras0,minisur}=pqTareas();
+  // Nov 2026: Pendiente armar tizada, en el orden de prioridad (sale de esa sección, no de "otras").
+  const tizId=getSectionIdByTitleExact('Pendiente armar tizada');
+  const tizadas=tizId?getSortedItems(sectionsData[tizId]||{}).filter(([,it])=>it&&!it.done).map(([itemId,item],i)=>({secId:tizId,itemId,item,texto:`Prioridad ${i+1}${(()=>{ try{ const f=faltantesNoeliaTizada(item); return f.length?' · Noelia todavía no cargó: '+f.join(', '):''; }catch(err){ return ''; } })()}`,ts:item.fecha_etapa||0})):[];
+  const otras=otras0.filter(x=>x.secId!==tizId);
   const sinPedir=avios.filter(x=>/sin pedir/.test(x.texto)).length, sinPrecio=avios.length-sinPedir;
   const grupos=[
+    {k:'tizadas',t:'Tizadas por prioridad',sub:'Pendiente armar tizada, en el orden en que van',l:tizadas},
     {k:'fichas',t:'Fichas',sub:'Falta cargar ficha, curva, ancho o control de piezas',l:fichas},
     {k:'moldes',t:'Moldes',sub:'Digitalizar y progresiones de Mini Sur',l:moldes},
     {k:'avios',t:'Avíos',sub:`${sinPedir} sin pedir · ${sinPrecio} sin precio`,l:avios},
@@ -15909,7 +15925,7 @@ function renderTableroPeque(){
   cont.innerHTML=`<div class="pq-wrap">
     <div class="pq-head"><div><div class="pq-h1">${currentUser==='peque'?'Mi día':'Día de Peque'}</div><div class="pq-sub">${currentUser==='peque'?'':'Peque · '}${e(fechaTxt)}</div></div>
       <div style="display:flex;gap:6px;align-items:center">${pqSelectorHtml()}<button class="btn-sm" onclick="pqMover(-1)" aria-label="Día anterior">‹</button><button class="btn-sm" onclick="pqIrHoy()">Hoy</button><button class="btn-sm" onclick="pqMover(1)" aria-label="Día siguiente">›</button></div></div>
-    <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
+    <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(tizadas.length,'Tizadas')}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
     <div class="pq-lab">Pedidos de modificación ${pedidos.length?`<span class="pq-n pq-n-a">${pedidos.length} sin resolver</span>`:''}</div>
     <div class="pq-card">${pedidos.length?pedidos.map(filaPedido).join(''):'<div class="pq-vacio">No hay pedidos sin resolver.</div>'}</div>
     <div class="pq-lab">${currentUser==='peque'?'Mis pendientes':'Pendientes de Peque'}</div>

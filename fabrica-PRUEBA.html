@@ -1025,7 +1025,7 @@
       <button class="tab" id="tab-btn-talleres">Talleres</button>
       <button class="tab" id="tab-btn-pendientes">Pendientes</button>
       <button class="tab hidden" id="tab-btn-resumen">📋 Resumen del día</button>
-      <button class="tab hidden" id="tab-btn-peque">📋 Tablero resto</button>
+      <button class="tab hidden" id="tab-btn-peque">📋 Mi día</button>
       <button class="tab" id="tab-btn-galeria">Galería</button>
       <button class="tab hidden" id="tab-btn-prodmes">⭐ Productos del mes</button>
       <button class="tab hidden" id="tab-btn-telas">🧵 Telas</button>
@@ -3518,7 +3518,8 @@ function doLogin(user){
     document.getElementById('undo-btn').classList.remove('hidden');
   }
   if(MIS_PENDIENTES_USERS.includes(user)){
-    document.getElementById('mis-pendientes-btn').classList.remove('hidden');
+    // Nov 2026: la campanita de "Mis pendientes" se sacó para todos (no la usaba nadie):
+    // cada uno tiene su tablero "Mi día". El botón queda oculto.
     db.ref(`fabrica_v5/lastSeenPendientes/${user}`).once('value').then(snap=>{
       misPendientesLastSeen=snap.val()||0;
       renderMisPendientesBadge();
@@ -3544,7 +3545,8 @@ function doLogin(user){
   }
   applyTabVisibility(user);
   applyTabOrder();
-  if(user==='peque'||user==='emir'){
+  if(['peque','emir','ariel','noelia'].includes(user)){
+    if(user==='ariel') pqVerPersona='ariel';
     const bp=document.getElementById('tab-btn-peque');
     bp.textContent='📋 Mi día';
     bp.parentElement.prepend(bp);
@@ -10449,6 +10451,7 @@ function renderRollosModal(){
     ${(!coloresDisponibles.length&&!liquidar)?`<div class="oc-warn">⚠️ Este ítem todavía no tiene colores cargados en la orden de corte. Cargalos primero y después volvé acá.</div>`:''}
     <div class="oc-hint" style="margin-bottom:10px">En <strong>Rollo</strong> elegí el código del stock (T-0001…). Si el rollo no está en la app, dejá “Fuera de la app” y cargalo como siempre.${(!rollosCtx.largo||!rollosCtx.peso)&&rows.some(r=>r.stockId)?' ⚠️ Falta largo de capa o peso por metro: el stock no se va a poder descontar hasta que estén cargados.':''}</div>
     <div class="oc-hint" style="margin-bottom:10px">El <strong>usado</strong> se calcula solo: capas × largo de capa (${rollosCtx.largo||'—'}) × peso x metro (${rollosCtx.peso||'—'}). El <strong>sobrante</strong> es Kg/Mts del rollo menos lo usado${rollosCtx.colTarget?' y menos la collareta':''}. Si el rollo se terminó, tocá <strong>Terminó</strong>: no queda sobrante y lo que no cierra con las capas va a <strong>Sin explicar</strong> (cuenta como usado).</div>
+    ${rollosFotoFichaHtml()}
     ${renderRollosResumenHtml()}
     <div class="oc-table-wrap">
       <table class="oc-table">
@@ -10465,6 +10468,28 @@ function renderRollosModal(){
     <div id="rol-totales" style="text-align:right;font-size:12px;margin-top:8px;color:var(--text2)">${rollosTotalesTexto()}</div>
     ${rollosCtx.colTarget?`<div id="rol-col-total" style="text-align:right;font-size:12px;margin-top:4px;color:var(--text2)">${rolColTotalTexto()}</div>`:''}
   `;
+}
+// Foto de la ficha que se le pasa al cortador (nov 2026): obligatoria para guardar los rollos del corte.
+// Se guarda aparte por N° de corte (fabrica_v5/fotos_ficha_corte), así sigue estando después de marcar
+// cortado y Ariel la ve en la revisión de tela.
+function rollosFotoFichaKey(){ const it=((sectionsData[rollosCtx.secId]||{}).items||{})[rollosCtx.itemId]; return it?corteKeyFrom(String(it.numero_corte||'')):null; }
+function rollosFotoFichaHtml(){
+  const k=rollosFotoFichaKey(); if(!k) return '';
+  const f=fotosFichaData[k];
+  return `<div style="display:flex;align-items:center;gap:12px;border:1px ${f?'solid var(--border)':'dashed #f59e0b'};background:${f?'var(--surface)':'var(--warn-bg)'};border-radius:10px;padding:8px 12px;margin-bottom:10px">
+    ${f?`<img src="${tsEsc(f.url)}" onclick="window.open('${tsEsc(f.url)}','_blank')" style="width:64px;height:48px;object-fit:cover;border-radius:6px;cursor:zoom-in">`:'<div style="width:64px;height:48px;border-radius:6px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px">📷</div>'}
+    <div style="flex:1;font-size:12px"><b>Foto de la ficha del cortador</b><br><span style="color:var(--text2)">${f?'Subida por '+tsEsc(USER_DISPLAY[f.por]||f.por||'')+' · '+tsEsc(fmtTime(f.ts)):'Obligatoria para guardar los rollos. Se puede sacar con el celular.'}</span></div>
+    <label class="btn-sm" style="cursor:pointer">${f?'Cambiar':'Subir foto'}<input type="file" accept="image/*" style="display:none" onchange="rollosSubirFotoFicha(this)"></label></div>`;
+}
+async function rollosSubirFotoFicha(inp){
+  const file=inp.files&&inp.files[0], k=rollosFotoFichaKey(); if(!file||!k) return;
+  showToast('Subiendo foto…');
+  try{ const url=await uploadCloudinaryRaw(file);
+    await db.ref(`fabrica_v5/fotos_ficha_corte/${k}`).set({url,ts:Date.now(),por:quienSoy()});
+    fotosFichaData[k]={url,ts:Date.now(),por:quienSoy()};
+    logActivity('Subió foto de ficha del cortador',`Corte ${k}`);
+    showToast('✓ Foto subida'); renderRollosModal();
+  }catch(err){ showToast('No se pudo subir la foto'); }
 }
 function rolColTotalTexto(){
   const t=rollosCtx.colTarget; if(!t) return '';
@@ -10495,6 +10520,11 @@ function saveRollos(){
       alert(`Falta cargar las capas de ${sinCapas.length} rollo${sinCapas.length>1?'s':''}:\n\n${sinCapas.map(r=>'• '+(r.codigo||'')+' '+(r.color||'')).join('\n')}\n\nSin las capas no se puede guardar.`);
       return;
     }
+  }
+  // Foto de la ficha del cortador: obligatoria al cargar los rollos del corte (en "Cortes próximos a sacar").
+  if(corteKey&&rows.some(row=>row.stockId||String(row.kgmts||'').trim())&&!fotosFichaData[corteKey]){
+    alert('Falta subir la foto de la ficha que se le pasó al cortador.\n\nSubila arriba de la tabla de rollos y después guardá.');
+    return;
   }
   const rollosObj={};
   rows.forEach(row=>{
@@ -12399,7 +12429,7 @@ function closeGlobalSearchAndGo(secId,itemId){
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
 const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-peque':'📋 Tablero resto','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-peque':'📋 Mi día','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
@@ -12418,7 +12448,7 @@ const TAB_VISIBILITY={
   // Noelia ve todas las pestañas (pediste "que vea todo") — la restricción real de que solo
   // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
   // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
-  noelia:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
+  noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
   // Meli (administración): solo la pestaña de Facturación, nada más — ni siquiera ve el resto
   // de Logística, para no exponerle datos operativos que no necesita.
   meli:['tab-btn-logistica','tab-btn-facturacion'],
@@ -14008,7 +14038,7 @@ function renderTsRevision(){
         <div class="ts-card-head" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div>
           <div class="ts-tela" style="font-size:16px">Corte ${tsEsc(g.corte)}</div>
           <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · ${tsFechaDia(g.fecha)} · ${g.filas.length} rollo${g.filas.length>1?'s':''}<br>Kg por capa del corte: <b>${med.largo&&med.peso?tsFmt(med.largo*med.peso,2):'—'}</b>${med.largo?` <small>(largo ${tsFmt(med.largo,2)} × peso ${med.peso?tsFmt(med.peso,2):'—'})</small>`:' <small style="color:#9a3412">falta largo de capa / peso por metro</small>'}</div></div>
-          <span class="ts-rev">pendiente</span></div>
+          <div style="display:flex;gap:10px;align-items:flex-start">${(()=>{ const fu=fotoFichaDeCorte(g.corte); return fu?`<img src="${tsEsc(fu)}" title="Ficha del cortador (tocar para ampliar)" onclick="window.open('${tsEsc(fu)}','_blank')" style="width:110px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in">`:'<div style="width:110px;height:80px;border-radius:8px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;color:var(--text2)">sin foto<br>de la ficha</div>'; })()}<span class="ts-rev">pendiente</span></div></div>
         <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:720px;font-size:13px">
           <thead><tr style="color:var(--text2);font-size:11px;text-transform:uppercase;text-align:left"><th style="padding:6px">Rollo</th><th style="padding:6px">Color</th><th style="padding:6px;text-align:right" title="Lo que tenía el rollo antes de este corte">Tenía</th><th style="padding:6px;text-align:right">Capas</th><th style="padding:6px;text-align:right">Usado por capas</th><th style="padding:6px;text-align:right" title="Tela que no cierra con las capas. Cuenta como usado.">Sin explicar</th><th style="padding:6px;text-align:right">Quedaría</th>${esA?'<th style="padding:6px;text-align:center">Terminó</th><th style="padding:6px;text-align:right">Quedó de verdad</th>':''}</tr></thead>
           <tbody>${g.filas.map(f=>{
@@ -15412,12 +15442,11 @@ function pqTareas(){
 }
 function pqBadge(){
   const b=document.getElementById('tab-btn-peque'); if(!b) return;
-  if(currentUser==='ariel'){ b.textContent='📋 Tablero resto'; return; }
-  const n=currentUser==='emir'?emTareas().todas.length:pqPedidos().length;
+  const n=currentUser==='emir'?emTareas().todas.length:currentUser==='ariel'?tsCortesRevision().length+rdParaDividir().length:currentUser==='noelia'?avisosLlegadaPendientes().length:pqPedidos().length;
   b.textContent=n?`📋 Mi día (${n})`:'📋 Mi día';
 }
 function pqRefrescar(){
-  if(!['peque','emir','ariel'].includes(currentUser)) return;
+  if(!['peque','emir','ariel','noelia'].includes(currentUser)) return;
   pqBadge();
   if(currentUser==='peque'&&sectionsData&&Object.keys(sectionsData).length){
     const ahora=pqPedidos();
@@ -15446,12 +15475,12 @@ function pqCuando(ts){
   return fmtFecha(ts);
 }
 // Ariel ve los dos desde una sola pestaña; Peque y Emir, el suyo.
-let pqVerPersona='peque';
-function pqPersona(){ return currentUser==='emir'?'emir':currentUser==='peque'?'peque':pqVerPersona; }
+let pqVerPersona='ariel';
+function pqPersona(){ return ['emir','peque','noelia'].includes(currentUser)?currentUser:pqVerPersona; }
 function pqSetPersona(v){ pqVerPersona=v; renderTableroPeque(); }
 function pqSelectorHtml(){
   if(currentUser!=='ariel') return '';
-  return `<select class="filtro-corte-select" aria-label="Ver tablero de" onchange="pqSetPersona(this.value)"><option value="peque" ${pqVerPersona==='peque'?'selected':''}>Peque</option><option value="emir" ${pqVerPersona==='emir'?'selected':''}>Emir</option></select>`;
+  return `<select class="filtro-corte-select" aria-label="Ver tablero de" onchange="pqSetPersona(this.value)">${[['ariel','Mi día'],['noelia','Noelia'],['peque','Peque'],['emir','Emir']].map(([v,l])=>`<option value="${v}" ${pqVerPersona===v?'selected':''}>${l}</option>`).join('')}</select>`;
 }
 // ===== Tablero de Emir (nov 2026): tiza, sacar a taller con su precio, estampa y entregas de
 // talleres. No carga ingresos: le avisa a Noelia y queda un diario de lo que le pasó.
@@ -15606,10 +15635,249 @@ function renderTableroEmir(cont){
     </div>
   </div>`;
 }
+// ===== Tableros "Mi día" de Ariel y Noelia (nov 2026) =====
+// Reemplazan a la campanita de "Mis pendientes". Usan datos que ya existen: revisión de tela, pedidos
+// de autorización, Pendientes (atrasados), Logística (para dividir / divididos), Costeo (costo y precios),
+// avisos de llegada de Emir y pedidos a Peque. Nuevo: fotos de la ficha del cortador y "comunicados".
+let fotosFichaData={};
+db.ref('fabrica_v5/fotos_ficha_corte').on('value',s=>{ fotosFichaData=s.val()||{};
+  try{ pqRefrescar(); }catch(e){}
+  try{ const t=document.getElementById('tab-telas'); if(tsVista&&tsVista.modo==='revision'&&t&&!t.classList.contains('hidden')) renderTsRevision(); }catch(e){} });
+let comunicadosData={};
+db.ref('fabrica_v5/comunicados').on('value',s=>{ comunicadosData=s.val()||{}; try{ pqRefrescar(); }catch(e){} });
+function fotoFichaDeCorte(corte){ const k=corteKeyFrom(String(corte||'')); return k&&fotosFichaData[k]&&fotosFichaData[k].url||''; }
+// Todas las filas de Pendientes (las mismas que arma la pestaña), sin filtro de marca.
+function pendFilasTodas(){
+  const filas=[];
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{ if(!sec||secId===SEC_CMP_ENTREGADO) return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||item.done) return;
+      let resp=null; try{ resp=getResponsable(sec,item,secId); }catch(e){}
+      if(!resp) return;
+      const objetivo=plazoObjetivoCorte(sec,item,secId);
+      const dias=objetivo?objetivo.dias:diasHabilesEntre(fechaInicioResponsableActual(sec,item,secId));
+      const umbral=objetivo?objetivo.umbral:umbralAtraso(sec,item,secId);
+      const atrasado=dias!==null&&dias>=umbral;
+      let accion=''; try{ accion=getProximaAccion(sec,item,secId)||''; }catch(e){}
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,atrasado,resp,accion});
+    }); });
+  return filas;
+}
+function tdInicioSemana(){ const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); }
+function tdColoresGrilla(g){ return [...new Set(Object.values(g||{}).map(f=>String((f&&f.color)||'').trim()).filter(Boolean))]; }
+function tdPrendas(g){ return Object.values(g||{}).reduce((s,f)=>s+(parseInt(f&&f.contado)||parseInt(f&&f.esperado)||0),0); }
+function tdNumCorte(n){ return String(n||'').replace(/^corte\s*/i,''); }
+// Artículos ya divididos (últimos 45 días, sin Mini Sur), con su costeo y precios de venta.
+function tdDivididos(){
+  const desde=Date.now()-45*86400000, vis={};
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+    if(!it||it.estado!=='cerrado'||logiEsMinisur(it)||!(it.fecha_cerrado>=desde)||!it.code) return;
+    const k=(corteKeyFrom(String(it.numero_corte||''))||'sc')+'_'+String(it.code).replace(/[.#$\[\]\/\s]/g,'_');
+    if(vis[k]&&vis[k].it.fecha_cerrado>=it.fecha_cerrado) return;
+    vis[k]={k,id,it};
+  });
+  const mapa=costeoMapaFabrica();
+  return Object.values(vis).map(x=>{
+    const ck=corteKeyFrom(String(x.it.numero_corte||'')), e=ck?costeosData[ck]:null;
+    const idx=e?(e.articulos||[]).findIndex(a=>a&&String(a.code||'')===String(x.it.code)):-1;
+    const a=idx>=0?e.articulos[idx]:null;
+    const r=a?costeoArtCalc(e,idx,mapa):null;
+    const precio=c=>a?costeoPrecioArt(e,a,c):0;
+    const local=precio('precio_lista_local'), min=precio('precio_tn_minorista'), may=precio('precio_tn_mayorista');
+    const falta=[]; if(!r||!r.hayCosto) falta.push('costeo'); if(!local) falta.push('precio local'); if(!min) falta.push('precio TN minorista'); if(!may) falta.push('precio TN mayorista');
+    return {...x,ck,costoU:r&&r.hayCosto?r.costoU:0,local,min,may,falta,colores:tdColoresGrilla(x.it.grilla),comunicado:!!comunicadosData[x.k]};
+  }).sort((a,b)=>(a.it.fecha_cerrado||0)-(b.it.fecha_cerrado||0));
+}
+function tdIrLogi(id){ cerrarMisPendientesYIr('logistica',id,false); setTimeout(()=>{ try{ logiOpenDetail(id); }catch(e){} },60); }
+function tdIrTela(){ document.getElementById('tab-btn-telas')?.click(); tsVista.modo='revision'; renderTelasStock(); }
+
+function renderTableroAriel(cont){
+  const e=etEsc, dia=isoFechaLocal(Date.now());
+  const foto=it=>it&&it.foto?`<img src="${e(it.foto)}" loading="lazy" class="pq-img">`:'<div class="pq-img"></div>';
+  const kpi=(n,t,alerta)=>`<div class="pq-k ${alerta&&n?'pq-k-a':''}"><b>${n}</b><span>${t}</span></div>`;
+  const pill=(t,tipo)=>`<span class="pq-pill" style="background:${tipo==='r'?'var(--danger-bg)':tipo==='w'?'var(--warn-bg)':'var(--accent-bg)'};color:${tipo==='r'?'var(--danger)':tipo==='w'?'var(--warn-text)':'var(--accent)'}">${t}</span>`;
+  const vacio=t=>`<div class="pq-vacio">${t}</div>`;
+  const hace=d=>d<=0?'hoy':d===1?'hace 1 día':`hace ${d} días`;
+  // Tela para revisar
+  const tela=tsCortesRevision().map(g=>{ const d=diasHabilesEntre(g.fecha)||0;
+    const rojos=g.filas.filter(f=>tsNum(f.u.sinExplicar)>Math.max(0.5,tsNum(f.u.usadoCapas)*0.10)).length;
+    return {g,d,rojos}; });
+  // Autorizaciones pedidas (y fechas de pedido de avío cargadas para atrás)
+  const aut=getMisPendientesArielStef().filter(x=>/^Pidieron/.test(x.texto)||x.esFechaRetro);
+  // Atrasados de todo el equipo
+  const atr=pendFilasTodas().filter(f=>f.atrasado).sort((a,b)=>(b.dias-b.umbral)-(a.dias-a.umbral));
+  const dividir=rdParaDividir().filter(it=>!logiEsMinisur(it));
+  const div=tdDivididos();
+  const faltan=div.filter(x=>x.falta.length), listos=div.filter(x=>!x.falta.length&&!x.comunicado);
+  const avisosRF=avisosNoePendientes().filter(a=>String(a.id).startsWith('rn|'));
+  // Números de la semana
+  const ini=tdInicioSemana(), cortes={};
+  Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
+    if(!it||it.es_complemento) return; const ts=fechaCorteTs(it); if(!ts||ts<ini) return;
+    const k=corteKeyFrom(String(it.numero_corte||''))||it.code; cortes[k]=(cortes[k]||0)+calcularGrillaEsperada(it).reduce((s,f)=>s+(f.esperado||0),0); }));
+  const nCortes=Object.keys(cortes).length, nPrendas=Object.values(cortes).reduce((s,v)=>s+v,0);
+  const entregas=Object.values(logiItemsData||{}).filter(it=>it&&it.origen!=='proveedor'&&listaEntFechaTs(it)>=ini);
+  const enTaller=emTareas().entregas.length;
+  const fila=(img,titulo,sub,der,click)=>`<div class="pq-f ${click?'pq-click':''}" ${click?`onclick="${click}"`:''}>${img}<div class="pq-b"><div class="pq-art">${titulo}</div>${sub?`<div class="pq-sub">${sub}</div>`:''}</div>${der||''}</div>`;
+  const bloque=(t,n,html,alerta)=>`<div class="pq-lab">${t} <span class="pq-n ${alerta&&n?'pq-n-a':''}">${n}</span></div><div class="pq-card">${html}</div>`;
+  const fechaTxt=new Date(dia+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
+  cont.innerHTML=`<div class="pq-wrap">
+    <div class="pq-head"><div><div class="pq-h1">Mi día</div><div class="pq-sub">${e(fechaTxt)}</div></div>${pqSelectorHtml()}</div>
+    <div class="pq-ks">${kpi(tela.length,'tela para revisar',tela.some(x=>x.d>1))}${kpi(atr.length,'cortes atrasados',true)}${kpi(dividir.length,'para dividir')}${kpi(nCortes,`cortes · ${nPrendas.toLocaleString('es-AR')} prendas esta semana`)}${kpi(entregas.length,`entregas recibidas · ${enTaller} atrasadas o sin fecha`)}</div>
+    ${bloque('Tela para revisar',tela.length,tela.length?tela.map(x=>fila('<div class="pq-img"></div>',`Corte ${e(x.g.corte)} · ${[...x.g.codes].map(e).join(' · ')}`,
+      `${x.g.filas.length} rollo${x.g.filas.length!==1?'s':''} · cargó ${[...x.g.por].map(p=>e(USER_DISPLAY[p]||p)).join(', ')||'—'}${x.rojos?` · ${x.rojos} en rojo`:''}${fotoFichaDeCorte(x.g.corte)?'':' · sin foto de la ficha'}`,
+      `${pill(hace(x.d),x.d>1?'r':x.d===1?'w':'n')}<button class="btn-sm">Revisar</button>`,'tdIrTela()')).join(''):vacio('Nada para revisar.'),true)}
+    ${bloque('Autorizaciones pedidas',aut.length,aut.length?aut.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto)+(x.ts?' · '+e(pqCuando(x.ts)):''),
+      x.esFechaRetro?`<button class="btn-sm" onclick="event.stopPropagation();marcarFechaPedidoRetroRevisada('${x.secId}','${x.itemId}','${x.avioId}')">✓ Revisado</button>`:'<button class="btn-sm">Abrir</button>',
+      `cerrarMisPendientesYIr('${x.secId}','${x.itemId}',${!!x.esGrupo})`)).join(''):vacio('No hay pedidos.'))}
+    ${bloque('Cortes atrasados · todo el equipo',atr.length,atr.length?atr.map(f=>fila(foto(f.item),`${f.item.code?e(f.item.code)+' · ':''}${e(f.item.name||'')}${f.item.numero_corte?' · Corte '+e(tdNumCorte(f.item.numero_corte)):''}`,
+      `${e(f.resp)} · ${e(f.accion||f.secTitle||'')}`,pill(`${f.dias-f.umbral+1} día${f.dias-f.umbral+1!==1?'s':''} de atraso`,'r'),`cerrarMisPendientesYIr('${f.secId}','${f.itemId}',false)`)).join(''):vacio('Nada atrasado.'),true)}
+    ${bloque('Para dividir',dividir.length,dividir.length?dividir.map(it=>{ const d=it.fecha_control_cerrado?diasHabilesEntre(it.fecha_control_cerrado):0;
+      return fila(foto(it),`${e(it.code||'')}${it.name?' · '+e(it.name):''}${it.numero_corte?' · Corte '+e(tdNumCorte(it.numero_corte)):''}`,`${tdPrendas(it.grilla).toLocaleString('es-AR')} prendas${it.taller?' · '+e(it.taller):''}`,
+        `${d?pill(hace(d),d>=2?'r':'w'):''}<button class="btn-sm">Dividir</button>`,`tdIrLogi('${it.id}')`); }).join(''):vacio('Nada para dividir.'))}
+    ${bloque('Divididos · falta costeo o precio de venta',faltan.length,faltan.length?faltan.map(x=>fila(foto(x.it),`${e(x.it.code)}${x.it.name?' · '+e(x.it.name):''} · Corte ${e(tdNumCorte(x.it.numero_corte))}`,
+      `${x.costoU?'costo '+costeoPesos(x.costoU)+' /u · ':''}falta ${e(x.falta.join(', '))}`,'<button class="btn-sm">Costeo</button>',x.ck?`cerrarMisPendientesYIr('costeo','${x.ck}',false)`:'')).join(''):vacio('Todo con costo y precio.'))}
+    <div class="pq-lab">Avisar a los vendedores · nuevos ingresos <span class="pq-n">${listos.length}</span></div>
+    <div class="pq-card">${listos.length?`<div class="pq-f" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><span class="pq-sub">Elegí los artículos y armá una sola imagen para locales, vendedoras online y CM.</span>
+        <div style="display:flex;gap:6px"><button class="btn-sm" onclick="tdComSel(true)">Todos</button><button class="btn-sm em-pri" onclick="tdComArmar()">Armar imagen</button></div></div>`+
+      listos.map(x=>`<label class="pq-f" style="cursor:pointer"><input type="checkbox" class="td-com" value="${e(x.k)}" ${tdComElegidos.has(x.k)?'checked':''} onchange="tdComToggle(this)">${foto(x.it)}
+        <div class="pq-b"><div class="pq-art">${e(x.it.name||'')} · ${e(x.it.code)}</div><div class="pq-sub">${x.colores.length?e(x.colores.join(', '))+' · ':''}Local ${costeoPesos(x.local)} · TN min. ${costeoPesos(x.min)} · TN may. ${costeoPesos(x.may)}</div></div></label>`).join('')+
+      `<div id="td-com-prev"></div>`:vacio('No hay ingresos nuevos para avisar.')}</div>
+    ${bloque('Avisos de revisión final',avisosRF.length,avisosRF.length?avisosRF.map(a=>fila('<div class="pq-img"></div>',`${a.code?e(a.code)+' · ':''}${e(a.name||'')}`,`${e(a.texto)} · ${e(cuandoAviso(a.ts))}`,
+      `<button class="btn-sm" onclick="event.stopPropagation();avisoNoeVisto('${a.id}')">Visto</button>`,`avisoNoeVer('${a.id}')`)).join(''):vacio('Sin avisos.'))}
+  </div>`;
+  if(tdComPrevia) tdComMostrarPrevia();
+}
+
+// ---- Comunicar nuevos ingresos: una sola imagen con todos los elegidos ----
+const tdComElegidos=new Set();
+let tdComPrevia=null; // {url, blob, texto, keys}
+function tdComToggle(el){ if(el.checked) tdComElegidos.add(el.value); else tdComElegidos.delete(el.value); }
+function tdComSel(){ document.querySelectorAll('.td-com').forEach(c=>{ c.checked=true; tdComElegidos.add(c.value); }); }
+function tdCargarImg(url){ return new Promise(res=>{ if(!url) return res(null); const i=new Image(); i.crossOrigin='anonymous'; i.onload=()=>res(i); i.onerror=()=>res(null); i.src=url; }); }
+async function tdComArmar(){
+  const sel=tdDivididos().filter(x=>tdComElegidos.has(x.k)&&!x.falta.length);
+  if(!sel.length){ showToast('Elegí al menos un artículo'); return; }
+  showToast('Armando la imagen…');
+  const imgs=await Promise.all(sel.map(x=>tdCargarImg(x.it.foto)));
+  const W=1080, pad=30, col=2, cw=(W-pad*(col+1))/col, fotoH=cw*1.15, infoH=210, head=110;
+  const filas=Math.ceil(sel.length/col), H=head+filas*(fotoH+infoH+pad)+pad;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  c.fillStyle='#f6f3ee'; c.fillRect(0,0,W,H);
+  c.fillStyle='#3d6b52'; c.fillRect(0,0,W,head-20);
+  c.fillStyle='#fff'; c.font='bold 40px sans-serif'; c.fillText('NUEVOS INGRESOS · BY NINA',pad,58);
+  c.font='26px sans-serif'; c.fillText(new Date().toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'}),pad,(head-20)-14);
+  const plata=n=>'$ '+Math.round(n).toLocaleString('es-AR');
+  const corta=(t,max)=>{ t=String(t||''); while(c.measureText(t).width>max&&t.length>3) t=t.slice(0,-2); return t; };
+  sel.forEach((x,i)=>{
+    const cx=pad+(i%col)*(cw+pad), cy=head+Math.floor(i/col)*(fotoH+infoH+pad);
+    c.fillStyle='#fff'; c.fillRect(cx,cy,cw,fotoH+infoH);
+    const im=imgs[i];
+    if(im){ const r=Math.max(cw/im.width,fotoH/im.height), w=im.width*r, h=im.height*r; c.save(); c.beginPath(); c.rect(cx,cy,cw,fotoH); c.clip(); c.drawImage(im,cx+(cw-w)/2,cy+(fotoH-h)/2,w,h); c.restore(); }
+    else { c.fillStyle='#eae5dc'; c.fillRect(cx,cy,cw,fotoH); c.fillStyle='#888780'; c.font='24px sans-serif'; c.fillText('sin foto',cx+cw/2-45,cy+fotoH/2); }
+    let y=cy+fotoH+44;
+    c.fillStyle='#2c2c2a'; c.font='bold 32px sans-serif'; c.fillText(corta(x.it.name||'',cw-32),cx+16,y);
+    y+=36; c.fillStyle='#5f5e5a'; c.font='24px sans-serif'; c.fillText('Código '+x.it.code,cx+16,y);
+    y+=32; c.font='22px sans-serif'; c.fillText(corta(x.colores.join(' · '),cw-32),cx+16,y);
+    y+=22; c.strokeStyle='#e5e1d8'; c.beginPath(); c.moveTo(cx+16,y); c.lineTo(cx+cw-16,y); c.stroke();
+    const p3=[['Local',x.local],['Web min.',x.min],['Web may.',x.may]], pw=(cw-32)/3;
+    p3.forEach(([l,v],j)=>{ c.fillStyle='#5f5e5a'; c.font='20px sans-serif'; c.fillText(l,cx+16+j*pw,y+30); c.fillStyle='#2c2c2a'; c.font='bold 28px sans-serif'; c.fillText(plata(v),cx+16+j*pw,y+64); });
+  });
+  const texto='Nuevos ingresos By Nina:\n'+sel.map(x=>`• ${x.it.name||''} · ${x.it.code}${x.colores.length?' · '+x.colores.join(', '):''} · Local ${plata(x.local)} · Web min. ${plata(x.min)} · Web may. ${plata(x.may)}`).join('\n');
+  let blob=null; try{ blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.9)); }catch(err){}
+  if(!blob){ showToast('Alguna foto no se pudo usar: se copió el texto'); }
+  tdComPrevia={url:blob?URL.createObjectURL(blob):'',blob,texto,keys:sel.map(x=>x.k)};
+  tdComMostrarPrevia();
+}
+function tdComMostrarPrevia(){
+  const c=document.getElementById('td-com-prev'); if(!c||!tdComPrevia) return;
+  const p=tdComPrevia;
+  c.innerHTML=`<div class="pq-f" style="flex-direction:column;align-items:stretch;gap:10px;background:var(--bg)">
+    ${p.url?`<img src="${p.url}" style="width:100%;max-width:420px;border-radius:10px;border:1px solid var(--border);align-self:center">`:''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px"><span class="pq-sub">Va para:</span>
+      ${['Locales','Vendedoras online','CM'].map(d=>`<label style="display:flex;gap:4px;align-items:center"><input type="checkbox" class="td-com-para" value="${d}" checked> ${d}</label>`).join('')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${p.blob?'<button class="btn-sm" onclick="tdComCompartir()">📤 Compartir imagen</button><button class="btn-sm" onclick="tdComDescargar()">⬇️ Descargar imagen</button>':''}
+      <button class="btn-sm" onclick="tdComCopiar()">📋 Copiar texto</button>
+      <button class="btn-sm em-pri" onclick="tdComMarcar()">✓ Marcar comunicado</button>
+      <button class="btn-sm" onclick="tdComPrevia=null;document.getElementById('td-com-prev').innerHTML=''">Cancelar</button></div></div>`;
+}
+async function tdComCompartir(){
+  const p=tdComPrevia; if(!p||!p.blob) return;
+  const f=new File([p.blob],'nuevos-ingresos.jpg',{type:'image/jpeg'});
+  try{ if(navigator.canShare&&navigator.canShare({files:[f]})){ await navigator.share({files:[f],text:p.texto}); return; } }catch(err){ return; }
+  tdComDescargar(); showToast('Tu navegador no comparte imágenes: la descargué para que la mandes');
+}
+function tdComDescargar(){ const p=tdComPrevia; if(!p||!p.url) return; const a=document.createElement('a'); a.href=p.url; a.download=`nuevos-ingresos-${isoFechaLocal(Date.now())}.jpg`; document.body.appendChild(a); a.click(); a.remove(); }
+function tdComCopiar(){
+  const t=tdComPrevia&&tdComPrevia.texto; if(!t) return;
+  const ok=()=>showToast('📋 Texto copiado');
+  const manual=()=>{ const x=document.createElement('textarea'); x.value=t; document.body.appendChild(x); x.select(); try{ document.execCommand('copy'); ok(); }catch(e){ showToast('No se pudo copiar'); } x.remove(); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok).catch(manual); else manual();
+}
+function tdComMarcar(){
+  const p=tdComPrevia; if(!p) return;
+  const para=[...document.querySelectorAll('.td-com-para')].filter(c=>c.checked).map(c=>c.value);
+  const up={}; p.keys.forEach(k=>{ up[k]={ts:Date.now(),por:quienSoy(),para}; tdComElegidos.delete(k); });
+  db.ref('fabrica_v5/comunicados').update(up);
+  logActivity('Comunicó nuevos ingresos',`${p.keys.length} artículo${p.keys.length!==1?'s':''} · ${para.join(', ')}`);
+  if(p.url) URL.revokeObjectURL(p.url);
+  tdComPrevia=null; showToast('✓ Marcado como comunicado');
+}
+
+function renderTableroNoelia(cont){
+  const e=etEsc, dia=isoFechaLocal(Date.now());
+  const foto=it=>it&&it.foto?`<img src="${e(it.foto)}" loading="lazy" class="pq-img">`:'<div class="pq-img"></div>';
+  const kpi=(n,t,alerta)=>`<div class="pq-k ${alerta&&n?'pq-k-a':''}"><b>${n}</b><span>${t}</span></div>`;
+  const vacio=t=>`<div class="pq-vacio">${t}</div>`;
+  const pillR=t=>`<span class="pq-pill" style="background:var(--danger-bg);color:var(--danger)">${t}</span>`;
+  const fila=(img,titulo,sub,der,click)=>`<div class="pq-f ${click?'pq-click':''}" ${click?`onclick="${click}"`:''}>${img}<div class="pq-b"><div class="pq-art">${titulo}</div>${sub?`<div class="pq-sub">${sub}</div>`:''}</div>${der||''}</div>`;
+  const bloque=(t,n,html,alerta)=>`<div class="pq-lab">${t} <span class="pq-n ${alerta&&n?'pq-n-a':''}">${n}</span></div><div class="pq-card">${html}</div>`;
+  // Cortes para cargar (By Nina): orden de corte, encimado (rollos + foto) y marcar cortado
+  const cortes={};
+  Object.entries((sectionsData.s3&&sectionsData.s3.items)||{}).forEach(([itemId,it])=>{
+    if(!it||it.done||it.sin_confirmar||it.es_complemento||esMinisur(it)) return;
+    const paso=ordPasoPendiente(it); if(paso==='Imprimir tiza') return;
+    const k=corteKeyFrom(it.numero_corte)||itemId;
+    (cortes[k]=cortes[k]||{k,itemId,it,paso,arts:[]}).arts.push(it.code||it.name||'');
+  });
+  const cl=Object.values(cortes).map(x=>{ const g=gruposCorteData[x.k]||{};
+    const falta=x.paso==='Orden de corte'?'cargar la orden de corte':x.paso==='Encimado'?[Object.keys(g.rollos||{}).length?'':'rollos y capas',fotoFichaDeCorte(x.it.numero_corte)?'':'foto de la ficha'].filter(Boolean).join(' · ')||'marcar encimado terminado':'marcar cortado';
+    return {...x,falta}; });
+  const ingresos=avisosLlegadaPendientes();
+  const mios=getMisPendientesNoelia();
+  const fichas=mios.filter(x=>x.grupo==='Controlar ficha técnica');
+  const alta=mios.filter(x=>x.grupo==='Pendiente armar tizada'||/^Nuevo desarrollo/.test(x.grupo||''));
+  const revision=mios.filter(x=>x.grupo==='Revisión final');
+  const otrosMios=mios.filter(x=>!fichas.includes(x)&&!alta.includes(x)&&!revision.includes(x));
+  const pedidos=pqPedidos().filter(p=>/noelia/i.test(String(p.por||'')));
+  const equipo=pendFilasTodas().filter(f=>f.resp!=='Noelia').sort((a,b)=>(b.atrasado-a.atrasado)||((b.dias||0)-(b.umbral||0))-((a.dias||0)-(a.umbral||0)));
+  const porResp={}; equipo.forEach(f=>(porResp[f.resp]=porResp[f.resp]||[]).push(f));
+  const fechaTxt=new Date(dia+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
+  const ir=x=>`cerrarMisPendientesYIr('${x.secId}','${x.itemId}',false)`;
+  cont.innerHTML=`<div class="pq-wrap">
+    <div class="pq-head"><div><div class="pq-h1">${currentUser==='noelia'?'Mi día':'Día de Noelia'}</div><div class="pq-sub">${e(fechaTxt)}</div></div>${pqSelectorHtml()}</div>
+    <div class="pq-ks">${kpi(cl.length,'cortes para cargar',true)}${kpi(ingresos.length,'ingresos para cargar',true)}${kpi(fichas.length,'fichas para controlar')}${kpi(revision.length,'revisión final')}${kpi(equipo.filter(f=>f.atrasado).length,'atrasados del equipo')}</div>
+    ${bloque('Cortes para cargar',cl.length,cl.length?cl.map(x=>fila(foto(x.it),`Corte ${e(tdNumCorte(x.it.numero_corte))} · ${e(x.arts.filter(Boolean).join(' · '))}`,`falta: ${e(x.falta)}`,'<button class="btn-sm">Abrir</button>',`cerrarMisPendientesYIr('s3','${x.itemId}',false)`)).join(''):vacio('No hay cortes para cargar.'),true)}
+    ${bloque('Ingresos para cargar · avisó Emir',ingresos.length,ingresos.length?ingresos.map(a=>fila('<div class="pq-img"></div>',`${e(a.tipo||'Mercadería')}${a.proveedor?' · '+e(a.proveedor):''}`,`${e(a.nota||'')} · avisó ${e(USER_DISPLAY[a.por]||a.por||'')} ${e(cuandoAviso(a.ts))}`,
+      `<div style="display:flex;gap:6px">${a.secId&&a.itemId?`<button class="btn-sm" onclick="event.stopPropagation();irAItem('${a.secId}','${a.itemId}')">Ver</button>`:''}<button class="btn-sm em-pri" onclick="event.stopPropagation();resolverAvisoLlegada('${a.id}')">✓ Cargado</button></div>`,'')).join(''):vacio('No hay avisos de mercadería.'),true)}
+    ${bloque('Fichas para controlar · corrigió Peque',fichas.length,fichas.length?fichas.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto||''),'<button class="btn-sm">Controlar</button>',ir(x))).join(''):vacio('Nada para controlar.'))}
+    ${bloque('Alta de artículos y nuevos desarrollos',alta.length,alta.length?alta.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'(sin nombre)')}`,`${e(x.grupo)} · ${e(x.texto||'')}`,'<button class="btn-sm">Completar</button>',ir(x))).join(''):vacio('Nada pendiente.'))}
+    ${bloque('Revisión final y mejora',revision.length,revision.length?revision.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto||''),'<button class="btn-sm">Revisar</button>',ir(x))).join(''):vacio('Nada para revisar.'))}
+    ${otrosMios.length?bloque('Otras tareas mías',otrosMios.length,otrosMios.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,`${e(x.grupo||'')} · ${e(x.texto||'')}`,'',ir(x))).join('')):''}
+    ${bloque('Mis pedidos a Peque',pedidos.length,pedidos.length?pedidos.map(p=>{ const d=p.ts?diasHabilesEntre(p.ts):0;
+      return fila(foto(p.item),`${p.item.code?e(p.item.code)+' · ':''}${e(p.item.name||'')}`,`${e(p.tipo)}${p.texto?': '+e(p.texto):''} · ${e(pqCuando(p.ts))}`,d>=2?pillR(`${d} días sin resolver`):'',`cerrarMisPendientesYIr('${p.secId}','${p.itemId}',false)`); }).join(''):vacio('Peque no tiene pedidos tuyos sin resolver.'))}
+    <div class="pq-lab">Pendientes del equipo <span class="pq-n">${equipo.length}</span></div>
+    <div class="pq-card">${equipo.length?Object.keys(porResp).sort().map(r=>`<details class="pq-g" ${pqAbiertos.has('eq-'+r)?'open':''} ontoggle="pqToggle('eq-${e(r)}',this)"><summary><div class="pq-b"><div class="pq-art">${e(r)} <span class="pq-n ${porResp[r].some(f=>f.atrasado)?'pq-n-a':''}">${porResp[r].length}${porResp[r].some(f=>f.atrasado)?' · '+porResp[r].filter(f=>f.atrasado).length+' atrasados':''}</span></div></div><span class="pq-flecha">⌄</span></summary>
+      ${porResp[r].map(f=>fila(foto(f.item),`${f.item.code?e(f.item.code)+' · ':''}${e(f.item.name||'')}${f.item.numero_corte?' · Corte '+e(tdNumCorte(f.item.numero_corte)):''}`,e(f.accion||f.secTitle||''),f.atrasado?pillR(`${f.dias-f.umbral+1} día${f.dias-f.umbral+1!==1?'s':''} de atraso`):'',`cerrarMisPendientesYIr('${f.secId}','${f.itemId}',false)`)).join('')}</details>`).join(''):vacio('El equipo no tiene pendientes.')}</div>
+  </div>`;
+}
 function renderTableroPeque(){
   const cont=document.getElementById('peque-content'); if(!cont) return;
   if(!pqFecha) pqFecha=isoFechaLocal(Date.now());
   if(pqPersona()==='emir') return renderTableroEmir(cont);
+  if(pqPersona()==='ariel') return renderTableroAriel(cont);
+  if(pqPersona()==='noelia') return renderTableroNoelia(cont);
   const e=etEsc;
   const nombreArt=it=>`${it.name?e(it.name):'(sin nombre)'}${it.code?' · '+e(it.code):''}${it.numero_corte?' · Corte '+e(String(it.numero_corte).replace(/^corte\s*/i,'')):''}`;
   const foto=it=>it&&it.foto?`<img src="${e(it.foto)}" loading="lazy" class="pq-img">`:'<div class="pq-img"></div>';
@@ -19703,11 +19971,11 @@ function costeoTotales(entry){
     kgSobrante+=costeoSobRollo(r,medT).v;
   });
   const kgTotalRollos=Math.max(0,kgCargado-kgSobrante);
-  // Si ya repartiste el kilaje por artículo (aunque no hayas cargado rollos con sobrante),
-  // eso es el dato más específico y real — se usa como el kg total del corte para costear.
-  // Si no repartiste nada por artículo todavía, se sigue usando lo cargado por rollo, como antes.
+  // Nov 2026: el total de tela del corte sale SIEMPRE de los rollos (cargado − sobrante, que incluye lo
+  // "sin explicar" aprobado en Telas). El reparto a mano por artículo tiene que cerrar con ese total.
+  // Solo si el corte no tiene rollos cargados se usa la suma de los kilos por artículo.
   const sumKgArticulos=(entry.articulos||[]).reduce((s,a)=>s+numAr2(a.kg),0);
-  const kgTotal=sumKgArticulos>0?sumKgArticulos:kgTotalRollos;
+  const kgTotal=kgCargado>0?kgTotalRollos:sumKgArticulos;
   const precioKg=costeoPrecio(entry).kg;
   const costoTela=precioKg?kgTotal*precioKg:0;
   // Avíos: cantidad = consumo POR PRENDA (ej. 0,72 m) y precio = por unidad (metro, botón…).
@@ -19747,7 +20015,7 @@ function costeoTotales(entry){
   const costoAvios=aviosPorPrenda*(piezas||0);
   const costoTotal=costoTela+costoAvios+costoOtros;
   const costoPrenda=piezas?costoTotal/piezas:0;
-  return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
+  return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:!(kgCargado>0)&&sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
 }
 // Costo real de UN artículo puntual dentro de un corte con varios artículos (no el promedio de
 // todo el corte) — mismo cálculo que usa el bloque "💵 Costeo — {código}", pero reutilizable acá
@@ -20188,6 +20456,10 @@ function renderCosteoDetail(){
     </div>
     ${costeoPrecioHtml(e,key,canEdit,inp)}
     <div style="margin-top:6px;font-size:12px;color:var(--text2)">${rollos.length} rollo${rollos.length!==1?'s':''} · ${costeoKg(r0.kgCarg)} kg cargados · ${costeoKg(r0.kgSob)} kg sobrante · <b style="color:var(--text)">${costeoKg(r0.kgCorte)} kg a distribuir</b>${r0.piezasTot?` entre ${r0.piezasTot.toLocaleString('es-AR')} prendas · ${costeoKg(r0.kgCorte/r0.piezasTot,3)} kg/u promedio`:''}</div>
+    ${(()=>{ const man=arts.filter(x=>numAr2(x.kg)>0), sum=man.reduce((t,x)=>t+numAr2(x.kg),0); if(!rollos.length||!man.length) return '';
+      if(man.length===arts.length&&Math.abs(sum-r0.kgCorte)>0.01) return `<div style="font-size:11px;color:#9a3412;font-weight:700;margin-top:4px">⚠️ Los kilos repartidos a mano suman ${costeoKg(sum)} kg y la tela del corte es ${costeoKg(r0.kgCorte)} kg. Corregilos: tienen que dar lo mismo.</div>`;
+      if(man.length<arts.length) return `<div style="font-size:11px;color:var(--text2);margin-top:4px">Repartiste ${costeoKg(sum)} kg a mano · los ${costeoKg(Math.max(0,r0.kgCorte-sum))} kg restantes se reparten solos por prendas.</div>`;
+      return ''; })()}
     ${sinSob&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Hay rollos sin sobrante: faltan capas, largo de capa o peso x m para calcularlo.</div>':''}
     ${!e.precio_kg?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Falta el precio x kg: sin él no se puede calcular el costo.</div>':''}
     ${rollosHtml}
@@ -20265,6 +20537,22 @@ function setCosteoArtCampo(key,idx,campo,val){
   const art={...(arts[idx]||{})};
   const v=String(val).trim().replace(',','.');
   const n=parseFloat(v);
+  // Kilos a mano (nov 2026): tienen que cerrar con la tela del corte (la de los rollos). Si no cierran,
+  // no se guarda y la fila vuelve a lo que tenía.
+  if(campo==='kg'&&v!==''&&!isNaN(n)&&n>0){
+    const t=costeoTotales(e);
+    if(t.kgCargado>0){
+      const total=Math.round(t.kgTotal*100)/100;
+      const manual=x=>x&&x.kg!=null&&String(x.kg).trim()!==''&&numAr2(x.kg)>0;
+      const otros=arts.reduce((s,x,j)=>s+(j!==idx&&manual(x)?numAr2(x.kg):0),0);
+      const resto=Math.round((total-otros)*100)/100;
+      const sinCargar=arts.filter((x,j)=>j!==idx&&!manual(x)).length;
+      let err='';
+      if(n>resto+0.01) err=`No alcanza la tela: el corte usó ${total.toFixed(2)} kg y los otros artículos ya tienen ${otros.toFixed(2)} kg. Máximo para este: ${Math.max(0,resto).toFixed(2)} kg`;
+      else if(!sinCargar&&Math.abs(n-resto)>0.01) err=`Es el último sin repartir: tiene que llevar ${resto.toFixed(2)} kg para sumar ${total.toFixed(2)} kg (la tela del corte)`;
+      if(err){ showToast('⚠️ '+err); renderCosteoDetail(); return; }
+    }
+  }
   if(v===''||isNaN(n)||n<0) delete art[campo];
   else art[campo]=campo==='piezas'?Math.round(n):(campo==='kg'?v:n);
   arts[idx]=art;
@@ -20550,7 +20838,11 @@ function renderCosteoDetailViejo(){
     return `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)">
       <div style="font-size:11px;font-weight:700;color:var(--text2)">Kilos y piezas por artículo (este corte tiene ${articulos.length})</div>
       ${filas}
-      ${dif>0.01?`<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ La suma de kg (${sumKg.toFixed(2)}) no coincide con el total de tela del corte (${t.kgTotal.toFixed(2)} kg)</div>`:'<div style="font-size:11px;color:var(--text3);margin-top:4px">✓ Kilos repartidos completos — suma igual al total de tela ($'+t.costoTela.toFixed(2)+')</div>'}
+      ${(()=>{ const sinKg=articulos.filter(a=>!(numAr2(a.kg)>0)).length;
+        if(!sumKg) return `<div style="font-size:11px;color:var(--text3);margin-top:4px">Los ${t.kgTotal.toFixed(2)} kg de tela del corte se reparten solos según las piezas de cada artículo.</div>`;
+        if(sinKg&&sumKg<=t.kgTotal+0.01) return `<div style="font-size:11px;color:var(--text3);margin-top:4px">Repartiste ${sumKg.toFixed(2)} kg a mano · los ${(t.kgTotal-sumKg).toFixed(2)} kg que faltan se reparten solos entre los que no tienen kilos.</div>`;
+        if(dif>0.01) return `<div style="font-size:11px;color:#9a3412;font-weight:700;margin-top:4px">⚠️ Lo repartido a mano (${sumKg.toFixed(2)} kg) no coincide con la tela del corte (${t.kgTotal.toFixed(2)} kg). Corregí los kilos: tienen que sumar lo mismo.</div>`;
+        return '<div style="font-size:11px;color:var(--text3);margin-top:4px">✓ Kilos repartidos completos — suma igual al total de tela ($'+t.costoTela.toFixed(2)+')</div>'; })()}
       ${(e.piezas_totales&&sumPiezas>0&&difPiezas>0)?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ La suma de piezas por artículo (${sumPiezas}) no coincide con las piezas totales del corte (${e.piezas_totales})</div>`:''}
     </div>`;
   })():'';
@@ -20649,7 +20941,7 @@ function renderCosteoDetailViejo(){
         <span>Total cargado: <strong>${t.kgCargado.toFixed(2)} kg</strong></span>
         <span>· Sobrante: <strong>${t.kgSobrante.toFixed(2)} kg</strong></span>
         <span>· A distribuir: <strong>${t.kgTotal.toFixed(2)} kg</strong></span>
-        ${t.kgDeArticulos?'<span style="font-size:11px;color:var(--text3)">(tomado de la suma de "Kilos por artículo" de abajo, no de rollos cargados)</span>':''}
+        ${t.kgDeArticulos?'<span style="font-size:11px;color:var(--text3)">(este corte no tiene rollos: se toma la suma de "Kilos por artículo")</span>':''}
       </div>
       <div style="font-size:12px;margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:6px">
         <span>Largo capa:</span>
@@ -20708,7 +21000,20 @@ function editCosteoKgArticulo(key,idx){
   const art=arts[idx]||{};
   const val=prompt(`Kilos para ${art.code||art.name||'este artículo'}:`,art.kg||'');
   if(val===null) return;
-  arts[idx]={...art,kg:val.trim().replace(',','.')};
+  const nuevo=val.trim().replace(',','.');
+  // El reparto a mano tiene que cerrar con la tela del corte (la de los rollos).
+  const t=costeoTotales(e);
+  if(t.kgCargado>0&&nuevo!==''){
+    const total=Math.round(t.kgTotal*100)/100;
+    const manual=x=>x&&x.kg!=null&&String(x.kg).trim()!==''&&numAr2(x.kg)>0;
+    const otros=arts.reduce((s,x,j)=>s+(j!==idx&&manual(x)?numAr2(x.kg):0),0);
+    const resto=Math.round((total-otros)*100)/100;
+    const sinCargar=arts.filter((x,j)=>j!==idx&&!manual(x)).length;
+    const n=numAr2(nuevo);
+    if(n>resto+0.01){ alert(`No alcanza la tela: el corte usó ${total.toFixed(2)} kg y a los otros artículos ya les diste ${otros.toFixed(2)} kg.\n\nA este le podés poner como máximo ${Math.max(0,resto).toFixed(2)} kg.`); return; }
+    if(!sinCargar&&Math.abs(n-resto)>0.01){ alert(`Es el último artículo sin repartir: tiene que llevar ${resto.toFixed(2)} kg para que la suma dé ${total.toFixed(2)} kg (la tela del corte).`); return; }
+  }
+  arts[idx]={...art,kg:nuevo};
   db.ref(`fabrica_v5/costeos/${key}/articulos`).set(arts);
   logActivity('Editó kg por artículo (Costeo)',`Corte ${e.numero_corte} — ${art.code||art.name||''}: ${val.trim()} kg`);
   showToast('✓ Kilos guardados');

@@ -20419,7 +20419,7 @@ function costeoRolloOrigenHtml(x,carg,numeroCorte){
 // ===== Sacar / agregar rollos de un corte ya cortado, desde Costeo (nov 2026, solo Ariel) =====
 // Un cambio acá impacta en Costeo, en las copias de los artículos (y del grupo si sigue) y en el stock,
 // para que el rollo no quede descontado de más ni de menos.
-let costeoAddRollo={stockId:'',capas:'',term:false};
+let costeoAddRollo={stockId:'',capas:'',term:false,color:'',kg:''};
 function costeoRutasRolloCorte(key,match){
   const up=[];
   Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
@@ -20462,7 +20462,9 @@ function costeoAgregarRolloHtml(key,e,med){
   const disp=costeoRollosDisponibles(e), a=costeoAddRollo;
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px;padding:8px;border:1px dashed var(--border);border-radius:8px;font-size:12px">
     <b>+ Agregar rollo del stock</b>
-    <select class="filtro-corte-select" onchange="costeoAddRollo.stockId=this.value" aria-label="Rollo"><option value="">Elegí el rollo…</option>${disp.map(([id,r])=>`<option value="${id}" ${a.stockId===id?'selected':''}>${costeoEsc(r.codigo||'')} · ${costeoEsc(r.color||'')} · queda ${tsFmt(tsRestanteDe(r),2)} ${tsUnidadTxt(r.unidad)} (inicial ${tsFmt(tsNum(r.inicial),2)})</option>`).join('')}</select>
+    <select class="filtro-corte-select" onchange="costeoAddRollo.stockId=this.value;renderCosteoDetail()" aria-label="Rollo"><option value="">Elegí el rollo…</option><option value="__fuera" ${a.stockId==='__fuera'?'selected':''}>➕ Rollo fuera de la app (no toca el stock)</option>${disp.map(([id,r])=>`<option value="${id}" ${a.stockId===id?'selected':''}>${costeoEsc(r.codigo||'')} · ${costeoEsc(r.color||'')} · queda ${tsFmt(tsRestanteDe(r),2)} ${tsUnidadTxt(r.unidad)} (inicial ${tsFmt(tsNum(r.inicial),2)})</option>`).join('')}</select>
+    ${a.stockId==='__fuera'?`<input type="text" placeholder="Color" value="${costeoEsc(a.color)}" oninput="costeoAddRollo.color=this.value" style="width:110px;border:1px solid var(--border);border-radius:6px;padding:3px 6px">
+    <span>Kg <input type="number" min="0" step="0.01" value="${costeoEsc(a.kg)}" oninput="costeoAddRollo.kg=this.value" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 6px"></span>`:''}
     <span>Capas <input type="number" min="0" step="1" value="${costeoEsc(a.capas)}" oninput="costeoAddRollo.capas=this.value" style="width:56px;border:1px solid var(--border);border-radius:6px;padding:3px 6px"></span>
     <label style="display:flex;gap:4px;align-items:center"><input type="checkbox" ${a.term?'checked':''} onchange="costeoAddRollo.term=this.checked"> Terminó</label>
     <button class="btn-sm em-pri" onclick="costeoAgregarRollo('${key}')">Agregar</button>
@@ -20472,7 +20474,25 @@ function costeoAgregarRolloHtml(key,e,med){
 function costeoAgregarRollo(key){
   if(currentUser!=='ariel') return;
   const e=costeosData[key]; if(!e) return;
-  const a=costeoAddRollo, r=tsData.rollos[a.stockId];
+  const a=costeoAddRollo;
+  if(a.stockId==='__fuera'){
+    const kg=numAr2(a.kg), capas=parseInt(a.capas,10)||0;
+    if(!kg){ showToast('Poné los kg del rollo'); return; }
+    if(!capas&&!a.term){ showToast('Poné las capas (o tildá Terminó)'); return; }
+    const largo=numAr2(e.largo_capa), peso=numAr2(e.peso_metro), pc=Math.round(capas*largo*peso*100)/100;
+    const sob=a.term?0:Math.max(0,Math.round((kg-pc)*100)/100);
+    const rk='cf'+Date.now();
+    const fila={color:String(a.color||'').trim(),kgmts:kg,capas,nota:'Fuera de la app',stockId:null,codigo:null,sobrante:sob};
+    const up={[`fabrica_v5/costeos/${key}/rollos/${rk}`]:fila};
+    Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
+      if(it&&corteKeyFrom(String(it.numero_corte||''))===key) up[`fabrica_v5/sections/${sid}/items/${iid}/rollos/${rk}`]={color:fila.color,kgmts:kg,capas,nota:fila.nota,stockId:null,codigo:null,sobranteReal:sob}; }));
+    db.ref().update(up);
+    logActivity('Agregó rollo fuera de la app al corte (Costeo)',`Corte ${e.numero_corte||key} · ${fila.color} · ${kg} kg · ${capas} capas${a.term?' · terminó':''}`);
+    costeoAddRollo={stockId:'',capas:'',term:false,color:'',kg:''};
+    showToast('✓ Rollo fuera de la app agregado');
+    return;
+  }
+  const r=tsData.rollos[a.stockId];
   if(!r){ showToast('Elegí un rollo'); return; }
   const capas=parseInt(a.capas,10)||0;
   if(!capas&&!a.term){ showToast('Poné las capas (o tildá Terminó)'); return; }
@@ -20492,7 +20512,7 @@ function costeoAgregarRollo(key){
   up[`fabrica_v5/telas_stock/rollos/${a.stockId}/estado`]=tsEstadoDe(nr,rest);
   db.ref().update(up);
   logActivity('Agregó rollo al corte (Costeo)',`Corte ${e.numero_corte||key} · ${r.codigo||''} ${r.color||''} · ${capas} capas${a.term?' · terminó':''}`);
-  costeoAddRollo={stockId:'',capas:'',term:false};
+  costeoAddRollo={stockId:'',capas:'',term:false,color:'',kg:''};
   showToast(`✓ ${r.codigo||'Rollo'} agregado al corte`);
 }
 function renderCosteoDetail(){

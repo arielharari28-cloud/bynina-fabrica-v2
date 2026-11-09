@@ -10346,7 +10346,18 @@ function rollosCalc(row){
   const usado=capas*rollosCtx.largo*rollosCtx.peso;
   const kgmts=numAr(row.kgmts);
   const colKg=rollosCtx.colTarget?rolColKg(row):0;
-  return{usado,colKg,sobrante:kgmts-usado-colKg};
+  // Sin explicar (nov 2026): tela que no cierra con las capas. Solo cuando el rollo se marcó terminado
+  // o se pesó lo que quedó: kg/mts que tenía − usado por capas − collareta − lo que quedó. Cuenta como usado.
+  const real=String(row.sobranteReal??'').trim();
+  const sinExp=(row.stockId&&real!==''&&kgmts)?kgmts-usado-colKg-numAr(real):0;
+  return{usado,colKg,sobrante:kgmts-usado-colKg,sinExp};
+}
+function rollosSinExpHtml(row){
+  const{usado,sinExp}=rollosCalc(row);
+  if(Math.abs(sinExp)<0.05) return '<span style="color:var(--text2)">—</span>';
+  if(sinExp<0) return `<span style="background:#fdf3dc;color:#8a5a00;border-radius:6px;padding:1px 6px;white-space:nowrap">+${sinExp.toFixed(2).replace('-','')} sobró</span>`;
+  const rojo=sinExp>Math.max(0.5,usado*0.10);
+  return `<span style="${rojo?'background:#fdecea;color:#9a3412;font-weight:700':'background:#fdf3dc;color:#8a5a00'};border-radius:6px;padding:1px 6px">${sinExp.toFixed(2)}</span>`;
 }
 function rollosRefreshRow(rowId){
   const row=rollosCtx.rows.find(r=>r.id===rowId);
@@ -10360,6 +10371,8 @@ function rollosRefreshRow(rowId){
   // (placeholder) también tiene que actualizarse al cambiar capas o kg, si no queda el kg inicial.
   const sr=document.getElementById(`rol-sobreal-${rowId}`);
   if(sr) sr.placeholder=row.kgmts?sobrante.toFixed(2):'—';
+  const se=document.getElementById(`rol-sinexp-${rowId}`);
+  if(se) se.innerHTML=rollosSinExpHtml(row);
   const ck=document.getElementById(`rol-colkg-${rowId}`);
   if(ck){ const k=rollosCalc(row).colKg; ck.textContent=(k&&row.colUnidad!=='kg')?'= '+k.toFixed(2)+' kg':''; }
   const ct=document.getElementById('rol-col-total');
@@ -10417,13 +10430,14 @@ function renderRollosModal(){
       <td><input type="number" min="0" step="0.01" value="${row.kgmts}" placeholder="0" oninput="rollosUpdateField('${row.id}','kgmts',this.value)" style="width:64px;padding:5px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:6px"></td>
       <td><input type="number" min="0" value="${row.capas}" placeholder="0" oninput="rollosUpdateField('${row.id}','capas',this.value)" class="oc-capas-input" style="width:56px"></td>
       <td><span class="oc-cell-calc" id="rol-usado-${row.id}">${usado?usado.toFixed(2):'—'}</span></td>
+      <td style="text-align:center" id="rol-sinexp-${row.id}">${rStock?rollosSinExpHtml(row):'<span style="color:var(--text2)">—</span>'}</td>
       ${rollosCtx.colTarget?`<td style="white-space:nowrap"><input type="number" min="0" step="0.1" value="${row.colMts??''}" placeholder="m" title="Collareta que salió de este rollo" oninput="rollosUpdateField('${row.id}','colMts',this.value)" style="width:56px;padding:5px;font-size:12px;text-align:center;border:1px solid ${row.colMts?'var(--accent)':'var(--border)'};border-radius:6px">
         <select onchange="rollosUpdateField('${row.id}','colUnidad',this.value)" style="font-size:11.5px;padding:4px;border:1px solid var(--border);border-radius:6px" aria-label="Unidad de la collareta"><option value="m" ${row.colUnidad!=='kg'?'selected':''}>m</option><option value="kg" ${row.colUnidad==='kg'?'selected':''}>kg</option></select>
         <span style="font-size:11px;color:var(--text2)" id="rol-colkg-${row.id}">${row.colUnidad!=='kg'&&rollosCalc(row).colKg?'= '+rollosCalc(row).colKg.toFixed(2)+' kg':''}</span></td>`:''}
       <td>${rStock
         ? `<div style="display:flex;flex-direction:column;gap:3px;align-items:center">
             <input type="number" min="0" step="0.01" id="rol-sobreal-${row.id}" value="${row.sobranteReal??''}" placeholder="${row.kgmts?sobrante.toFixed(2):'—'}" title="Si lo pesaron, poné lo que quedó de verdad. Vacío = se calcula por capas." oninput="rollosUpdateField('${row.id}','sobranteReal',this.value)" style="width:64px;padding:4px;font-size:12px;text-align:center;border:1px solid ${row.sobranteReal!==''&&row.sobranteReal!=null?'var(--accent)':'var(--border)'};border-radius:6px">
-            <button type="button" class="btn-sm" style="font-size:10.5px;padding:2px 6px;${String(row.sobranteReal)==='0'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="rollosUsadoEntero('${row.id}')">${String(row.sobranteReal)==='0'?'✓ Entero':'Se usó entero'}</button>
+            <button type="button" class="btn-sm" style="font-size:10.5px;padding:2px 6px;${String(row.sobranteReal)==='0'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}" onclick="rollosUsadoEntero('${row.id}')" title="Se terminó el rollo: no queda sobrante. Lo que no cierra con las capas va a Sin explicar (cuenta como usado).">${String(row.sobranteReal)==='0'?'✓ Terminó':'Terminó'}</button>
           </div>`
         : `<span class="oc-cell-calc" id="rol-sobrante-${row.id}">${row.kgmts?sobrante.toFixed(2):'—'}</span>`}</td>
       <td><input type="text" value="${(row.nota||'').replace(/"/g,'&quot;')}" placeholder="Ej: queda 1 rollo, 5m" oninput="rollosUpdateField('${row.id}','nota',this.value)" style="width:140px;padding:5px;font-size:12px;border:1px solid var(--border);border-radius:6px"></td>
@@ -10434,11 +10448,11 @@ function renderRollosModal(){
     ${liquidar?`<div class="oc-hint" style="margin-bottom:10px">🏷️ <strong>Corte de liquidación de tela</strong> — no hace falta que coincida con capas por color, cargá los rollos que se van a usar hasta agotar la tela y escribí el color libremente.</div>`:''}
     ${(!coloresDisponibles.length&&!liquidar)?`<div class="oc-warn">⚠️ Este ítem todavía no tiene colores cargados en la orden de corte. Cargalos primero y después volvé acá.</div>`:''}
     <div class="oc-hint" style="margin-bottom:10px">En <strong>Rollo</strong> elegí el código del stock (T-0001…). Si el rollo no está en la app, dejá “Fuera de la app” y cargalo como siempre.${(!rollosCtx.largo||!rollosCtx.peso)&&rows.some(r=>r.stockId)?' ⚠️ Falta largo de capa o peso por metro: el stock no se va a poder descontar hasta que estén cargados.':''}</div>
-    <div class="oc-hint" style="margin-bottom:10px">El <strong>usado</strong> se calcula solo: capas × largo de capa (${rollosCtx.largo||'—'}) × peso x metro (${rollosCtx.peso||'—'}). El <strong>sobrante</strong> es Kg/Mts del rollo menos lo usado${rollosCtx.colTarget?' y menos la collareta':''}.</div>
+    <div class="oc-hint" style="margin-bottom:10px">El <strong>usado</strong> se calcula solo: capas × largo de capa (${rollosCtx.largo||'—'}) × peso x metro (${rollosCtx.peso||'—'}). El <strong>sobrante</strong> es Kg/Mts del rollo menos lo usado${rollosCtx.colTarget?' y menos la collareta':''}. Si el rollo se terminó, tocá <strong>Terminó</strong>: no queda sobrante y lo que no cierra con las capas va a <strong>Sin explicar</strong> (cuenta como usado).</div>
     ${renderRollosResumenHtml()}
     <div class="oc-table-wrap">
       <table class="oc-table">
-        <thead><tr><th>Rollo</th><th>Color</th><th>Kg/Mts</th><th>Capas</th><th>Usado</th>${rollosCtx.colTarget?'<th>Collareta</th>':''}<th>Sobrante</th><th style="text-align:left">Nota</th><th></th></tr></thead>
+        <thead><tr><th>Rollo</th><th>Color</th><th>Kg/Mts</th><th>Capas</th><th>Usado por capas</th><th title="Tela que no cierra con las capas (rollo terminado o sobrante pesado). Cuenta como usado.">Sin explicar</th>${rollosCtx.colTarget?'<th>Collareta</th>':''}<th>Sobrante</th><th style="text-align:left">Nota</th><th></th></tr></thead>
         <tbody>${bodyRows}</tbody>
       </table>
       ${!rows.length?`<div class="oc-hint" style="padding:8px 0">No hay rollos cargados todavía.</div>`:''}
@@ -13853,6 +13867,7 @@ function rollosElegirStock(rowId,stockId){
 // Aplica el consumo de esta orden de corte en los rollos del stock. Se llama al guardar el modal.
 function tsAplicarConsumo(ctx,rows,info,colPlan){
   const usadoPor={};   // stockId -> cantidad usada en este corte
+  const capasKgPor={}, termPor={};   // usado por capas y si el rollo se terminó (para la revisión)
   const capasPor={};   // stockId -> capas cargadas (para la revisión por corte)
   rows.forEach(row=>{
     if(!row.stockId) return;
@@ -13866,6 +13881,8 @@ function tsAplicarConsumo(ctx,rows,info,colPlan){
       ? Math.max(0,numAr(row.kgmts)-numAr(real)-colKg)                 // pesado / se usó entero
       : (r.unidad==='m'?capas*rollosCtx.largo:capas*rollosCtx.largo*rollosCtx.peso);   // cálculo por capas
     usadoPor[row.stockId]=(usadoPor[row.stockId]||0)+usado;
+    capasKgPor[row.stockId]=(capasKgPor[row.stockId]||0)+(r.unidad==='m'?capas*rollosCtx.largo:capas*rollosCtx.largo*rollosCtx.peso);
+    if(real!==''&&numAr(real)===0) termPor[row.stockId]=true;
   });
   const upd={}; let compartidos=0, sinMedidas=false;
   // Copia de trabajo de los usos de cada rollo tocado: así el corte y la collareta se calculan juntos
@@ -13896,7 +13913,8 @@ function tsAplicarConsumo(ctx,rows,info,colPlan){
     const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-usadoR)<0.01;
     const pendiente=currentUser==='ariel'?false:!yaAprobado;
     if(pendiente) compartidos++;
-    const uso={corte:info.corte||'',code:info.code||'',usado:usadoR,capas:capasPor[id]||0,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente};
+    const usadoCapas=Math.round((capasKgPor[id]||0)*100)/100;
+    const uso={corte:info.corte||'',code:info.code||'',usado:usadoR,capas:capasPor[id]||0,usadoCapas,sinExplicar:Math.round((usadoR-usadoCapas)*100)/100,terminado:!!termPor[id],unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente};
     W(id)[ctx]=uso; upd[`rollos/${id}/usos/${ctx}`]=uso;
     if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]=(!otros.length&&!previo&&r.deInventario&&r.estado==='sobrante')?'sobrante':'entero';
   });
@@ -13960,24 +13978,39 @@ function tsInfoRolloEnCorte(corte,stockId,codigo){
   return out;
 }
 function tsFechaDia(ts){ if(!ts) return ''; const d=new Date(ts); return d.toLocaleDateString('es-AR',{weekday:'short',day:'2-digit',month:'2-digit'}); }
+// Largo de capa y peso por metro de un N° de corte (del primer artículo del corte que los tenga).
+function tsMedidasCorte(corte){
+  const key=corteKeyFrom(String(corte||'')); if(!key) return {largo:0,peso:0};
+  for(const sec of Object.values(sectionsData||{})) for(const it of Object.values((sec&&sec.items)||{})){
+    if(!it||it.es_complemento||corteKeyFrom(String(it.numero_corte||''))!==key) continue;
+    const largo=numAr(getLargoCapaEfectivo(it)), peso=numAr(getPesoMetroEfectivo(it));
+    if(largo) return {largo,peso};
+  }
+  return {largo:0,peso:0};
+}
+// Revisión por corte (nov 2026): usado por capas = capas × kg por capa del corte; si el rollo se terminó
+// no queda sobrante y lo que no cierra con las capas va a "Sin explicar" (cuenta como usado). Si se pesó
+// lo que quedó, la diferencia con el cálculo también va a Sin explicar. Ariel puede corregir las capas.
 function renderTsRevision(){
   const cont=document.getElementById('telas-content');
   const lista=tsCortesRevision();
   const nom=p=>(typeof USER_DISPLAY!=='undefined'&&USER_DISPLAY[p])||p;
+  const esA=currentUser==='ariel';
+  const inp='padding:5px 6px;border:1px solid var(--border);border-radius:8px;text-align:right;font-family:inherit;font-size:13px';
   cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
     <div class="ts-title">Tela para revisar</div>
-    <div class="ts-sub" style="margin-bottom:12px">Un corte por tarjeta, con todos los rollos que se cargaron. Hasta que apruebes el corte, no se descuenta del stock. "Quedó de verdad" es opcional: completalo solo si pesaron el sobrante.</div>
+    <div class="ts-sub" style="margin-bottom:12px">Un corte por tarjeta, con todos los rollos que se cargaron. Hasta que apruebes el corte, no se descuenta del stock. <b>Usado por capas</b> = capas × kg por capa del corte. Si el rollo se terminó, no queda sobrante y lo que no cierra con las capas va a <b>Sin explicar</b> (cuenta como usado). En rojo: más del 10% o más de 0,5 kg sin explicar.</div>
     ${lista.length?lista.map(g=>{
       const ck=tsEsc(g.corte).replace(/'/g,'');
-      const tot={}; g.filas.forEach(f=>{ const u=tsUnidadTxt(f.r.unidad); tot[u]=(tot[u]||0)+tsNum(f.u.usado); });
+      const med=tsMedidasCorte(g.corte);
       const telas=[...new Set(g.filas.map(f=>f.r.tela).filter(Boolean))].map(tsEsc).join(', ');
       return `<div class="ts-card">
         <div class="ts-card-head" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div>
           <div class="ts-tela" style="font-size:16px">Corte ${tsEsc(g.corte)}</div>
-          <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · ${tsFechaDia(g.fecha)} · ${g.filas.length} rollo${g.filas.length>1?'s':''}</div></div>
+          <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · ${tsFechaDia(g.fecha)} · ${g.filas.length} rollo${g.filas.length>1?'s':''}<br>Kg por capa del corte: <b>${med.largo&&med.peso?tsFmt(med.largo*med.peso,2):'—'}</b>${med.largo?` <small>(largo ${tsFmt(med.largo,2)} × peso ${med.peso?tsFmt(med.peso,2):'—'})</small>`:' <small style="color:#9a3412">falta largo de capa / peso por metro</small>'}</div></div>
           <span class="ts-rev">pendiente</span></div>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:560px;font-size:13px">
-          <thead><tr style="color:var(--text2);font-size:11px;text-transform:uppercase;text-align:left"><th style="padding:6px">Rollo</th><th style="padding:6px">Color</th><th style="padding:6px;text-align:right">Capas</th><th style="padding:6px;text-align:right">Usado</th><th style="padding:6px;text-align:right">Quedaría</th><th style="padding:6px;text-align:right" title="Kg usados ÷ capas. En un mismo corte tiene que dar parecido en todos los rollos.">Kg/capa</th>${currentUser==='ariel'?'<th style="padding:6px;text-align:right">Quedó de verdad</th>':''}</tr></thead>
+        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:720px;font-size:13px">
+          <thead><tr style="color:var(--text2);font-size:11px;text-transform:uppercase;text-align:left"><th style="padding:6px">Rollo</th><th style="padding:6px">Color</th><th style="padding:6px;text-align:right" title="Lo que tenía el rollo antes de este corte">Tenía</th><th style="padding:6px;text-align:right">Capas</th><th style="padding:6px;text-align:right">Usado por capas</th><th style="padding:6px;text-align:right" title="Tela que no cierra con las capas. Cuenta como usado.">Sin explicar</th><th style="padding:6px;text-align:right">Quedaría</th>${esA?'<th style="padding:6px;text-align:center">Terminó</th><th style="padding:6px;text-align:right">Quedó de verdad</th>':''}</tr></thead>
           <tbody>${g.filas.map(f=>{
             const u=tsUnidadTxt(f.r.unidad), q=tsQuedariaConCorte(f.r,g.corte);
             const inf=tsInfoRolloEnCorte(g.corte,f.id,f.r.codigo);
@@ -13985,65 +14018,117 @@ function renderTsRevision(){
             const hint=[inf.sobrante!=null?`Costeo: sobrante ${tsFmt(inf.sobrante,2)}`:'',inf.nota?`“${tsEsc(inf.nota)}”`:''].filter(Boolean).join(' · ');
             const otros=[...new Set(Object.values(f.r.usos||{}).filter(x=>x&&x.pendiente&&String(x.corte||'—')!==g.corte).map(x=>x.corte))];
             const col=/^collareta/.test(f.u.code||'');
-            return `<tr style="border-top:1px solid var(--border)">
-              <td style="padding:6px"><b>${tsEsc(f.r.codigo)}</b> <small style="color:var(--text2)">· ${tsFmt(tsNum(f.r.inicial),2)} ${u}</small>${col?' <small style="color:var(--text2)">· collareta</small>':''}${otros.length?`<br><small style="color:#8a5a00;background:#fdf3dc;border-radius:6px;padding:1px 6px">también en corte ${otros.map(tsEsc).join(', ')}</small>`:''}</td>
+            // lo que tenía para ESTA fila: lo que queda + lo de esta fila (si el rollo tiene otra fila en este corte, esa ya está descontada)
+            const otrasFilas=g.filas.filter(o=>o!==f&&o.id===f.id).reduce((s,o)=>s+tsNum(o.u.usado),0);
+            const antes=Math.round((q+tsNum(f.u.usado))*100)/100;
+            const kc=med.largo?(f.r.unidad==='m'?med.largo:med.largo*med.peso):0;
+            const usadoOrig=tsNum(f.u.usado);
+            const term=f.u.terminado!=null?!!f.u.terminado:(q<=0.05);
+            // si se pesó lo que quedó (el usado no coincide con las capas), se muestra en "Quedó de verdad"
+            const pc0=kc?capas*kc:usadoOrig;
+            const realIni=(!term&&kc&&Math.abs(usadoOrig-pc0)>0.01)?Math.round((antes-usadoOrig)*100)/100:'';
+            const data=`data-corte="${ck}" data-rollo="${f.id}" data-k="${f.k}"`;
+            if(col) return `<tr style="border-top:1px solid var(--border)">
+              <td style="padding:6px"><b>${tsEsc(f.r.codigo)}</b> <small style="color:var(--text2)">· ${tsFmt(tsNum(f.r.inicial),2)} ${u} · collareta</small></td>
               <td style="padding:6px">${tsEsc(f.r.color||'')}</td>
-              <td style="padding:6px;text-align:right">${capas?tsFmt(capas,0):'<span style="color:#9a3412;font-weight:700">falta</span>'}</td>
-              <td style="padding:6px;text-align:right">${tsFmt(tsNum(f.u.usado),2)} ${u}</td>
-              <td style="padding:6px;text-align:right">${tsFmt(q,2)} ${u}</td>
-              <td style="padding:6px;text-align:right" class="ts-kgcapa" data-corte="${ck}" data-rollo="${f.id}" data-capas="${capas||0}" data-antes="${q+tsNum(f.u.usado)}" data-usado="${tsNum(f.u.usado)}">—</td>
-              ${currentUser==='ariel'?`<td style="padding:6px;text-align:right">${col?'':`<input class="ts-real-corte" data-corte="${ck}" data-rollo="${f.id}" type="text" inputmode="decimal" placeholder="${tsFmt(q,2)}" oninput="tsRevKgCapa('${ck}')" style="width:84px;padding:6px;border:1px solid var(--border);border-radius:8px;text-align:right;font-family:inherit">${hint?`<div style="font-size:10px;color:#8a5a00;margin-top:2px;white-space:nowrap">${hint}</div>`:''}`}</td>`:''}
+              <td style="padding:6px;text-align:right">${tsFmt(antes,2)}</td><td></td>
+              <td style="padding:6px;text-align:right">${tsFmt(usadoOrig,2)} ${u}</td><td></td>
+              <td style="padding:6px;text-align:right">${tsFmt(q,2)} ${u}</td>${esA?'<td></td><td></td>':''}</tr>`;
+            return `<tr class="ts-revfila" ${data} data-antes="${antes}" data-kc="${kc}" data-usado="${usadoOrig}" data-unidad="${u}" data-otras="${otrasFilas}" style="border-top:1px solid var(--border)">
+              <td style="padding:6px"><b>${tsEsc(f.r.codigo)}</b> <small style="color:var(--text2)">· ${tsFmt(tsNum(f.r.inicial),2)} ${u}</small>${otros.length?`<br><small style="color:#8a5a00;background:#fdf3dc;border-radius:6px;padding:1px 6px">también en corte ${otros.map(tsEsc).join(', ')}</small>`:''}</td>
+              <td style="padding:6px">${tsEsc(f.r.color||'')}</td>
+              <td style="padding:6px;text-align:right">${tsFmt(antes,2)}</td>
+              <td style="padding:6px;text-align:right">${esA?`<input class="ts-rev-capas" type="text" inputmode="numeric" value="${capas||''}" placeholder="falta" oninput="tsRevCalc('${ck}')" style="width:48px;${inp}">`:(capas?tsFmt(capas,0):'<span style="color:#9a3412;font-weight:700">falta</span>')}</td>
+              <td style="padding:6px;text-align:right" class="ts-rev-pc">—</td>
+              <td style="padding:6px;text-align:right" class="ts-rev-sx">—</td>
+              <td style="padding:6px;text-align:right" class="ts-rev-q">—</td>
+              ${esA?`<td style="padding:6px;text-align:center"><input class="ts-rev-term" type="checkbox" ${term?'checked':''} onchange="tsRevCalc('${ck}')" aria-label="Rollo terminado" style="width:18px;height:18px;accent-color:var(--accent)"></td>
+              <td style="padding:6px;text-align:right"><input class="ts-rev-real" type="text" inputmode="decimal" value="${realIni===''?'':String(realIni).replace('.',',')}" oninput="tsRevCalc('${ck}')" style="width:84px;${inp}"><span class="ts-rev-termtxt" style="display:none;color:var(--text2);font-size:12px">terminado</span>${hint?`<div style="font-size:10px;color:#8a5a00;margin-top:2px;white-space:nowrap">${hint}</div>`:''}</td>`:''}
             </tr>`; }).join('')}
-            <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px" colspan="3">Total del corte</td><td style="padding:6px;text-align:right">${Object.entries(tot).map(([u,v])=>tsFmt(v,2)+' '+u).join(' + ')}</td><td></td><td></td>${currentUser==='ariel'?'<td></td>':''}</tr>
           </tbody></table></div>
-        ${currentUser==='ariel'?`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="ts-btn" onclick="tsAprobarCorte('${ck}')">Aprobar corte ${tsEsc(g.corte)}</button></div>`:'<div class="ts-sub" style="margin-top:8px">Lo aprueba Ariel.</div>'}
+        <div class="ts-rev-tot" data-corte="${ck}" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px"></div>
+        ${esA?`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="ts-btn" onclick="tsAprobarCorte('${ck}')">Aprobar corte ${tsEsc(g.corte)}</button></div>`:'<div class="ts-sub" style="margin-top:8px">Lo aprueba Ariel.</div>'}
       </div>`; }).join(''):'<div class="empty-state">No hay cortes con tela para revisar.</div>'}`;
-  lista.forEach(g=>tsRevKgCapa(tsEsc(g.corte).replace(/'/g,'')));
+  lista.forEach(g=>tsRevCalc(tsEsc(g.corte).replace(/'/g,'')));
 }
-// Kg/capa por rollo en la tarjeta de revisión. Si Ariel escribe "Quedó de verdad", el usado pasa a ser
-// lo real (lo que había antes del corte − lo que quedó). Se marca en rojo el rollo que se aleja más de
-// un 10% de la mediana del corte: ahí hay tela que no cierra con las capas.
-function tsRevKgCapa(ck){
-  const celdas=[...document.querySelectorAll('.ts-kgcapa')].filter(el=>el.dataset.corte===ck);
-  const vals=celdas.map(el=>{
-    const inp=[...document.querySelectorAll('.ts-real-corte')].find(i=>i.dataset.corte===ck&&i.dataset.rollo===el.dataset.rollo);
-    const real=inp&&String(inp.value).trim()!==''?tsNum(inp.value):null;
-    const usado=real!=null?Math.max(0,tsNum(el.dataset.antes)-real):tsNum(el.dataset.usado);
-    const capas=tsNum(el.dataset.capas);
-    return capas>0?usado/capas:null;
+// Cuenta de una fila de la revisión: usado por capas, sin explicar, quedaría y usado total.
+function tsRevFilaCalc(tr){
+  const antes=tsNum(tr.dataset.antes), kc=tsNum(tr.dataset.kc), usadoOrig=tsNum(tr.dataset.usado);
+  const ci=tr.querySelector('.ts-rev-capas'), ti=tr.querySelector('.ts-rev-term'), ri=tr.querySelector('.ts-rev-real');
+  const capas=ci?tsNum(ci.value):tsNum(tr.dataset.capas);
+  const term=ti?ti.checked:false;
+  const realTxt=ri?String(ri.value).trim():'';
+  const pc=kc?capas*kc:usadoOrig;
+  let q,sx;
+  if(term){ q=0; sx=antes-pc; }
+  else if(realTxt!==''){ q=tsNum(realTxt); sx=antes-pc-q; }
+  else { q=Math.max(0,antes-pc); sx=0; }
+  const r2=n=>Math.round(n*100)/100;
+  return {capas,term,pc:r2(pc),sx:r2(sx),q:r2(q),usado:r2(antes-q)};
+}
+function tsRevCalc(ck){
+  const filas=[...document.querySelectorAll('.ts-revfila')].filter(el=>el.dataset.corte===ck);
+  const tot={};
+  filas.forEach(tr=>{
+    const c=tsRevFilaCalc(tr), u=tr.dataset.unidad;
+    tr.querySelector('.ts-rev-pc').innerHTML=`${tsFmt(c.pc,2)} ${u}`;
+    const sxEl=tr.querySelector('.ts-rev-sx');
+    if(Math.abs(c.sx)<0.05) sxEl.innerHTML='<span style="color:var(--text2)">—</span>';
+    else if(c.sx<0) sxEl.innerHTML=`<span style="background:#fdf3dc;color:#8a5a00;border-radius:6px;padding:1px 6px;white-space:nowrap">+${tsFmt(-c.sx,2)} sobró</span>`;
+    else { const rojo=c.sx>Math.max(0.5,c.pc*0.10); sxEl.innerHTML=`<span style="${rojo?'background:#fdecea;color:#9a3412;font-weight:700':'background:#fdf3dc;color:#8a5a00'};border-radius:6px;padding:1px 6px">${tsFmt(c.sx,2)}</span>`; }
+    tr.querySelector('.ts-rev-q').innerHTML=c.term?'<span style="color:var(--text2)">0,00</span>':`${tsFmt(c.q,2)} ${u}`;
+    const ri=tr.querySelector('.ts-rev-real'), tt=tr.querySelector('.ts-rev-termtxt');
+    if(ri){ ri.style.display=c.term?'none':''; if(tt) tt.style.display=c.term?'':'none';
+      ri.placeholder=tsFmt(Math.max(0,tsNum(tr.dataset.antes)-c.pc),2); }
+    const t=tot[u]||(tot[u]={pc:0,sx:0,us:0}); t.pc+=c.pc; t.sx+=Math.max(0,c.sx); t.us+=c.usado;
   });
-  const ok=vals.filter(v=>v!=null).sort((a,b)=>a-b);
-  const med=ok.length?(ok.length%2?ok[(ok.length-1)/2]:(ok[ok.length/2-1]+ok[ok.length/2])/2):0;
-  celdas.forEach((el,i)=>{
-    const v=vals[i];
-    if(v==null){ el.innerHTML='—'; return; }
-    const lejos=med&&Math.abs(v-med)/med>0.10;
-    el.innerHTML=`<span style="${lejos?'color:#9a3412;font-weight:700;background:#fdecea;border-radius:6px;padding:1px 6px':''}">${tsFmt(v,3)}</span>`;
-  });
+  const box=document.querySelector(`.ts-rev-tot[data-corte="${ck}"]`); if(!box) return;
+  const fmt=k=>Object.entries(tot).map(([u,v])=>`${tsFmt(v[k],2)} ${u}`).join(' + ')||'—';
+  const sxTot=Object.values(tot).reduce((s,v)=>s+v.sx,0);
+  const caja=(l,v,st)=>`<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 10px"><div style="font-size:11px;color:var(--text2);text-transform:uppercase">${l}</div><div style="font-size:16px;font-weight:700;${st||''}">${v}</div></div>`;
+  box.innerHTML=caja('Usado por capas',fmt('pc'))+caja('Sin explicar',fmt('sx'),sxTot>=0.05?'color:#9a3412':'')+caja('Usado total del corte',fmt('us'));
+}
+// Filas de rollos (Costeo, grupo del corte y artículos) donde está anotado este rollo en este corte,
+// para corregir las capas en todos lados. Si en una fuente hay más de una fila del mismo rollo, esa no se toca.
+function tsRutasCapasRollo(corte,stockId,codigo){
+  const key=corteKeyFrom(String(corte||'')); if(!key) return [];
+  const match=x=>x&&((stockId&&x.stockId===stockId)||(codigo&&x.codigo===codigo));
+  const rutas=[];
+  const de=(rs,base)=>{ const f=Object.entries(rs||{}).filter(([,x])=>match(x)); if(f.length===1) rutas.push(`${base}/${f[0][0]}/capas`); };
+  de((costeosData[key]||{}).rollos,`fabrica_v5/costeos/${key}/rollos`);
+  de((gruposCorteData[key]||{}).rollos,`fabrica_v5/grupos_corte/${key}/rollos`);
+  Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
+    if(it&&corteKeyFrom(String(it.numero_corte||''))===key) de(it.rollos,`fabrica_v5/sections/${sid}/items/${iid}/rollos`); }));
+  return rutas;
 }
 function tsAprobarCorte(corte){
   if(currentUser!=='ariel') return;
-  const reales={}; document.querySelectorAll('.ts-real-corte').forEach(el=>{ if(el.dataset.corte===corte&&String(el.value).trim()!=='') reales[el.dataset.rollo]=el.value; });
-  const upd={}; let n=0;
+  // lo que Ariel dejó en cada fila (capas, terminó, quedó de verdad)
+  const filas={};
+  document.querySelectorAll('.ts-revfila').forEach(tr=>{ if(tr.dataset.corte!==corte) return;
+    const c=tsRevFilaCalc(tr); (filas[tr.dataset.rollo]=filas[tr.dataset.rollo]||{})[tr.dataset.k]=c; });
+  const upd={}, otrosUpd={}; let n=0, capasCorr=0;
   Object.entries(tsData.rollos||{}).forEach(([id,r])=>{ if(!r) return;
     const keys=Object.entries(r.usos||{}).filter(([,u])=>u&&u.pendiente&&String(u.corte||'—')===corte).map(([k])=>k);
     if(!keys.length) return; n++;
-    const usos={}; Object.entries(r.usos||{}).forEach(([k,u])=>{ if(u) usos[k]=keys.includes(k)?{...u,pendiente:false}:u; });
-    keys.forEach(k=>{ upd[`rollos/${id}/usos/${k}/pendiente`]=false; });
-    const nr={...r,usos};
-    if(reales[id]!==undefined){
-      // la diferencia entre lo pesado y lo calculado queda como ajuste, así lo que venga después descuenta bien
-      const sinAjuste=tsRestanteDe({...nr,ajuste:0});
-      nr.ajuste=Math.round((tsNum(reales[id])-sinAjuste)*100)/100;
-      upd[`rollos/${id}/ajuste`]=nr.ajuste;
-    }
-    const rest=tsRestanteDe(nr);
-    upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest);
+    const usos={};
+    Object.entries(r.usos||{}).forEach(([k,u])=>{ if(!u) return;
+      if(!keys.includes(k)){ usos[k]=u; return; }
+      const c=(filas[id]||{})[k];
+      if(!c){ usos[k]={...u,pendiente:false}; upd[`rollos/${id}/usos/${k}/pendiente`]=false; return; }
+      const nu={...u,pendiente:false,usado:c.usado,capas:c.capas,usadoCapas:c.pc,sinExplicar:Math.round((c.usado-c.pc)*100)/100,terminado:c.term,revisadoEn:Date.now()};
+      usos[k]=nu; upd[`rollos/${id}/usos/${k}`]=nu;
+      const capasAntes=tsNum(u.capas)||tsInfoRolloEnCorte(corte,id,r.codigo).capas;
+      if(c.capas&&c.capas!==capasAntes){ capasCorr++; tsRutasCapasRollo(corte,id,r.codigo).forEach(p=>{ otrosUpd[p]=c.capas; }); }
+    });
+    const rest=tsRestanteDe({...r,usos});
+    upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe({...r,usos},rest);
     upd[`rollos/${id}/revisadoPor`]=currentUser; upd[`rollos/${id}/revisadoEn`]=Date.now();
   });
   if(!n) return;
   db.ref('fabrica_v5/telas_stock').update(upd);
-  logActivity('Aprobó tela del corte',`Corte ${corte} · ${n} rollo${n>1?'s':''}`);
+  if(Object.keys(otrosUpd).length) db.ref().update(otrosUpd);
+  logActivity('Aprobó tela del corte',`Corte ${corte} · ${n} rollo${n>1?'s':''}${capasCorr?` · corrigió capas de ${capasCorr}`:''}`);
   showToast(`✓ Corte ${corte} aprobado: ${n} rollo${n>1?'s':''} descontado${n>1?'s':''} del stock`);
 }
 

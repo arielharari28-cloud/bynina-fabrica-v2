@@ -10472,6 +10472,16 @@ function rollosRefreshTotales(){
 function saveRollos(){
   const{secId,itemId,rows,corteKey}=rollosCtx;
   const item=sectionsData[secId].items[itemId];
+  // Capas obligatorias por rollo (nov 2026): sin capas no hay forma de controlar los kg usados
+  // (kg/capa tiene que dar parecido en todos los rollos del corte). Excepto liquidación de tela.
+  // Un rollo usado solo para collareta (sin capas pero con collareta cargada) también pasa.
+  if(!rollosCtx.liquidar){
+    const sinCapas=rows.filter(row=>(row.stockId||String(row.kgmts||'').trim())&&!(numAr(row.capas)>0)&&!(numAr(row.colMts)>0));
+    if(sinCapas.length){
+      alert(`Falta cargar las capas de ${sinCapas.length} rollo${sinCapas.length>1?'s':''}:\n\n${sinCapas.map(r=>'• '+(r.codigo||'')+' '+(r.color||'')).join('\n')}\n\nSin las capas no se puede guardar.`);
+      return;
+    }
+  }
   const rollosObj={};
   rows.forEach(row=>{
     if(!row.color&&!row.kgmts&&!row.capas) return;
@@ -13931,6 +13941,24 @@ function tsQuedariaConCorte(r,corte){
   const usos={}; Object.entries(r.usos||{}).forEach(([k,u])=>{ if(u) usos[k]=(u.pendiente&&String(u.corte||'—')===corte)?{...u,pendiente:false}:u; });
   return tsRestanteDe({...r,usos});
 }
+// Lo que Fábrica/Costeo tienen anotado de este rollo en este corte: capas, sobrante cargado a mano y
+// observación. Los usos viejos (antes de nov 2026) no guardaban las capas, así que se buscan acá.
+function tsInfoRolloEnCorte(corte,stockId,codigo){
+  const key=corteKeyFrom(String(corte||''));
+  const out={capas:0,sobrante:null,nota:''};
+  if(!key) return out;
+  const fuentes=[(costeosData[key]||{}).rollos,(gruposCorteData[key]||{}).rollos];
+  for(const rs of fuentes){
+    const fil=Object.values(rs||{}).filter(x=>x&&((stockId&&x.stockId===stockId)||(codigo&&x.codigo===codigo)));
+    if(!fil.length) continue;
+    out.capas=fil.reduce((s,x)=>s+(parseFloat(x.capas)||0),0);
+    const sob=fil.map(x=>x.sobrante!=null&&String(x.sobrante).trim()!==''?x.sobrante:x.sobranteReal).find(v=>v!=null&&String(v).trim()!=='');
+    if(sob!=null) out.sobrante=tsNum(sob);
+    out.nota=fil.map(x=>x.nota).filter(Boolean).join(' · ');
+    return out;
+  }
+  return out;
+}
 function tsFechaDia(ts){ if(!ts) return ''; const d=new Date(ts); return d.toLocaleDateString('es-AR',{weekday:'short',day:'2-digit',month:'2-digit'}); }
 function renderTsRevision(){
   const cont=document.getElementById('telas-content');
@@ -13949,23 +13977,49 @@ function renderTsRevision(){
           <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · ${tsFechaDia(g.fecha)} · ${g.filas.length} rollo${g.filas.length>1?'s':''}</div></div>
           <span class="ts-rev">pendiente</span></div>
         <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:560px;font-size:13px">
-          <thead><tr style="color:var(--text2);font-size:11px;text-transform:uppercase;text-align:left"><th style="padding:6px">Rollo</th><th style="padding:6px">Color</th><th style="padding:6px;text-align:right">Capas</th><th style="padding:6px;text-align:right">Usado</th><th style="padding:6px;text-align:right">Quedaría</th>${currentUser==='ariel'?'<th style="padding:6px;text-align:right">Quedó de verdad</th>':''}</tr></thead>
+          <thead><tr style="color:var(--text2);font-size:11px;text-transform:uppercase;text-align:left"><th style="padding:6px">Rollo</th><th style="padding:6px">Color</th><th style="padding:6px;text-align:right">Capas</th><th style="padding:6px;text-align:right">Usado</th><th style="padding:6px;text-align:right">Quedaría</th><th style="padding:6px;text-align:right" title="Kg usados ÷ capas. En un mismo corte tiene que dar parecido en todos los rollos.">Kg/capa</th>${currentUser==='ariel'?'<th style="padding:6px;text-align:right">Quedó de verdad</th>':''}</tr></thead>
           <tbody>${g.filas.map(f=>{
             const u=tsUnidadTxt(f.r.unidad), q=tsQuedariaConCorte(f.r,g.corte);
+            const inf=tsInfoRolloEnCorte(g.corte,f.id,f.r.codigo);
+            const capas=tsNum(f.u.capas)||inf.capas;
+            const hint=[inf.sobrante!=null?`Costeo: sobrante ${tsFmt(inf.sobrante,2)}`:'',inf.nota?`“${tsEsc(inf.nota)}”`:''].filter(Boolean).join(' · ');
             const otros=[...new Set(Object.values(f.r.usos||{}).filter(x=>x&&x.pendiente&&String(x.corte||'—')!==g.corte).map(x=>x.corte))];
             const col=/^collareta/.test(f.u.code||'');
             return `<tr style="border-top:1px solid var(--border)">
               <td style="padding:6px"><b>${tsEsc(f.r.codigo)}</b> <small style="color:var(--text2)">· ${tsFmt(tsNum(f.r.inicial),2)} ${u}</small>${col?' <small style="color:var(--text2)">· collareta</small>':''}${otros.length?`<br><small style="color:#8a5a00;background:#fdf3dc;border-radius:6px;padding:1px 6px">también en corte ${otros.map(tsEsc).join(', ')}</small>`:''}</td>
               <td style="padding:6px">${tsEsc(f.r.color||'')}</td>
-              <td style="padding:6px;text-align:right">${f.u.capas?tsFmt(tsNum(f.u.capas),0):'—'}</td>
+              <td style="padding:6px;text-align:right">${capas?tsFmt(capas,0):'<span style="color:#9a3412;font-weight:700">falta</span>'}</td>
               <td style="padding:6px;text-align:right">${tsFmt(tsNum(f.u.usado),2)} ${u}</td>
               <td style="padding:6px;text-align:right">${tsFmt(q,2)} ${u}</td>
-              ${currentUser==='ariel'?`<td style="padding:6px;text-align:right">${col?'':`<input class="ts-real-corte" data-corte="${ck}" data-rollo="${f.id}" type="text" inputmode="decimal" placeholder="${tsFmt(q,2)}" style="width:84px;padding:6px;border:1px solid var(--border);border-radius:8px;text-align:right;font-family:inherit">`}</td>`:''}
+              <td style="padding:6px;text-align:right" class="ts-kgcapa" data-corte="${ck}" data-rollo="${f.id}" data-capas="${capas||0}" data-antes="${q+tsNum(f.u.usado)}" data-usado="${tsNum(f.u.usado)}">—</td>
+              ${currentUser==='ariel'?`<td style="padding:6px;text-align:right">${col?'':`<input class="ts-real-corte" data-corte="${ck}" data-rollo="${f.id}" type="text" inputmode="decimal" placeholder="${tsFmt(q,2)}" oninput="tsRevKgCapa('${ck}')" style="width:84px;padding:6px;border:1px solid var(--border);border-radius:8px;text-align:right;font-family:inherit">${hint?`<div style="font-size:10px;color:#8a5a00;margin-top:2px;white-space:nowrap">${hint}</div>`:''}`}</td>`:''}
             </tr>`; }).join('')}
-            <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px" colspan="3">Total del corte</td><td style="padding:6px;text-align:right">${Object.entries(tot).map(([u,v])=>tsFmt(v,2)+' '+u).join(' + ')}</td><td></td>${currentUser==='ariel'?'<td></td>':''}</tr>
+            <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px" colspan="3">Total del corte</td><td style="padding:6px;text-align:right">${Object.entries(tot).map(([u,v])=>tsFmt(v,2)+' '+u).join(' + ')}</td><td></td><td></td>${currentUser==='ariel'?'<td></td>':''}</tr>
           </tbody></table></div>
         ${currentUser==='ariel'?`<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="ts-btn" onclick="tsAprobarCorte('${ck}')">Aprobar corte ${tsEsc(g.corte)}</button></div>`:'<div class="ts-sub" style="margin-top:8px">Lo aprueba Ariel.</div>'}
       </div>`; }).join(''):'<div class="empty-state">No hay cortes con tela para revisar.</div>'}`;
+  lista.forEach(g=>tsRevKgCapa(tsEsc(g.corte).replace(/'/g,'')));
+}
+// Kg/capa por rollo en la tarjeta de revisión. Si Ariel escribe "Quedó de verdad", el usado pasa a ser
+// lo real (lo que había antes del corte − lo que quedó). Se marca en rojo el rollo que se aleja más de
+// un 10% de la mediana del corte: ahí hay tela que no cierra con las capas.
+function tsRevKgCapa(ck){
+  const celdas=[...document.querySelectorAll('.ts-kgcapa')].filter(el=>el.dataset.corte===ck);
+  const vals=celdas.map(el=>{
+    const inp=[...document.querySelectorAll('.ts-real-corte')].find(i=>i.dataset.corte===ck&&i.dataset.rollo===el.dataset.rollo);
+    const real=inp&&String(inp.value).trim()!==''?tsNum(inp.value):null;
+    const usado=real!=null?Math.max(0,tsNum(el.dataset.antes)-real):tsNum(el.dataset.usado);
+    const capas=tsNum(el.dataset.capas);
+    return capas>0?usado/capas:null;
+  });
+  const ok=vals.filter(v=>v!=null).sort((a,b)=>a-b);
+  const med=ok.length?(ok.length%2?ok[(ok.length-1)/2]:(ok[ok.length/2-1]+ok[ok.length/2])/2):0;
+  celdas.forEach((el,i)=>{
+    const v=vals[i];
+    if(v==null){ el.innerHTML='—'; return; }
+    const lejos=med&&Math.abs(v-med)/med>0.10;
+    el.innerHTML=`<span style="${lejos?'color:#9a3412;font-weight:700;background:#fdecea;border-radius:6px;padding:1px 6px':''}">${tsFmt(v,3)}</span>`;
+  });
 }
 function tsAprobarCorte(corte){
   if(currentUser!=='ariel') return;

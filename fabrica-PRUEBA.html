@@ -14089,17 +14089,18 @@ function tsRevCalc(ck){
   box.innerHTML=caja('Usado por capas',fmt('pc'))+caja('Sin explicar',fmt('sx'),sxTot>=0.05?'color:#9a3412':'')+caja('Usado total del corte',fmt('us'));
 }
 // Filas de rollos (Costeo, grupo del corte y artículos) donde está anotado este rollo en este corte,
-// para corregir las capas en todos lados. Si en una fuente hay más de una fila del mismo rollo, esa no se toca.
-function tsRutasCapasRollo(corte,stockId,codigo){
+// para pasarles las capas corregidas y el sobrante real. Si en una fuente hay más de una fila del
+// mismo rollo, esa no se toca (no se sabe a cuál corresponde).
+function tsFilasRolloEnCorte(corte,stockId,codigo){
   const key=corteKeyFrom(String(corte||'')); if(!key) return [];
   const match=x=>x&&((stockId&&x.stockId===stockId)||(codigo&&x.codigo===codigo));
-  const rutas=[];
-  const de=(rs,base)=>{ const f=Object.entries(rs||{}).filter(([,x])=>match(x)); if(f.length===1) rutas.push(`${base}/${f[0][0]}/capas`); };
-  de((costeosData[key]||{}).rollos,`fabrica_v5/costeos/${key}/rollos`);
-  de((gruposCorteData[key]||{}).rollos,`fabrica_v5/grupos_corte/${key}/rollos`);
+  const out=[];
+  const de=(rs,base,tipo)=>{ const f=Object.entries(rs||{}).filter(([,x])=>match(x)); if(f.length===1) out.push({ruta:`${base}/${f[0][0]}`,x:f[0][1],tipo}); };
+  de((costeosData[key]||{}).rollos,`fabrica_v5/costeos/${key}/rollos`,'costeo');
+  de((gruposCorteData[key]||{}).rollos,`fabrica_v5/grupos_corte/${key}/rollos`,'fabrica');
   Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
-    if(it&&corteKeyFrom(String(it.numero_corte||''))===key) de(it.rollos,`fabrica_v5/sections/${sid}/items/${iid}/rollos`); }));
-  return rutas;
+    if(it&&corteKeyFrom(String(it.numero_corte||''))===key) de(it.rollos,`fabrica_v5/sections/${sid}/items/${iid}/rollos`,'fabrica'); }));
+  return out;
 }
 function tsAprobarCorte(corte){
   if(currentUser!=='ariel') return;
@@ -14119,7 +14120,15 @@ function tsAprobarCorte(corte){
       const nu={...u,pendiente:false,usado:c.usado,capas:c.capas,usadoCapas:c.pc,sinExplicar:Math.round((c.usado-c.pc)*100)/100,terminado:c.term,revisadoEn:Date.now()};
       usos[k]=nu; upd[`rollos/${id}/usos/${k}`]=nu;
       const capasAntes=tsNum(u.capas)||tsInfoRolloEnCorte(corte,id,r.codigo).capas;
-      if(c.capas&&c.capas!==capasAntes){ capasCorr++; tsRutasCapasRollo(corte,id,r.codigo).forEach(p=>{ otrosUpd[p]=c.capas; }); }
+      const corrige=c.capas&&c.capas!==capasAntes; if(corrige) capasCorr++;
+      // Costeo usa "cargado − sobrante": se le anota el sobrante que deja lo aprobado acá, así lo
+      // "sin explicar" entra en el costo de tela (la collareta sigue sumando como antes).
+      tsFilasRolloEnCorte(corte,id,r.codigo).forEach(fr=>{
+        if(corrige) otrosUpd[`${fr.ruta}/capas`]=c.capas;
+        const kg=tsNum(fr.x.kgmts); if(!kg) return;
+        const sob=Math.max(0,Math.round((kg-c.usado-tsNum(fr.x.colKg))*100)/100);
+        otrosUpd[`${fr.ruta}/${fr.tipo==='costeo'?'sobrante':'sobranteReal'}`]=sob;
+      });
     });
     const rest=tsRestanteDe({...r,usos});
     upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe({...r,usos},rest);

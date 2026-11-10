@@ -13910,10 +13910,22 @@ function rollosElegirStock(rowId,stockId){
   row.stockId=stockId||'';
   const r=stockId?tsData.rollos[stockId]:null;
   row.codigo=r?r.codigo:'';
-  if(r){ row.kgmts=String(tsRestanteDe(r)); row.color=tsColorOrdenPara(r.color)||r.color; }   // el peso sale del stock; si lo pesan y da distinto, lo pueden corregir
+  if(r){ const ctxK=tsCtxDe(rollosCtx.secId,rollosCtx.itemId,rollosCtx.corteKey);
+    const pend=Object.entries(r.usos||{}).filter(([k,x])=>x&&x.pendiente&&k!==ctxK).reduce((s,[,x])=>s+tsNum(x.usado),0);
+    row.kgmts=String(Math.max(0,Math.round((tsRestanteDe(r)-pend)*100)/100)); row.color=tsColorOrdenPara(r.color)||r.color; }   // el peso sale del stock; si lo pesan y da distinto, lo pueden corregir
   renderRollosModal();
 }
 // Aplica el consumo de esta orden de corte en los rollos del stock. Se llama al guardar el modal.
+// Lo que tenía el rollo para un uso (nov 2026): entrada + ajuste − devolución − lo que se llevaron los
+// OTROS usos (aprobados, y pendientes cargados antes que este). Sin tope en 0, así un uso cargado de más
+// no tapa los anteriores. Antes salía de "restante + este uso", y si el uso estaba inflado (rollo
+// marcado terminado con el peso de entrada) la revisión mostraba el rollo entero.
+function tsDispParaUso(r,uk){
+  const u=(r.usos||{})[uk]||{}, f=u.fecha||0;
+  const otros=Object.entries(r.usos||{}).filter(([k,x])=>x&&k!==uk&&(!x.pendiente||(x.fecha||0)<f)).reduce((s,[,x])=>s+tsNum(x.usado),0);
+  const dev=r.devolucion?tsNum(r.devolucion.cantidad):0;
+  return Math.round((tsNum(r.inicial)+tsNum(r.ajuste)-dev-otros)*100)/100;
+}
 function tsAplicarConsumo(ctx,rows,info,colPlan){
   const usadoPor={};   // stockId -> cantidad usada en este corte
   const capasKgPor={}, termPor={};   // usado por capas y si el rollo se terminó (para la revisión)
@@ -14069,7 +14081,7 @@ function renderTsRevision(){
             const col=/^collareta/.test(f.u.code||'');
             // lo que tenía para ESTA fila: lo que queda + lo de esta fila (si el rollo tiene otra fila en este corte, esa ya está descontada)
             const otrasFilas=g.filas.filter(o=>o!==f&&o.id===f.id).reduce((s,o)=>s+tsNum(o.u.usado),0);
-            const antes=Math.round((q+tsNum(f.u.usado))*100)/100;
+            const antes=Math.max(0,Math.round((tsDispParaUso(f.r,f.k)-otrasFilas)*100)/100);
             const kc=med.largo?(f.r.unidad==='m'?med.largo:med.largo*med.peso):0;
             const usadoOrig=tsNum(f.u.usado);
             const term=f.u.terminado!=null?!!f.u.terminado:(q<=0.05);

@@ -13604,10 +13604,28 @@ function tsQuitarUso(id,ctx){
   logActivity('Quitó uso de rollo',`${r.codigo} · corte ${u.corte||''}`);
   showToast(`✓ ${r.codigo}: queda ${tsFmt(rest,2)} ${tsUnidadTxt(r.unidad)}`);
 }
+// Cuenta completa del rollo (nov 2026): con cuánto entró, qué se llevó cada corte (artículo y fecha),
+// ajustes a mano y devoluciones, y cuánto queda. Así nada se da por sentado.
+function tsArtDeCodigo(code){ if(!code) return ''; let n='';
+  Object.values(sectionsData||{}).some(sec=>Object.values((sec&&sec.items)||{}).some(it=>{ if(it&&String(it.code||'')===String(code)&&it.name){ n=it.name; return true; } return false; }));
+  return n; }
 function tsUsosHtml(id,r){
-  const us=Object.entries(r.usos||{}).filter(([,u])=>u);
-  if(!us.length) return '';
-  return `<div class="ts-sub" style="margin:2px 0 6px">Usado en: ${us.map(([k,u])=>`<span style="display:inline-flex;align-items:center;gap:3px;background:var(--surface2);border-radius:999px;padding:1px 8px;margin:2px 4px 2px 0">corte ${tsEsc(u.corte||'—')} (${tsFmt(tsNum(u.usado),1)}${u.pendiente?', pendiente':''})${tsPuedeCargar()?`<button style="border:0;background:none;color:#b42318;cursor:pointer;font-size:13px;padding:0 2px" title="Sacar este uso" onclick="tsQuitarUso('${id}','${k}')">×</button>`:''}</span>`).join('')}</div>`;
+  const us=Object.entries(r.usos||{}).filter(([,u])=>u).sort((a,b)=>(a[1].fecha||0)-(b[1].fecha||0));
+  const aj=tsNum(r.ajuste), dev=r.devolucion?tsNum(r.devolucion.cantidad):0;
+  if(!us.length&&!aj&&!dev) return '';
+  const un=tsUnidadTxt(r.unidad), f2=v=>tsFmt(v,2);
+  const fecha=ts=>ts?new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}):'';
+  const linea=(txt,val,color,extra)=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:3px 0;border-top:1px dashed var(--border)"><span style="min-width:0">${txt}</span><span style="white-space:nowrap;font-weight:700;color:${color||'inherit'}">${val}${extra||''}</span></div>`;
+  let h=linea('Entró',`${f2(tsNum(r.inicial))} ${un}`);
+  us.forEach(([k,u])=>{ const art=tsArtDeCodigo(u.code);
+    h+=linea(`Corte <b>${tsEsc(u.corte||'—')}</b>${u.code?` · ${tsEsc(u.code)}`:''}${art?` · ${tsEsc(art)}`:''}${u.fecha?` · ${fecha(u.fecha)}`:''}${u.por?` · cargó ${tsEsc(USER_DISPLAY[u.por]||u.por)}`:''}${u.pendiente?' · <i>pendiente de revisar (todavía no descuenta)</i>':''}`,
+      `${u.pendiente?'':'−'}${f2(tsNum(u.usado))} ${un}`,u.pendiente?'var(--text2)':'var(--danger)',
+      tsPuedeCargar()?`<button style="border:0;background:none;color:#b42318;cursor:pointer;font-size:13px;padding:0 0 0 4px" title="Sacar este uso" onclick="tsQuitarUso('${id}','${k}')">×</button>`:''); });
+  if(aj) h+=linea(`Ajuste a mano${r.editadoEn?` · ${fecha(r.editadoEn)}`:''}${r.editadoPor?` · ${tsEsc(USER_DISPLAY[r.editadoPor]||r.editadoPor)}`:''} <span style="color:var(--warn-text)">(no viene de ningún corte)</span>`,`${aj>0?'+':'−'}${f2(Math.abs(aj))} ${un}`,'var(--warn-text)');
+  if(dev) h+=linea(`Devolución al proveedor${r.devolucion.fecha?` · ${tsEsc(r.devolucion.fecha)}`:''}`,`−${f2(dev)} ${un}`,'var(--danger)');
+  h+=`<div style="display:flex;justify-content:space-between;padding:4px 0 0;border-top:1px solid var(--border);font-weight:800"><span>Queda</span><span>${f2(tsRestanteDe(r))} ${un}</span></div>`;
+  return `<details class="ts-sub" style="margin:2px 0 8px"><summary style="cursor:pointer;color:var(--accent);font-weight:700">Ver cuenta del rollo${us.length?` · ${us.length} corte${us.length!==1?'s':''}`:''}${aj?' · con ajuste':''}</summary>
+    <div style="background:var(--surface2);border-radius:8px;padding:6px 10px;margin-top:4px;font-size:12.5px;color:var(--text)">${h}</div></details>`;
 }
 function tsRollosDeRemitoHtml(remId){
   const rs=Object.entries(tsData.rollos).filter(([,x])=>x&&x.remitoId===remId).sort((a,b)=>String(a[1].codigo).localeCompare(String(b[1].codigo),'es',{numeric:true}));
@@ -13615,7 +13633,7 @@ function tsRollosDeRemitoHtml(remId){
   return `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--accent)">Ver rollos y colores (${rs.length})</summary>
     ${rs.map(([id,x])=>`<div class="ts-fila" style="grid-template-columns:.8fr 1.4fr 1fr .6fr;cursor:default">
       <b>${tsEsc(x.codigo)}</b><span>${tsEsc(x.color)}</span><span>${x.estado==='devuelto'?`<span class="ts-estado dev">Devuelto · ${tsFmt(tsNum(x.inicial),1)} ${tsUnidadTxt(x.unidad)}</span>`:`${tsFmt(tsRestanteDe(x),1)} de ${tsFmt(tsNum(x.inicial),1)} ${tsUnidadTxt(x.unidad)}${x.devolucion?` · <span class="ts-estado sobr">dev. ${tsFmt(tsNum(x.devolucion.cantidad),1)}</span>`:''}`}</span>
-      ${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️ Editar</button>`:'<span></span>'}</div>`).join('')}
+      ${currentUser==='ariel'?`<button class="ts-link" onclick="tsEditarRollo('${id}')">✏️ Editar</button>`:'<span></span>'}</div>${tsUsosHtml(id,x)}`).join('')}
   </details>`;
 }
 function tsBorrarRemito(id){

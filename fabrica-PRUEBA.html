@@ -15204,7 +15204,7 @@ function tbFilasLogistica(){
 // "Hoy tiene que pasar": entregas prometidas, avíos que llegan y cortes programados.
 function tbHoyTienePasar(){
   const hoy=tbHoyIso(); const hoyAr=fmtFecha(Date.now());
-  const entregas=[], avios=[], cortes=[], retiros=[];
+  const entregas=[], avios=[], cortes=[], retiros=[], sinTaller=[];
   const entregaHoy=(it)=>Object.values(logiItemsData||{}).some(l=>l&&l.numero_corte===it.numero_corte&&l.code===it.code&&l.fecha_entregado===hoyAr);
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
     if(!sec||secId===SEC_CMP_ENTREGADO) return;
@@ -15247,6 +15247,15 @@ function tbHoyTienePasar(){
           detalle:`Para ${nombre} · ${a.fecha_llegada?'coordinado':'estimado'} ${tbFmtIso(llegaIso)}`,
           estado:a.recibido?'Llegó':tarde?`${tarde} d tarde`:'Esperando',tipo:a.recibido?'ok':tarde?'tarde':'pend',orden:a.recibido?2:tarde?0:1});
       });
+      // Cortes ya cortados que todavía no tienen taller asignado (nov 2026).
+      // Cuentan los días hábiles desde que entró a la etapa actual: 0-1 día = pendiente, 2 o más = tarde.
+      if(['s3b','s4','s5','sLT'].includes(secId)&&!it.taller_corte&&!it.es_complemento){
+        const desdeIso=it.fecha_etapa?isoFechaLocal(it.fecha_etapa):null;
+        const dias=desdeIso?tbDiasHabilesTarde(desdeIso):0;
+        const etapa={s3b:'cortado, en fábrica',s4:'avío sin pedir',s5:'esperando avío',sLT:'listo para taller'}[secId];
+        sinTaller.push({secId,itemId,que:nombre,detalle:`${it.name||''} · ${etapa}${desdeIso?' desde '+tbFmtIso(desdeIso):''}`,
+          estado:dias>=2?`${dias} d sin taller`:'Asignar',tipo:dias>=2?'tarde':'pend',orden:dias>=2?0:1,dias});
+      }
       // Cortes confirmados con fecha objetivo hoy (o vencida y todavía sin cortar).
       if(secId==='s3'&&!it.sin_confirmar&&it.fecha_objetivo_corte){
         const iso=tbIsoDeAr(it.fecha_objetivo_corte);
@@ -15264,6 +15273,7 @@ function tbHoyTienePasar(){
     {titulo:'Avíos que llegan',filas:ord(avios)},
     {titulo:'Cortes programados',filas:ord(cortes)},
     {titulo:'Retiros de talleres',filas:ord(retiros)},
+    {titulo:'Cortes sin taller asignado',filas:sinTaller.sort((x,y)=>x.orden-y.orden||y.dias-x.dias)},
   ];
 }
 

@@ -15579,8 +15579,8 @@ const PQ_ACCIONES_DIA=/^(Pidió modificar ficha|Pidió ajustar ficha|Editó pedi
 function pqPaseAAdela(secId,itemId,clave){
   const it=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!it) return;
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({modificaciones_pasadas:clave,modificaciones_pasadas_ts:Date.now(),modificaciones_pasadas_por:quienSoy()});
-  logActivity('Pasó modificaciones a Adela',it.code||it.name||'');
-  showToast('✓ Marcado: indicaciones pasadas a Adela');
+  logActivity('Solicitó modificaciones a Adela',it.code||it.name||'');
+  showToast('📤 Solicitado a Adela — queda esperando que entregue la muestra');
 }
 function pqPedidos(){
   const list=[];
@@ -16134,7 +16134,7 @@ function renderTableroPeque(){
     <div class="pq-b"><div class="pq-art">${nombreArt(p.item)}</div>
       ${p.texto?`<div class="pq-sub" style="white-space:pre-line">${e(p.texto)}</div>`:''}
       <div class="pq-meta"><span class="pq-pill" style="background:${p.bg};color:${p.fg}">${e(p.tipo)}</span><span class="pq-sub">${p.por?e(p.por)+' · ':''}${e(pqCuando(p.ts))}</span></div></div>
-    ${(p.tipo==='Modificar muestra'&&p.item.modelista==='Adela')?`<button class="btn-sm" onclick="event.stopPropagation();pqPaseAAdela('${p.secId}','${p.itemId}','${p.clave}')">✓ Se lo pasé a Adela</button>`:''}<button class="btn-sm">Abrir</button></div>`;
+    ${(p.tipo==='Modificar muestra'&&p.item.modelista==='Adela')?`<button class="btn-sm" onclick="event.stopPropagation();pqPaseAAdela('${p.secId}','${p.itemId}','${p.clave}')">📤 Solicitado a Adela</button>`:''}<button class="btn-sm">Abrir</button></div>`;
   const filaTarea=x=>`<div class="pq-f ${x.sinLink?'':'pq-click'}" ${ir(x)}>${foto(x.item)}
     <div class="pq-b"><div class="pq-art">${x.item.code&&x.secId==='costeo'?'Corte '+e(x.item.code):nombreArt(x.item)}</div><div class="pq-sub">${e(String(x.texto||'').replace(/<[^>]*>/g,''))}</div></div></div>`;
   const dia=pqFecha, esHoy=dia===isoFechaLocal(Date.now());
@@ -16146,6 +16146,17 @@ function renderTableroPeque(){
     <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(tizadas.length,'Tizadas')}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
     <div class="pq-lab">Pedidos de modificación ${pedidos.length?`<span class="pq-n pq-n-a">${pedidos.length} sin resolver</span>`:''}</div>
     <div class="pq-card">${pedidos.length?pedidos.map(filaPedido).join(''):'<div class="pq-vacio">No hay pedidos sin resolver.</div>'}</div>
+    ${(()=>{ // Nov 2026: modificaciones ya solicitadas a Adela, esperando que entregue la muestra.
+      const esp=[]; Object.entries((sectionsData[SEC_MOLD]||{}).items||{}).forEach(([itemId,item])=>{
+        if(!item||item.estado!=='modificaciones'||item.entregada_modelista) return;
+        if(item.modificaciones_pasadas!==`mm|${item.code}|${item.modificaciones_fecha||item.fecha_etapa||''}`) return;
+        esp.push({itemId,item,d:diasHabilesEntre(item.modificaciones_pasadas_ts)||0}); });
+      if(!esp.length) return '';
+      return `<div class="pq-lab">Esperando que Adela entregue <span class="pq-n ${esp.some(x=>x.d>=7)?'pq-n-a':''}">${esp.length}</span></div>
+      <div class="pq-card">${esp.map(x=>`<div class="pq-f pq-click" onclick="cerrarMisPendientesYIr('${SEC_MOLD}','${x.itemId}',false)">${foto(x.item)}
+        <div class="pq-b"><div class="pq-art">${nombreArt(x.item)}</div><div class="pq-sub" style="white-space:pre-line">${e(x.item.modificaciones||'')}</div>
+        <div class="pq-meta"><span class="pq-pill" style="background:${x.d>=7?'var(--danger-bg)':'#ede9fe'};color:${x.d>=7?'var(--danger)':'#5b21b6'}">Solicitado ${x.d?'hace '+x.d+' día'+(x.d!==1?'s':'')+' hábil'+(x.d!==1?'es':''):'hoy'}</span></div></div>
+        <button class="btn-sm" onclick="event.stopPropagation();toggleEntregaModelista('${SEC_MOLD}','${x.itemId}')">✓ Adela la entregó</button></div>`).join('')}</div>`; })()}
     <div class="pq-lab">${currentUser==='peque'?'Mis pendientes':'Pendientes de Peque'}</div>
     <div class="pq-card">${grupos.map(g=>`<details class="pq-g" ${pqAbiertos.has(g.k)?'open':''} ontoggle="pqToggle('${g.k}',this)"><summary><div class="pq-b"><div class="pq-art">${g.t} <span class="pq-n">${g.l.length}</span></div><div class="pq-sub">${e(g.sub)}</div></div><span class="pq-flecha">⌄</span></summary>${g.l.length?g.l.map(filaTarea).join(''):'<div class="pq-vacio">Nada pendiente.</div>'}</details>`).join('')}</div>
     <div class="pq-lab">Resumen del ${esHoy?'día':e(fmtFecha(new Date(dia+'T12:00:00').getTime()))}</div>

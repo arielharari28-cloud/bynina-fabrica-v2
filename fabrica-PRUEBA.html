@@ -3162,8 +3162,8 @@ function getResponsable(sec,item,secId){
   }
   if(secId==='s4') return 'Peque';
   if(secId==='s5') return 'Peque';
-  if(secId==='sLT') return 'Emir';
-  if(secId==='sFIN') return 'Emir';
+  if(secId==='sLT') return 'Noelia';
+  if(secId==='sFIN') return 'Noelia';
   if(!tipo){
     if((sec.title||'').trim()==='Pendiente armar tizada'&&faltantesNoeliaTizada(item).length) return 'Noelia';
     return 'Peque'; // secciones custom tipo "Pendiente armar tizada": resto es tarea de Peque
@@ -3260,7 +3260,7 @@ function getProximaAccion(sec,item,secId){
   if(secId==='s5') return 'Esperando que llegue el avío pedido';
   if(secId==='s3b') return 'Esperando que llegue el avío (antes de salir a taller)';
   if(secId==='s6') return 'Esperando que llegue el avío pedido (la prenda ya está en el taller)';
-  if(secId==='sLT') return 'Falta sacar a taller (Emir)';
+  if(secId==='sLT') return 'Falta sacar a taller (Noelia)';
   if(secId==='sFIN') return 'Falta que el taller lo entregue';
   if(!tipo){
     const t=(sec.title||'').trim().toLowerCase();
@@ -5431,7 +5431,7 @@ function buildTallerCardHtml(f,idx,total){
   let entregas=''; try{ entregas=buildEntregasFabricaHtml(secId,itemId,it)||''; }catch(err){}
   const acts=[];
   if(retiroBtn) acts.push(retiroBtn);
-  if(secId==='sLT'&&(canEdit||currentUser==='emir')) acts.push(it.taller_corte?`<button class="btn-advance" onclick="event.stopPropagation();sacarATaller('${secId}','${itemId}')">📦 Pasar a pendiente retiro</button>`:`<span class="tc-sub">Elegí el taller y pasa solo a Pendiente retiro</span>`);
+  if(secId==='sLT'&&(canEdit||esTalleres())) acts.push(it.taller_corte?`<button class="btn-advance" onclick="event.stopPropagation();sacarATaller('${secId}','${itemId}')">📦 Pasar a pendiente retiro</button>`:`<span class="tc-sub">Elegí el taller y pasa solo a Pendiente retiro</span>`);
   if(secId===SEC_ESTAMPADO_TALLER&&canEdit) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoEstampadoTaller('${secId}','${itemId}')">✅ Estampado entregado → Revisión Final</button>`);
   else if(secId===SEC_TALLER_TERMINACION){
     if(canEdit&&!etapasDe(it,'despues').length) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoTerminacion('${secId}','${itemId}')">✅ Entregado (pasos extra)</button>`);
@@ -6385,7 +6385,7 @@ function setPrecioTallerCorte(secId,itemId,val){
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/precio_taller`).set(n||null);
 }
 function buildPrecioTallerRecordatorio(secId,itemId,item){
-  if(!(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir')) return '';
+  if(!(currentUser==='ariel'||currentUser==='stef'||esTalleres())) return '';
   const tiene=!!item.precio_taller;
   return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;${tiene?'color:var(--text2)':'color:var(--danger);font-weight:700'}" onclick="event.stopPropagation()">
     💵 ${tiene?'':'<span style="margin-right:2px">Falta precio:</span>'}
@@ -6573,7 +6573,7 @@ function utAvioDe(secId,item){
   if(secId==='s5'||secId==='s6') return {tipo:'pedido',pend};
   return null;
 }
-function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||currentUser==='emir'; }
+function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||esTalleres(); }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
 function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }
@@ -9099,10 +9099,10 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
           ? `✅ Retirado por ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'el taller '}${item.fecha_retiro_confirmado?`el <strong>${fmtFecha(item.fecha_retiro_confirmado)}</strong>`:''}`
           : `📦 Asignado a ${item.taller_corte?`<strong>${item.taller_corte}</strong> `:'taller '}el <strong>${fmtFecha(item.fecha_salida_taller)}</strong> — pendiente de retiro`}</span>
         ${canFicha?`<button class="btn-sm" onclick="${item.retirado_taller?`editFechaRetiroTaller('${secId}','${itemId}')`:`editFechaSalidaTaller('${secId}','${itemId}')`}">✏️ Editar fecha</button>`:''}
-      </div>${item.retirado_taller?buildEntregaTallerCardHtml(secId,itemId,item,(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir')):''}` : '';
+      </div>${item.retirado_taller?buildEntregaTallerCardHtml(secId,itemId,item,(currentUser==='ariel'||currentUser==='stef'||esTalleres())):''}` : '';
   // Mientras el taller todavía no pasó a buscarlo, se puede confirmar el retiro acá mismo —
   // ese click es lo que lo pasa de "Pendiente retiro" (Fábrica) a "En taller" (Talleres).
-  const confirmarRetiroHtml = (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir'))
+  const confirmarRetiroHtml = (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||esTalleres()))
     ? `<button class="btn-sm" style="border-color:#5b21b6;color:#5b21b6;margin-top:4px" onclick="event.stopPropagation();confirmarRetiroTaller('${secId}','${itemId}')">✅ Confirmar que el taller lo retiró</button>` : '';
   // Banner grande y persistente: si quedan avíos sin recibir, se ve fuerte en CUALQUIER
   // etapa (incluido ya en taller / Cortes Finalizados) — no se pierde entre la lista.
@@ -9128,7 +9128,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
       </div>`:''}
     </div>` : '';
   const canDeshacer=secId!=='s3'&&secId!=='sFIN'&&secId!=='s6'&&!!item.fecha_corte&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron');
-  const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
+  const canSacarTaller=(secId==='sLT'||secId==='s4'||secId==='s5')&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||esTalleres());
   const avioPendiente=(secId==='s4'||secId==='s5');
   const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
   // El checklist (Muestra/Ficha/Ninox) ya no bloquea "Sacar a taller" — se exige recién al
@@ -9151,7 +9151,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
   // Antes solo se mostraba en "Listo para taller" (sLT); ahora también en "Pendiente retiro de
   // taller" (sFIN, todavía sin retirar) porque el requisito real es tenerlo listo ANTES de que
   // el taller pase a buscarlo — confirmarRetiroTaller exige estos tres tildados.
-  const canTocarChecklist = (secId==='sLT'&&canSacarTaller) || (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||currentUser==='peque'||currentUser==='emir'));
+  const canTocarChecklist = (secId==='sLT'&&canSacarTaller) || (secId==='sFIN'&&!item.retirado_taller&&(currentUser==='ariel'||currentUser==='stef'||currentUser==='peque'||esTalleres()));
   const checklistPreTallerHtml=(secId==='sFIN'&&!item.retirado_taller&&!item.es_complemento)?`<div class="cortada-panel" style="margin:6px 0">
       <div class="cortada-row"><div class="c-check ${item.taller_muestra_entregada?'checked':''}" onclick="${canTocarChecklist?`toggleChecklistTaller('${secId}','${itemId}','taller_muestra_entregada')`:''}">${item.taller_muestra_entregada?'✓':''}</div><span class="c-label ${item.taller_muestra_entregada?'done':''}">Muestra entregada</span></div>
       <div class="cortada-row"><div class="c-check ${item.taller_ficha_entregada?'checked':''}" onclick="${canTocarChecklist?`toggleChecklistTaller('${secId}','${itemId}','taller_ficha_entregada')`:''}">${item.taller_ficha_entregada?'✓':''}</div><span class="c-label ${item.taller_ficha_entregada?'done':''}">Ficha entregada</span></div>
@@ -9168,7 +9168,7 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
       <span class="c-label ${item.stock_bajado_tela?'done':''}">📦 Bajado de stock tela <span style="font-size:10px;color:var(--text2)">(Emir)</span>${(item.stock_bajado_tela&&item.stock_bajado_tela_ts)?` — ${new Date(item.stock_bajado_tela_ts).toLocaleDateString('es-AR')}`:''}</span>
     </div>` : '';
   const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió sacar sin avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
-  const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir');
+  const canEntregarRevision=secId==='sFIN'&&((currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||esTalleres());
   const flujoCorteHtml = secId==='s3' ? buildFlujoPreCorte(secId,itemId,item,canCortar) : '';
   const listoParaCortar = secId!=='s3' || (encimadoTerminadoGrupo(item) && !item.sin_confirmar);
   const canConfirmarCorte = secId==='s3'&&((currentUser==='ariel'||currentUser==='stef')||(currentUser==='emir'&&liquidarTelaGrupo(item)));
@@ -10978,7 +10978,7 @@ function sacarATaller(secId,itemId,opts){
   // Emir es responsable de cargar el precio pactado con el taller — se lo pedimos acá, apenas
   // sale, para que no llegue "en blanco" a Logística cuando el taller lo entregue. No bloquea:
   // si no lo tiene todavía, puede cargarlo después desde la tarjeta en "Cortes en talleres".
-  if(!opts.auto && !item.precio_taller && (currentUser==='emir'||currentUser==='ariel'||currentUser==='stef')){
+  if(!opts.auto && !item.precio_taller && (esTalleres()||currentUser==='ariel'||currentUser==='stef')){
     const precioTxt=prompt(`💵 ¿Ya tenés el precio acordado con ${item.taller_corte} para este corte? Cargalo ahora (por unidad) — si todavía no lo sabés, dejalo vacío y te lo vamos a recordar mientras esté en taller.`,'');
     const precioNum=parseFloat(precioTxt);
     if(precioNum>0) newItem.precio_taller=precioNum;
@@ -11440,6 +11440,8 @@ function destinoEntregaLabel(item){
 // Oct 2026: los ingresos (tela, entregas de talleres, producto de proveedor) los cargan solo Ariel y
 // Noelia; los avíos también Peque (y a Noe le llega el aviso). El resto avisa que llegó mercadería.
 function quienSoy(){ return usuarioLogueado||currentUser; }
+// Salidas y talleres (nov 2026): Noelia los actualiza en la app; Emir sigue pudiendo operar.
+function esTalleres(){ return currentUser==='emir'||quienSoy()==='noelia'; }
 function puedeCargarIngreso(){ return ['ariel','noelia'].includes(quienSoy()); }
 function puedeRecibirAvio(){ return ['ariel','noelia','peque'].includes(quienSoy()); }
 // Ingreso de avíos para Meli (oct 2026): al marcar un avío recibido se cargan remito, cantidad y precio.

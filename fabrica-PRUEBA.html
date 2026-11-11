@@ -15926,15 +15926,24 @@ function renderTableroAriel(cont){
   const fechaTxt=new Date(dia+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
   cont.innerHTML=`<div class="pq-wrap">
     <div class="pq-head"><div><div class="pq-h1">Mi día</div><div class="pq-sub">${e(fechaTxt)}</div></div>${pqSelectorHtml()}</div>
-    <div class="pq-ks">${kpi(tela.length,'tela para revisar',tela.some(x=>x.d>1))}${kpi(atr.length,'cortes atrasados',true)}${kpi(dividir.length,'para dividir')}${kpi(nCortes,`cortes · ${nPrendas.toLocaleString('es-AR')} prendas esta semana`)}${kpi(entregas.length,`entregas recibidas · ${enTaller} atrasadas o sin fecha`)}</div>
+    <div class="pq-ks">${kpi(tela.length,'tela para revisar',tela.some(x=>x.d>1))}${kpi(atr.length,'atrasados',true)}${kpi(dividir.length,'para dividir')}${kpi(nCortes,`cortes · ${nPrendas.toLocaleString('es-AR')} prendas esta semana`)}${kpi(entregas.length,`entregas recibidas · ${enTaller} atrasadas o sin fecha`)}</div>
     ${bloque('Tela para revisar',tela.length,tela.length?tela.map(x=>{ const arts=tdArtsDeCorte(x.g.corte,x.g.codes); return fila(fotoSrc(tdFotoCorte(x.g.corte,arts)),tituloCorte(x.g.corte,arts,x.g.codes),
       `${x.g.filas.length} rollo${x.g.filas.length!==1?'s':''} · cargó ${[...x.g.por].map(p=>e(USER_DISPLAY[p]||p)).join(', ')||'—'}${x.rojos?` · ${x.rojos} en rojo`:''}${fotoFichaDeCorte(x.g.corte)?'':' · sin foto de la ficha'}`,
       `${pill(hace(x.d),x.d>1?'r':x.d===1?'w':'n')}<button class="btn-sm">Revisar</button>`,'tdIrTela()'); }).join(''):vacio('Nada para revisar.'),true)}
     ${bloque('Autorizaciones pedidas',aut.length,aut.length?aut.map(x=>{ const arts=x.esGrupo?tdArtsDeCorte(x.item.code,[]):null; return fila(x.esGrupo?fotoSrc(tdFotoCorte(x.item.code,arts)):foto(x.item),x.esGrupo?tituloCorte(x.item.code,arts,[]):`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto)+(x.ts?' · '+e(pqCuando(x.ts)):''),
       x.esFechaRetro?`<button class="btn-sm" onclick="event.stopPropagation();marcarFechaPedidoRetroRevisada('${x.secId}','${x.itemId}','${x.avioId}')">✓ Revisado</button>`:'<button class="btn-sm">Abrir</button>',
       `cerrarMisPendientesYIr('${x.secId}','${x.itemId}',${!!x.esGrupo})`); }).join(''):vacio('No hay pedidos.'))}
-    ${bloque('Cortes atrasados · todo el equipo',atr.length,fila('<div class="pq-img"></div>',atr.length?`${atr.length} corte${atr.length!==1?'s':''} atrasado${atr.length!==1?'s':''} en el equipo`:'Nada atrasado.',
-      atr.length?'El detalle por sector está en el Tablero: usalo en los dailies.':'',atr.length?'<button class="btn-sm">Ver en Tablero</button>':'',atr.length?"document.getElementById('tab-btn-pendientes').click()":''),true)}
+    ${(()=>{ // Atrasados separados por tipo (nov 2026)
+      const grupoDe=f=>{ const sid=f.secId;
+        if(sid==='s3') return 'cortes';
+        if(['s3b','s4','s5','s6'].includes(sid)) return 'avios';
+        if(['sLT','sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION].includes(sid)) return 'talleres';
+        return 'diseno'; };
+      const G=[['diseno','Atrasados · diseño y muestras'],['cortes','Atrasados · cortes por sacar'],['avios','Atrasados · avíos de cortes'],['talleres','Atrasados · salidas y talleres']];
+      return G.map(([k,t])=>{ const l=atr.filter(f=>grupoDe(f)===k);
+        return bloque(t,l.length,l.length?l.map(f=>{ const d=Math.max(1,(f.dias||0)-(f.umbral||0)+1);
+          return fila(foto(f.item),`${f.item.numero_corte?'Corte '+e(tdNumCorte(f.item.numero_corte))+' · ':''}${f.item.code?e(f.item.code)+' · ':''}${e(f.item.name||'')}`,
+            `${e(f.accion||'')}${f.resp?' · '+e(f.resp):''}`,pill(`${d} d tarde`,'r'),`cerrarMisPendientesYIr('${f.secId}','${f.itemId}',false)`); }).join(''):vacio('Nada atrasado.'),true,!l.length); }).join(''); })()}
     ${bloque('Esperan tu confirmación',sinConf.length,sinConf.length?sinConf.map(f=>fila(foto(f.item),`${f.item.code?e(f.item.code)+' · ':''}${e(f.item.name||'')}${f.item.numero_corte?' · Corte '+e(tdNumCorte(f.item.numero_corte)):''}`,
       e(f.secTitle||''),f.dias?pill(hace(f.dias),'w'):'',`cerrarMisPendientesYIr('${f.secId}','${f.itemId}',false)`)).join(''):vacio('Nada esperando confirmación.'),false,true)}
     ${bloque('Para dividir',dividir.length,dividir.length?dividir.map(it=>{ const d=it.fecha_control_cerrado?diasHabilesEntre(it.fecha_control_cerrado):0;

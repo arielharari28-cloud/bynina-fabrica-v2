@@ -15210,7 +15210,8 @@ function tbHoyTienePasar(){
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
     if(!sec||secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,it])=>{
-      if(!it||it.done&&secId!=='sFIN') return;
+      // En los cortes ya cortados "done" queda en true desde "Marcar cortado": no significa terminado.
+      if(!it||it.done&&!['s3b','s4','s5','sLT','s6','sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION].includes(secId)) return;
       if(filtroMarca&&(it.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
       const nombre=`${it.numero_corte?'Corte '+String(it.numero_corte).replace(/^corte\s*/i,''):''}${it.code?' · '+it.code:''}`||it.name||'(sin código)';
       // Entregas de talleres: la fecha que dijo el taller (o la estimada), hoy o ya vencida.
@@ -15298,7 +15299,8 @@ function tbAgendaSemana(){
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
     if(!sec||secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,it])=>{
-      if(!it||it.done&&secId!=='sFIN') return;
+      // En los cortes ya cortados "done" queda en true desde "Marcar cortado": no significa terminado.
+      if(!it||it.done&&!['s3b','s4','s5','sLT','s6','sFIN',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION].includes(secId)) return;
       if(filtroMarca&&(it.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
       const nombre=`${it.numero_corte?'Corte '+String(it.numero_corte).replace(/^corte\s*/i,''):''}${it.code?' · '+it.code:''}`||it.name||'(sin código)';
       // Entregas de talleres

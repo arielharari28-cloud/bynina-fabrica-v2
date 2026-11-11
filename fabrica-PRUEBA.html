@@ -12682,7 +12682,11 @@ function getMisPendientesPeque(){
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     if(POST_S3_SECS.includes(secId)) return;
     const esArmarTizada=(sec.title||'').trim()==='Pendiente armar tizada';
+    // Nov 2026: ficha/curva/ancho/control solo hacen falta para armar la tizada del corte. Antes
+    // salían también productos viejos, muestras canceladas y en moldería.
+    if(!esArmarTizada) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||item.done) return;
       const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null];
       const flist=faltantes.filter(Boolean);
       if(flist.length) list.push({secId,itemId,item,texto:'Falta '+flist.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
@@ -12690,7 +12694,10 @@ function getMisPendientesPeque(){
   });
   pqPedidos().forEach(p=>list.push({secId:p.secId,itemId:p.itemId,item:p.item,texto:`${p.tipo}${p.texto?': '+etEsc(p.texto):''}`,ts:p.ts,esPedido:true}));
   forEachAvio((secId,itemId,item,avioId,avio)=>{
-    if(!avio.fecha_pedido) list.push({secId,itemId,item,texto:`Avío sin pedir: ${avio.nombre}`,ts:item.fecha_etapa||item.fecha_ingreso||0});
+    // Nov 2026: el aviso de pedir sale recién cuando el corte se cortó (antes salía desde la tizada)
+    // y nunca para avíos ya recibidos.
+    if(!['s3b','s4','s5','sLT','s6','sFIN'].includes(secId)) return;
+    if(!avio.fecha_pedido&&!avio.recibido) list.push({secId,itemId,item,texto:`Avío sin pedir: ${avio.nombre}`,ts:item.fecha_etapa||item.fecha_ingreso||0});
   });
   // Avíos de cortes ya Finalizados (en Costeo, no en Fábrica) a los que todavía les falta el
   // precio — es la única forma de que le llegue el aviso, porque el corte ya no aparece en
@@ -15567,6 +15574,14 @@ const pqAbiertos=new Set();
 let pqPedidosVistos=null;
 const PQ_ACCIONES_DIA=/^(Pidió modificar ficha|Pidió ajustar ficha|Editó pedido de ajuste|Muestra a revisión|Corrección sin nueva muestra|Corrigió ficha|Ajustó ficha|Confirmó ficha OK|Muestra aprobada|Muestra cancelada|Muestra cortada|Muestra entregada|Modelista entregó la muestra|Enviada a moldería|Progresiones hechas|Molde digitalizado|Molde corregido|Avío pedido|Avío recibido|Corte realizado|Mandó a plancha)/;
 // Los tres pedidos que puede hacer Noelia (o Ariel/Stef), en cualquier etapa del artículo.
+// Nov 2026: cuando la modelista es Adela, Peque le pasa las indicaciones y lo marca acá; el pedido
+// sale de "Mi día". Si piden otra modificación (cambia la fecha) vuelve a aparecer.
+function pqPaseAAdela(secId,itemId,clave){
+  const it=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!it) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).update({modificaciones_pasadas:clave,modificaciones_pasadas_ts:Date.now(),modificaciones_pasadas_por:quienSoy()});
+  logActivity('Pasó modificaciones a Adela',it.code||it.name||'');
+  showToast('✓ Marcado: indicaciones pasadas a Adela');
+}
 function pqPedidos(){
   const list=[];
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
@@ -15575,7 +15590,7 @@ function pqPedidos(){
       if(!item||item.done) return;
       if(item.ficha_estado==='modificar') list.push({secId,itemId,item,clave:`fm|${item.code}|${item.ficha_mod_fecha||''}`,tipo:'Modificar ficha',bg:'var(--warn-bg)',fg:'var(--warn-text)',texto:item.ficha_mod_notas||'',por:item.ficha_mod_por||'',ts:item.ficha_mod_fecha||item.fecha_etapa||0});
       if(item.ficha_ajuste_pendiente) list.push({secId,itemId,item,clave:`fa|${item.code}|${item.ficha_ajuste_fecha||''}`,tipo:'Ajustar ficha',bg:'var(--warn-bg)',fg:'var(--warn-text)',texto:item.ficha_ajuste_nota_actual||'',por:item.ficha_ajuste_por||'',ts:item.ficha_ajuste_fecha||item.fecha_etapa||0});
-      if(secId===SEC_MOLD&&item.estado==='modificaciones') list.push({secId,itemId,item,clave:`mm|${item.code}|${item.modificaciones_fecha||item.fecha_etapa||''}`,tipo:'Modificar muestra',bg:'#ede9fe',fg:'#5b21b6',texto:item.modificaciones||'',por:item.modificaciones_por||'',ts:item.modificaciones_fecha||item.fecha_etapa||0});
+      if(secId===SEC_MOLD&&item.estado==='modificaciones'&&item.modificaciones_pasadas!==`mm|${item.code}|${item.modificaciones_fecha||item.fecha_etapa||''}`) list.push({secId,itemId,item,clave:`mm|${item.code}|${item.modificaciones_fecha||item.fecha_etapa||''}`,tipo:'Modificar muestra',bg:'#ede9fe',fg:'#5b21b6',texto:item.modificaciones||'',por:item.modificaciones_por||'',ts:item.modificaciones_fecha||item.fecha_etapa||0});
     });
   });
   return list.sort((a,b)=>(b.ts||0)-(a.ts||0));
@@ -16119,7 +16134,7 @@ function renderTableroPeque(){
     <div class="pq-b"><div class="pq-art">${nombreArt(p.item)}</div>
       ${p.texto?`<div class="pq-sub" style="white-space:pre-line">${e(p.texto)}</div>`:''}
       <div class="pq-meta"><span class="pq-pill" style="background:${p.bg};color:${p.fg}">${e(p.tipo)}</span><span class="pq-sub">${p.por?e(p.por)+' · ':''}${e(pqCuando(p.ts))}</span></div></div>
-    <button class="btn-sm">Abrir</button></div>`;
+    ${(p.tipo==='Modificar muestra'&&p.item.modelista==='Adela')?`<button class="btn-sm" onclick="event.stopPropagation();pqPaseAAdela('${p.secId}','${p.itemId}','${p.clave}')">✓ Se lo pasé a Adela</button>`:''}<button class="btn-sm">Abrir</button></div>`;
   const filaTarea=x=>`<div class="pq-f ${x.sinLink?'':'pq-click'}" ${ir(x)}>${foto(x.item)}
     <div class="pq-b"><div class="pq-art">${x.item.code&&x.secId==='costeo'?'Corte '+e(x.item.code):nombreArt(x.item)}</div><div class="pq-sub">${e(String(x.texto||'').replace(/<[^>]*>/g,''))}</div></div></div>`;
   const dia=pqFecha, esHoy=dia===isoFechaLocal(Date.now());

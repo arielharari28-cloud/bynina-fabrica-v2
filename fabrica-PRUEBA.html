@@ -6250,12 +6250,32 @@ function diasHabilesHasta(ts){
 }
 // Cortes confirmados con fecha objetivo: el plazo en Pendientes es esa fecha (reemplaza el plazo
 // fijo por paso). Devuelve {dias,umbral} en el mismo formato que usa avisoPlazo(), o null.
+const SECS_CORTADOS=['s3b','s4','s5','sLT','s6','sFIN'];
+function hechoCuenta(secId,item){ return !!(item&&item.done)&&!SECS_CORTADOS.includes(secId); } // en cortes ya cortados done=true no es terminado
+// Plazo por fecha concreta (nov 2026): se demora solo si la fecha pasó.
+//  - s3: fecha objetivo de corte (confirmado).
+//  - s3b/s5/s6: la fecha en que llega el avío (la coordinada, o la estimada desde el pedido).
+//  - sFIN: la fecha de entrega del taller (la que dijo el taller, o la estimada).
+function plazoDesdeTs(ts){ const h=diasHabilesHasta(ts); return h>=0?{dias:0,umbral:h+1,limite:ts}:{dias:-h,umbral:1,limite:ts}; }
 function plazoObjetivoCorte(sec,item,secId){
-  if(secId!=='s3'||item.sin_confirmar||!item.fecha_objetivo_corte) return null;
-  const ts=logiParseFechaEntregado(item.fecha_objetivo_corte);
-  if(!ts) return null;
-  const h=diasHabilesHasta(ts);
-  return h>=0?{dias:0,umbral:h+1}:{dias:-h,umbral:1};
+  if(!item) return null;
+  if(secId==='s3'){
+    if(item.sin_confirmar||!item.fecha_objetivo_corte) return null;
+    const ts=logiParseFechaEntregado(item.fecha_objetivo_corte);
+    return ts?plazoDesdeTs(ts):null;
+  }
+  if(['s3b','s5','s6'].includes(secId)){
+    const fechas=Object.values(item.avios||{}).filter(a=>a&&!a.recibido&&a.fecha_pedido).map(a=>{
+      if(a.fecha_llegada) return new Date(a.fecha_llegada+'T00:00:00').getTime();
+      return sumarDiasHabiles(logiParseFechaEntregado(a.fecha_pedido)||Date.now(),a.tenido?7:2);
+    }).filter(Boolean);
+    return fechas.length?plazoDesdeTs(Math.min(...fechas)):null;
+  }
+  if(secId==='sFIN'){
+    let ef=null; try{ ef=entregaEfectivaTaller(item); }catch(e){}
+    return ef&&ef.fecha?plazoDesdeTs(new Date(ef.fecha+'T00:00:00').getTime()):null;
+  }
+  return null;
 }
 
 function checkPasosNuevoDesarrollo(secId,itemId,patch){
@@ -7181,7 +7201,7 @@ function fechaLimiteTarea(sec,item,secId){
   if(!sec||!getResponsable(sec,item,secId)) return null;
   const obj=plazoObjetivoCorte(sec,item,secId);
   if(obj){
-    return {limite:logiParseFechaEntregado(item.fecha_objetivo_corte), aviso:avisoPlazo(obj.dias,obj.umbral)};
+    return {limite:obj.limite||logiParseFechaEntregado(item.fecha_objetivo_corte), aviso:avisoPlazo(obj.dias,obj.umbral)};
   }
   const ini=fechaInicioResponsableActual(sec,item,secId);
   if(!ini) return null;
@@ -14841,7 +14861,7 @@ function publishPendientesResumen(){
   const resumen={};
   Object.entries(sectionsData).forEach(([secId,sec])=>{ if(secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(item.done) return;
+      if(hechoCuenta(secId,item)) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
       const objetivo=plazoObjetivoCorte(sec,item,secId);
@@ -14857,7 +14877,7 @@ function publishPendientesResumen(){
         responsable: resp,
         dias: dias===null?null:dias,
         atrasado: !!atrasado,
-        fecha_objetivo_corte: objetivo?item.fecha_objetivo_corte:null,
+        fecha_objetivo_corte: objetivo?(item.fecha_objetivo_corte||null):null,
         dias_para_demora: (dias===null||umbral>=SIN_PLAZO)?null:umbral-dias,
         accion: accion||'',
         board: getBoard(sec)
@@ -15805,7 +15825,7 @@ function pendFilasTodas(){
   const filas=[];
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{ if(!sec||secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(!item||item.done) return;
+      if(!item||hechoCuenta(secId,item)) return;
       let resp=null; try{ resp=getResponsable(sec,item,secId); }catch(e){}
       if(!resp) return;
       const objetivo=plazoObjetivoCorte(sec,item,secId);
@@ -16212,7 +16232,7 @@ function renderPendientes(){
   const filas=[];
   Object.entries(sectionsData).forEach(([secId,sec])=>{ if(secId===SEC_CMP_ENTREGADO) return;
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      if(item.done) return;
+      if(hechoCuenta(secId,item)) return;
       if(filtroMarca&&(item.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
       const resp=getResponsable(sec,item,secId);
       if(!resp) return;
@@ -16223,7 +16243,7 @@ function renderPendientes(){
       const accion=getProximaAccion(sec,item,secId)||'Sin acción definida';
       const procesoOrden=(BOARD_ORDEN[getBoard(sec)]||0)*1000+(sec.order||0);
       const prioridad=((sec.title||'').trim()==='Pendiente armar tizada')?prioridadEnSeccion(secId,itemId):null;
-      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,objetivo:!!objetivo,prioridad,atrasado,resp,accion,procesoOrden});
+      filas.push({item,secTitle:sec.title,secId,itemId,dias,umbral,objetivo:!!objetivo&&secId==='s3',prioridad,atrasado,resp,accion,procesoOrden});
     });
   });
 

@@ -290,6 +290,7 @@
   .tb-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
   .tb-box-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}.tb-box-h b{font-size:14px}.tb-box-h span{font-size:12px;color:var(--text2)}
   .tb-hoy{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+  .tb-sem{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
   .tb-hoy-col{background:var(--bg);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
   .tb-hoy-t{display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em}.tb-hoy-t b{color:var(--text)}
   .tb-hoy-f{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;font-size:12px;border-top:1px solid var(--border);padding-top:6px;cursor:pointer}
@@ -15277,6 +15278,78 @@ function tbHoyTienePasar(){
   ];
 }
 
+// Agenda de la semana (nov 2026): lo mismo que "Hoy tiene que pasar" pero separado por día.
+// Lo pendiente con fecha anterior a hoy va a la columna "Atrasado" (solo en la semana actual).
+let tbSemanaOffset=0;
+function tbSemanaMover(n){ tbSemanaOffset=n===0?0:tbSemanaOffset+n; renderPendientes(); }
+function tbAgendaSemana(){
+  const hoy=tbHoyIso(); const hoyAr=fmtFecha(Date.now());
+  const base=new Date(); base.setHours(0,0,0,0);
+  const lunes=new Date(base); lunes.setDate(base.getDate()-((base.getDay()+6)%7)+7*tbSemanaOffset);
+  const dias=[]; for(let i=0;i<6;i++){ const d=new Date(lunes); d.setDate(lunes.getDate()+i); dias.push(isoFechaLocal(d.getTime())); }
+  const desde=dias[0], hasta=dias[5];
+  const esActual=tbSemanaOffset===0;
+  const cols={atrasado:[]}; dias.forEach(d=>cols[d]=[]);
+  const poner=(fecha,pendiente,fila)=>{
+    if(pendiente&&fecha<hoy){ if(esActual) cols.atrasado.push({...fila,tipo:'tarde',estado:`${tbDiasHabilesTarde(fecha)} d tarde`,orden:0}); return; }
+    if(fecha>=desde&&fecha<=hasta) cols[fecha].push(fila);
+  };
+  const entregaHoy=(it)=>Object.values(logiItemsData||{}).some(l=>l&&l.numero_corte===it.numero_corte&&l.code===it.code&&l.fecha_entregado===hoyAr);
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    if(!sec||secId===SEC_CMP_ENTREGADO) return;
+    Object.entries(sec.items||{}).forEach(([itemId,it])=>{
+      if(!it||it.done&&secId!=='sFIN') return;
+      if(filtroMarca&&(it.marca||marcasList[0]||'By Nina')!==filtroMarca) return;
+      const nombre=`${it.numero_corte?'Corte '+String(it.numero_corte).replace(/^corte\s*/i,''):''}${it.code?' · '+it.code:''}`||it.name||'(sin código)';
+      // Entregas de talleres
+      if(['sFIN','s6',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION].includes(secId)&&!it.es_complemento){
+        const ef=entregaEfectivaTaller(it);
+        let enTaller=0, pendiente=false;
+        try{ const r=resumenEntregasFabrica(it,itemId); enTaller=r.enTaller||0; pendiente=r.totalEsperado?enTaller>0:!r.entregas.length; }catch(e){}
+        const llego=entregaHoy(it);
+        if(ef&&(pendiente||llego)){
+          const fila={secId,itemId,ico:'🧵',que:`Entrega · ${nombre}${it.taller_corte?' · '+it.taller_corte:''}`,
+            detalle:`${it.name||''}${enTaller?' · '+enTaller+' en taller':''}${ef.fuente==='taller'?' · fecha del taller':' · estimada'}`,
+            estado:llego?'Llegó':'Entrega',tipo:llego?'ok':'pend',orden:llego?2:1};
+          if(llego) poner(hoy,false,fila); else poner(ef.fecha,true,fila);
+        }
+      }
+      // Retiros de talleres
+      if(secId==='sFIN'&&it.fecha_estimada_entrega&&!it.es_complemento){
+        const retiroHoy=it.retirado_taller&&it.fecha_retiro_confirmado&&isoFechaLocal(it.fecha_retiro_confirmado)===hoy;
+        if(!it.retirado_taller||retiroHoy){
+          const fila={secId,itemId,ico:'🚚',que:`Retiro · ${nombre}${it.taller_corte?' · '+it.taller_corte:''}`,detalle:it.name||'',
+            estado:retiroHoy?'Retiró':'Retiro',tipo:retiroHoy?'ok':'pend',orden:retiroHoy?2:1};
+          if(retiroHoy) poner(hoy,false,fila); else poner(it.fecha_estimada_entrega,true,fila);
+        }
+      }
+      // Avíos
+      Object.entries(it.avios||{}).forEach(([aid,a])=>{
+        if(!a||!a.fecha_pedido) return;
+        const llegaIso=a.fecha_llegada||isoFechaLocal(sumarDiasHabiles(logiParseFechaEntregado(a.fecha_pedido)||Date.now(),a.tenido?7:2));
+        const recIso=a.recibido&&a.fecha_recibido?tbIsoDeAr(a.fecha_recibido):null;
+        const fila={secId,itemId,ico:'🔘',que:`Avío · ${a.nombre||'Avío'}${a.proveedor?' · '+a.proveedor:''}`,
+          detalle:`Para ${nombre}${a.fecha_llegada?'':' · fecha estimada'}`,
+          estado:a.recibido?'Llegó':'Llega',tipo:a.recibido?'ok':'pend',orden:a.recibido?2:1};
+        if(a.recibido){ if(recIso) poner(recIso,false,fila); }
+        else poner(llegaIso,true,fila);
+      });
+      // Cortes programados (confirmados, todavía sin cortar)
+      if(secId==='s3'&&!it.sin_confirmar&&it.fecha_objetivo_corte){
+        const iso=tbIsoDeAr(it.fecha_objetivo_corte);
+        if(iso) poner(iso,true,{secId,itemId,ico:'✂️',que:`Cortar · ${nombre}`,detalle:`${it.name||''}${it.tela?' · '+it.tela:''}`,
+          estado:'Cortar',tipo:'pend',orden:1});
+      }
+    });
+  });
+  const ord=l=>l.sort((a,b)=>a.orden-b.orden||String(a.que).localeCompare(String(b.que)));
+  const nomDia=['Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const out=[];
+  if(esActual) out.push({titulo:'Atrasado',sub:'',filas:ord(cols.atrasado),atrasado:true});
+  dias.forEach((d,i)=>{ if(i===5&&!cols[d].length) return; out.push({titulo:nomDia[i],sub:tbFmtIso(d),filas:ord(cols[d]),hoy:d===hoy,pasado:d<hoy}); });
+  return {cols:out,desde,hasta:dias[4]};
+}
+
 // Reuniones de Noe: Peque y Emir (cortes) todos los días hábiles; Emir semanal los lunes.
 function tbReunionesHoy(filasSector){
   const hoy=new Date(); const lunes=hoy.getDay()===1;
@@ -15339,19 +15412,37 @@ function renderTablero(cont,filas){
     h+=`</div></div>`;
   }
 
-  // Hoy tiene que pasar
+  // Agenda de la semana (reemplaza "Hoy tiene que pasar")
   const hoyG=tbHoyTienePasar();
   const chipT={ok:['var(--green-bg)','var(--green-text)'],pend:['var(--surface2)','var(--text2)'],tarde:['var(--danger-bg)','var(--danger)']};
-  h+=`<div class="tb-box"><div class="tb-box-h"><b>Hoy tiene que pasar</b><span>Lo que tiene fecha coordinada para hoy (y lo atrasado)</span></div><div class="tb-hoy">`;
-  hoyG.forEach(g=>{
-    h+=`<div class="tb-hoy-col"><div class="tb-hoy-t"><span>${g.titulo}</span><b>${g.filas.length}</b></div>`;
-    if(!g.filas.length) h+=`<div class="tb-vacio">Nada para hoy</div>`;
-    g.filas.slice(0,8).forEach(f=>{ const [bg,c]=chipT[f.tipo];
-      h+=`<div class="tb-hoy-f" onclick="irAItem('${f.secId}','${f.itemId}')"><div><b>${e(f.que)}</b><span>${e(f.detalle)}</span></div><span class="tb-chip" style="background:${bg};color:${c}">${e(f.estado)}</span></div>`; });
-    if(g.filas.length>8) h+=`<div class="tb-vacio">y ${g.filas.length-8} más</div>`;
+  const sem=tbAgendaSemana();
+  const titSem=tbSemanaOffset===0?'Esta semana':tbSemanaOffset===1?'Semana que viene':tbSemanaOffset===-1?'Semana pasada':`Semana del ${tbFmtIso(sem.desde)}`;
+  h+=`<div class="tb-box"><div class="tb-box-h"><b>Agenda · ${titSem}</b>
+    <span style="display:flex;gap:6px;align-items:center">${tbFmtIso(sem.desde)} al ${tbFmtIso(sem.hasta)}
+      <button class="btn-sm" onclick="tbSemanaMover(-1)">‹</button>
+      ${tbSemanaOffset!==0?`<button class="btn-sm" onclick="tbSemanaMover(0)">Hoy</button>`:''}
+      <button class="btn-sm" onclick="tbSemanaMover(1)">›</button></span></div>
+    <div style="font-size:11px;color:var(--text2)">✂️ Corte · 🔘 Avío que llega · 🧵 Entrega de taller · 🚚 Retiro de taller</div>
+    <div class="tb-hoy tb-sem">`;
+  sem.cols.forEach(g=>{
+    const tStyle=g.atrasado?'color:var(--danger)':g.hoy?'color:var(--text)':'';
+    h+=`<div class="tb-hoy-col" style="${g.hoy?'outline:2px solid var(--accent);':''}${g.pasado?'opacity:.75;':''}"><div class="tb-hoy-t"><span style="${tStyle}">${g.titulo}${g.hoy?' · hoy':''} ${g.sub?`<span style="font-weight:500;color:var(--text2)">${g.sub}</span>`:''}</span><b>${g.filas.length}</b></div>`;
+    if(!g.filas.length) h+=`<div class="tb-vacio">${g.atrasado?'Nada atrasado':'Nada'}</div>`;
+    g.filas.slice(0,10).forEach(f=>{ const [bg,c]=chipT[f.tipo];
+      h+=`<div class="tb-hoy-f" onclick="irAItem('${f.secId}','${f.itemId}')"><div><b>${f.ico} ${e(f.que)}</b><span>${e(f.detalle)}</span></div><span class="tb-chip" style="background:${bg};color:${c}">${e(f.estado)}</span></div>`; });
+    if(g.filas.length>10) h+=`<div class="tb-vacio">y ${g.filas.length-10} más</div>`;
     h+=`</div>`;
   });
   h+=`</div></div>`;
+  // Cortes sin taller asignado (no tienen fecha, van aparte)
+  const sinT=hoyG.find(g=>g.titulo==='Cortes sin taller asignado');
+  if(sinT){
+    h+=`<div class="tb-box"><div class="tb-box-h"><b>Cortes sin taller asignado</b><span>${sinT.filas.length}</span></div><div class="tb-hoy">`;
+    if(!sinT.filas.length) h+=`<div class="tb-vacio">Todos los cortes tienen taller</div>`;
+    sinT.filas.forEach(f=>{ const [bg,c]=chipT[f.tipo];
+      h+=`<div class="tb-hoy-f" onclick="irAItem('${f.secId}','${f.itemId}')"><div><b>${e(f.que)}</b><span>${e(f.detalle)}</span></div><span class="tb-chip" style="background:${bg};color:${c}">${e(f.estado)}</span></div>`; });
+    h+=`</div></div>`;
+  }
 
   // Reuniones
   const reus=tbReunionesHoy(todas);

@@ -7095,6 +7095,9 @@ function umbralNuevoDesarrollo(item){
   return 1;                                                        // Peque: separar tela y enviar a moldería
 }
 function umbralAtraso(sec,item,secId){
+  // Cortes próximos a sacar (nov 2026): solo se atrasan si tienen fecha objetivo y no se cortaron.
+  // Sin fecha (en cola, sin confirmar) nunca pasan a demorados.
+  if(secId==='s3') return SIN_PLAZO;
   const tipo=sec.tipo||'';
   if(tipo==='muestra_prep') return umbralNuevoDesarrollo(item); // por paso, ver abajo
   if(tipo==='muestra_molderia'){
@@ -7152,6 +7155,7 @@ function umbralAtraso(sec,item,secId){
 // dias === umbral-1 ("vence hoy"). Devuelve {texto, color, peso, venceHoy}.
 function avisoPlazo(dias,umbral){
   if(dias===null||dias===undefined) return {texto:'',color:'var(--text3)',peso:400,venceHoy:false};
+  if(umbral>=9999) return {texto:'Sin fecha de corte',color:'var(--text3)',peso:400,venceHoy:false};
   const faltan=umbral-dias;
   if(faltan<=0){
     const d=dias-umbral+1;
@@ -7162,6 +7166,7 @@ function avisoPlazo(dias,umbral){
 }
 
 // Muestra "Ingresó: fecha · hace X días" y "En esta etapa: hace Y días" en la tarjeta
+const SIN_PLAZO=9999; // umbral para lo que no se demora nunca (ver umbralAtraso)
 // Suma n días hábiles (lun-vie) a una fecha. n=0 devuelve el mismo día.
 function sumarDiasHabiles(ts,n){
   const d=new Date(ts); d.setHours(0,0,0,0);
@@ -7181,6 +7186,7 @@ function fechaLimiteTarea(sec,item,secId){
   const ini=fechaInicioResponsableActual(sec,item,secId);
   if(!ini) return null;
   const umbral=umbralAtraso(sec,item,secId);
+  if(umbral>=SIN_PLAZO) return null;
   return {limite:sumarDiasHabiles(ini,umbral-1), aviso:avisoPlazo(diasHabilesEntre(ini),umbral)};
 }
 function textoFechaLimite(fl){
@@ -14852,7 +14858,7 @@ function publishPendientesResumen(){
         dias: dias===null?null:dias,
         atrasado: !!atrasado,
         fecha_objetivo_corte: objetivo?item.fecha_objetivo_corte:null,
-        dias_para_demora: dias===null?null:umbral-dias,
+        dias_para_demora: (dias===null||umbral>=SIN_PLAZO)?null:umbral-dias,
         accion: accion||'',
         board: getBoard(sec)
       };
@@ -15364,7 +15370,7 @@ function tbReunionesHoy(filasSector){
   const lista=[
     {k:'peque',con:'Con Peque · diseño',que:'Revisar diseño hasta Pendiente tizas: muestras, moldes y tizadas.',
       detalle:(()=>{ const d=dis.filter(f=>f.atrasado).length; return `${dis.length} para revisar${d?' · '+d+' demorado'+(d!==1?'s':''):''}`; })()},
-    {k:'emir_cortes',con:'Con Emir · cortes',que:'Cortes de hoy y de mañana. Confirmar qué tela hay que bajar para que descanse.',
+    {k:'emir_cortes',con:'Con corte · Ari Cortador o Enzo',que:'Cortes de hoy y de mañana. Confirmar qué tela hay que bajar para que descanse.',
       detalle:`Hoy ${cortesDe(hoyIso)} corte${cortesDe(hoyIso)!==1?'s':''} · próximo día hábil ${cortesDe(manIso)}`},
   ];
   if(lunes) lista.push({k:'emir_semanal',con:'Con Emir · semanal',que:'Ingresos de la semana para evaluar reposiciones y preparar las fotos del jueves (nuevos y reingresos).',
@@ -16161,7 +16167,7 @@ function renderResumenDia(){
   // Reuniones y para mirar
   const reg=tbReuniones[dia]||{};
   const lun=new Date(dia+'T12:00:00').getDay()===1;
-  const reus=[['peque','Con Peque · diseño'],['emir_cortes','Con Emir · cortes'],...(lun?[['emir_semanal','Con Emir · semanal']]:[])];
+  const reus=[['peque','Con Peque · diseño'],['emir_cortes','Con corte · Ari Cortador o Enzo'],...(lun?[['emir_semanal','Con Emir · semanal']]:[])];
   const mirar=[];
   const sinHacer=reus.filter(([k])=>!(reg[k]&&reg[k].hecha_ts)).map(([,n])=>n);
   if(sinHacer.length) mirar.push(`Reuniones sin marcar: ${sinHacer.join(', ')}.`);

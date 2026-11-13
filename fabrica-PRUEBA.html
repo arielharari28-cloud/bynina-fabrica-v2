@@ -16092,7 +16092,7 @@ function renderTableroAriel(cont){
   const tituloCorte=(corte,arts,codes)=>`Corte ${e(tdNumCorte(corte))} · ${tdNombresCorte(arts,codes).map(e).join(' · ')||'—'}`;
   const dividir=rdParaDividir().filter(it=>!logiEsMinisur(it));
   const div=tdDivididos();
-  const faltan=div.filter(x=>x.falta.length), listos=div.filter(x=>!x.falta.length&&!x.comunicado&&!x.descartado);
+  const faltan=div.filter(x=>x.falta.length), listos=div.filter(x=>!x.comunicado&&!x.descartado);
   const avisosRF=avisosNoePendientes().filter(a=>String(a.id).startsWith('rn|'));
   // Números de la semana
   const ini=tdInicioSemana(), cortes={};
@@ -16156,7 +16156,7 @@ function tdComListaHtml(div){
   const e=etEsc;
   const foto=it=>it&&it.foto?`<img src="${e(it.foto)}" loading="lazy" class="pq-img">`:'<div class="pq-img"></div>';
   const q=tdComNorm(tdComBusca).trim();
-  let l=(div||tdDivididos()).filter(x=>!x.falta.length);
+  let l=(div||tdDivididos()).slice();
   if(q){ const ps=q.split(/\s+/); l=l.filter(x=>{ const h=tdComNorm([x.it.name,x.it.code,x.it.numero_corte,...x.colores].join(' ')); return ps.every(p=>h.includes(p)); }); }
   else l=l.filter(x=>!x.comunicado&&!x.descartado);
   l.sort((a,b)=>(b.it.fecha_cerrado||0)-(a.it.fecha_cerrado||0));
@@ -16164,12 +16164,15 @@ function tdComListaHtml(div){
   const fecha=ts=>{ if(!ts) return ''; const d=Math.floor((new Date().setHours(0,0,0,0)-new Date(ts).setHours(0,0,0,0))/86400000);
     return new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})+(d<=0?' (hoy)':d===1?' (ayer)':` (hace ${d} días)`); };
   const tag=(t,c)=>`<span class="pq-pill" style="background:var(--surface2);color:${c||'var(--text2)'};margin-left:6px">${t}</span>`;
-  return l.map(x=>`<label class="pq-f" style="cursor:pointer${x.descartado?';opacity:.55':''}"><input type="checkbox" class="td-com" value="${e(x.k)}" ${tdComElegidos.has(x.k)?'checked':''} onchange="tdComToggle(this)">${foto(x.it)}
+  return l.map(x=>{ const sinPrecio=x.falta.length>0;
+    return `<label class="pq-f" style="cursor:${sinPrecio?'default':'pointer'}${x.descartado?';opacity:.55':''}"><input type="checkbox" class="${sinPrecio?'':'td-com'}" value="${e(x.k)}" ${sinPrecio?'disabled title="Cargá el precio para poder sumarlo a la imagen"':(tdComElegidos.has(x.k)?'checked':'')} onchange="tdComToggle(this)">${foto(x.it)}
         <div class="pq-b"><div class="pq-art">${e(x.it.name||'')} · ${e(x.it.code)}${x.comunicado?tag('ya avisado'):''}${x.descartado?tag('descartado'):''}</div>
         <div class="pq-sub">Finalizado ${e(fecha(x.it.fecha_cerrado))}${x.it.numero_corte?' · Corte '+e(tdNumCorte(x.it.numero_corte)):''}</div>
-        <div class="pq-sub">${x.colores.length?e(x.colores.join(', '))+' · ':''}Local ${costeoPesos(x.local)} · TN min. ${costeoPesos(x.min)} · TN may. ${costeoPesos(x.may)}</div></div>
+        <div class="pq-sub">${x.colores.length?e(x.colores.join(', '))+' · ':''}Local ${x.local?costeoPesos(x.local):'—'} · TN min. ${x.min?costeoPesos(x.min):'—'} · TN may. ${x.may?costeoPesos(x.may):'—'}</div>
+        ${sinPrecio?`<div class="pq-sub" style="color:var(--warn-text)">⚠️ Falta ${e(x.falta.join(', '))} — completalo para sumarlo a la imagen</div>`:''}</div>
+        ${sinPrecio&&x.ck?`<button class="btn-sm" onclick="event.preventDefault();event.stopPropagation();cerrarMisPendientesYIr('costeo','${x.ck}',false)">Completar</button>`:''}
         ${x.descartado?`<button class="btn-sm" title="Volver a la lista" onclick="event.preventDefault();event.stopPropagation();tdComDescartar('${e(x.k)}',false)">↩︎ Recuperar</button>`
-          :x.comunicado?'':`<button class="btn-sm" title="No avisar este artículo" onclick="event.preventDefault();event.stopPropagation();tdComDescartar('${e(x.k)}',true)">✕</button>`}</label>`).join('');
+          :x.comunicado?'':`<button class="btn-sm" title="No avisar este artículo" onclick="event.preventDefault();event.stopPropagation();tdComDescartar('${e(x.k)}',true)">✕</button>`}</label>`; }).join('');
 }
 function tdComBuscar(v){ tdComBusca=v; tdComFoco=true; const c=document.getElementById('td-com-lista'); if(c) c.innerHTML=tdComListaHtml(); }
 document.addEventListener('focusout',ev=>{ if(ev.target&&ev.target.id==='td-com-busca') setTimeout(()=>{ if(document.activeElement?.id!=='td-com-busca') tdComFoco=false; },0); });

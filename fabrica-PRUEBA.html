@@ -16042,7 +16042,7 @@ function tdDivididos(){
     const precio=c=>a?costeoPrecioArt(e,a,c):0;
     const local=precio('precio_lista_local'), min=precio('precio_tn_minorista'), may=precio('precio_tn_mayorista');
     const falta=[]; if(!r||!r.hayCosto) falta.push('costeo'); if(!local) falta.push('precio local'); if(!min) falta.push('precio TN minorista'); if(!may) falta.push('precio TN mayorista');
-    return {...x,ck,costoU:r&&r.hayCosto?r.costoU:0,local,min,may,falta,colores:tdColoresGrilla(x.it.grilla),comunicado:!!comunicadosData[x.k]};
+    return {...x,ck,costoU:r&&r.hayCosto?r.costoU:0,local,min,may,falta,colores:tdColoresGrilla(x.it.grilla),comunicado:!!(comunicadosData[x.k]&&!comunicadosData[x.k].descartado),descartado:!!(comunicadosData[x.k]&&comunicadosData[x.k].descartado)};
   }).sort((a,b)=>(a.it.fecha_cerrado||0)-(b.it.fecha_cerrado||0));
 }
 // Artículos de un corte (por N° de corte o por código), para mostrar foto y nombre en Mi día.
@@ -16092,7 +16092,7 @@ function renderTableroAriel(cont){
   const tituloCorte=(corte,arts,codes)=>`Corte ${e(tdNumCorte(corte))} · ${tdNombresCorte(arts,codes).map(e).join(' · ')||'—'}`;
   const dividir=rdParaDividir().filter(it=>!logiEsMinisur(it));
   const div=tdDivididos();
-  const faltan=div.filter(x=>x.falta.length), listos=div.filter(x=>!x.falta.length&&!x.comunicado);
+  const faltan=div.filter(x=>x.falta.length), listos=div.filter(x=>!x.falta.length&&!x.comunicado&&!x.descartado);
   const avisosRF=avisosNoePendientes().filter(a=>String(a.id).startsWith('rn|'));
   // Números de la semana
   const ini=tdInicioSemana(), cortes={};
@@ -16133,25 +16133,56 @@ function renderTableroAriel(cont){
     ${bloque('Divididos · falta costeo o precio de venta',faltan.length,faltan.length?faltan.map(x=>fila(foto(x.it),`${e(x.it.code)}${x.it.name?' · '+e(x.it.name):''} · Corte ${e(tdNumCorte(x.it.numero_corte))}`,
       `${x.costoU?'costo '+costeoPesos(x.costoU)+' /u · ':''}falta ${e(x.falta.join(', '))}`,'<button class="btn-sm">Costeo</button>',x.ck?`cerrarMisPendientesYIr('costeo','${x.ck}',false)`:'')).join(''):vacio('Todo con costo y precio.'))}
     <details class="pq-det" ${tdPlegados.has('Avisar_vendedores')?'':'open'} ontoggle="tdDetToggle(this,'Avisar_vendedores',false)"><summary class="pq-lab">Avisar a los vendedores · nuevos ingresos <span class="pq-n">${listos.length}</span></summary>
-    <div class="pq-card">${listos.length?`<div class="pq-f" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><span class="pq-sub">Elegí los artículos y armá una sola imagen para locales, vendedoras online y CM.</span>
-        <div style="display:flex;gap:6px"><button class="btn-sm" onclick="tdComSel(true)">Todos</button><button class="btn-sm em-pri" onclick="tdComArmar()">Armar imagen</button></div></div>`+
-      listos.map(x=>`<label class="pq-f" style="cursor:pointer"><input type="checkbox" class="td-com" value="${e(x.k)}" ${tdComElegidos.has(x.k)?'checked':''} onchange="tdComToggle(this)">${foto(x.it)}
-        <div class="pq-b"><div class="pq-art">${e(x.it.name||'')} · ${e(x.it.code)}</div><div class="pq-sub">${x.colores.length?e(x.colores.join(', '))+' · ':''}Local ${costeoPesos(x.local)} · TN min. ${costeoPesos(x.min)} · TN may. ${costeoPesos(x.may)}</div></div></label>`).join('')+
-      `<div id="td-com-prev"></div>`:vacio('No hay ingresos nuevos para avisar.')}</div></details>
+    <div class="pq-card"><div class="pq-f" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><span class="pq-sub">Del más recién finalizado al más viejo. Elegí los artículos y armá una sola imagen para locales, vendedoras online y CM. ✕ descarta el que no quieras avisar.</span>
+        <div style="display:flex;gap:6px"><button class="btn-sm" onclick="tdComSel(true)">Todos</button><button class="btn-sm" onclick="tdComSel(false)">Ninguno</button><button class="btn-sm em-pri" onclick="tdComArmar()">Armar imagen</button></div></div>
+      <div class="pq-f"><input id="td-com-busca" type="search" placeholder="🔍 Buscar por nombre, código o color (incluye ya avisados y descartados)" value="${e(tdComBusca)}" oninput="tdComBuscar(this.value)" style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:20px;font-size:13px;background:var(--surface)"></div>
+      <div id="td-com-lista">${tdComListaHtml(div)}</div>
+      <div id="td-com-prev"></div></div></details>
     ${bloque('Avisos de revisión final',avisosRF.length,avisosRF.length?avisosRF.map(a=>fila('<div class="pq-img"></div>',`${a.code?e(a.code)+' · ':''}${e(a.name||'')}`,`${e(a.texto)} · ${e(cuandoAviso(a.ts))}`,
       `<button class="btn-sm" onclick="event.stopPropagation();avisoNoeVisto('${a.id}')">Visto</button>`,`avisoNoeVer('${a.id}')`)).join(''):vacio('Sin avisos.'))}
   </div>`;
   if(tdComPrevia) tdComMostrarPrevia();
+  if(tdComFoco){ const b=document.getElementById('td-com-busca'); if(b){ b.focus(); const n=b.value.length; try{ b.setSelectionRange(n,n); }catch(err){} } }
 }
 
 // ---- Comunicar nuevos ingresos: una sola imagen con todos los elegidos ----
 const tdComElegidos=new Set();
 let tdComPrevia=null; // {url, blob, texto, keys}
+let tdComBusca='', tdComFoco=false;
+const tdComNorm=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+// Lista de "Avisar a los vendedores": sin buscar muestra los pendientes de avisar;
+// buscando, muestra todos los divididos con precio (también avisados y descartados).
+function tdComListaHtml(div){
+  const e=etEsc;
+  const foto=it=>it&&it.foto?`<img src="${e(it.foto)}" loading="lazy" class="pq-img">`:'<div class="pq-img"></div>';
+  const q=tdComNorm(tdComBusca).trim();
+  let l=(div||tdDivididos()).filter(x=>!x.falta.length);
+  if(q){ const ps=q.split(/\s+/); l=l.filter(x=>{ const h=tdComNorm([x.it.name,x.it.code,x.it.numero_corte,...x.colores].join(' ')); return ps.every(p=>h.includes(p)); }); }
+  else l=l.filter(x=>!x.comunicado&&!x.descartado);
+  l.sort((a,b)=>(b.it.fecha_cerrado||0)-(a.it.fecha_cerrado||0));
+  if(!l.length) return `<div class="pq-vacio">${q?'No encontré nada con esa búsqueda.':'No hay ingresos nuevos para avisar.'}</div>`;
+  const fecha=ts=>{ if(!ts) return ''; const d=Math.floor((new Date().setHours(0,0,0,0)-new Date(ts).setHours(0,0,0,0))/86400000);
+    return new Date(ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'})+(d<=0?' (hoy)':d===1?' (ayer)':` (hace ${d} días)`); };
+  const tag=(t,c)=>`<span class="pq-pill" style="background:var(--surface2);color:${c||'var(--text2)'};margin-left:6px">${t}</span>`;
+  return l.map(x=>`<label class="pq-f" style="cursor:pointer${x.descartado?';opacity:.55':''}"><input type="checkbox" class="td-com" value="${e(x.k)}" ${tdComElegidos.has(x.k)?'checked':''} onchange="tdComToggle(this)">${foto(x.it)}
+        <div class="pq-b"><div class="pq-art">${e(x.it.name||'')} · ${e(x.it.code)}${x.comunicado?tag('ya avisado'):''}${x.descartado?tag('descartado'):''}</div>
+        <div class="pq-sub">Finalizado ${e(fecha(x.it.fecha_cerrado))}${x.it.numero_corte?' · Corte '+e(tdNumCorte(x.it.numero_corte)):''}</div>
+        <div class="pq-sub">${x.colores.length?e(x.colores.join(', '))+' · ':''}Local ${costeoPesos(x.local)} · TN min. ${costeoPesos(x.min)} · TN may. ${costeoPesos(x.may)}</div></div>
+        ${x.descartado?`<button class="btn-sm" title="Volver a la lista" onclick="event.preventDefault();event.stopPropagation();tdComDescartar('${e(x.k)}',false)">↩︎ Recuperar</button>`
+          :x.comunicado?'':`<button class="btn-sm" title="No avisar este artículo" onclick="event.preventDefault();event.stopPropagation();tdComDescartar('${e(x.k)}',true)">✕</button>`}</label>`).join('');
+}
+function tdComBuscar(v){ tdComBusca=v; tdComFoco=true; const c=document.getElementById('td-com-lista'); if(c) c.innerHTML=tdComListaHtml(); }
+document.addEventListener('focusout',ev=>{ if(ev.target&&ev.target.id==='td-com-busca') setTimeout(()=>{ if(document.activeElement?.id!=='td-com-busca') tdComFoco=false; },0); });
+function tdComDescartar(k,si){
+  tdComElegidos.delete(k);
+  if(si){ db.ref('fabrica_v5/comunicados/'+k).set({ts:Date.now(),por:quienSoy(),descartado:true}); showToast('Descartado — lo encontrás buscándolo'); }
+  else { db.ref('fabrica_v5/comunicados/'+k).remove(); showToast('↩︎ Volvió a la lista'); }
+}
 function tdComToggle(el){ if(el.checked) tdComElegidos.add(el.value); else tdComElegidos.delete(el.value); }
-function tdComSel(){ document.querySelectorAll('.td-com').forEach(c=>{ c.checked=true; tdComElegidos.add(c.value); }); }
+function tdComSel(si){ document.querySelectorAll('.td-com').forEach(c=>{ c.checked=!!si; if(si) tdComElegidos.add(c.value); else tdComElegidos.delete(c.value); }); }
 function tdCargarImg(url){ return new Promise(res=>{ if(!url) return res(null); const i=new Image(); i.crossOrigin='anonymous'; i.onload=()=>res(i); i.onerror=()=>res(null); i.src=url; }); }
 async function tdComArmar(){
-  const sel=tdDivididos().filter(x=>tdComElegidos.has(x.k)&&!x.falta.length);
+  const sel=tdDivididos().filter(x=>tdComElegidos.has(x.k)&&!x.falta.length).sort((a,b)=>(b.it.fecha_cerrado||0)-(a.it.fecha_cerrado||0));
   if(!sel.length){ showToast('Elegí al menos un artículo'); return; }
   showToast('Armando la imagen…');
   const imgs=await Promise.all(sel.map(x=>tdCargarImg(x.it.foto)));

@@ -14153,7 +14153,19 @@ function tsCortesRevision(){
     const c=String(f.corte||ck);
     g[c]={corte:c,filas:[],fecha:f.fecha||0,por:new Set(f.por?[f.por]:[]),codes:new Set(revTelaCodes(ck)),flag:f};
   });
-  return Object.values(g).sort((a,b)=>a.fecha-b.fecha);
+  // Orden por fecha de corte real (nov 2026): si se aprueban fuera de orden, lo que "tenía" cada rollo da mal.
+  const arr=Object.values(g); arr.forEach(x=>{ x.fechaCorte=revTelaFechaCorte(x.corte); });
+  const nc=c=>{ const n=parseFloat(String(c).replace(/[^\d.]/g,'')); return isNaN(n)?Infinity:n; };
+  return arr.sort((a,b)=>((a.fechaCorte||Infinity)-(b.fechaCorte||Infinity))||(nc(a.corte)-nc(b.corte))||(a.fecha-b.fecha));
+}
+// Fecha de corte (la escrita al marcar el corte) del N° de corte: la más temprana entre sus artículos.
+function revTelaFechaCorte(corte){
+  const key=corteKeyFrom(String(corte||'')); if(!key) return 0; let min=0;
+  for(const sec of Object.values(sectionsData||{})) for(const it of Object.values((sec&&sec.items)||{})){
+    if(!it||corteKeyFrom(String(it.numero_corte||''))!==key) continue;
+    const ts=fechaCorteTs(it); if(ts&&(!min||ts<min)) min=ts;
+  }
+  return min;
 }
 // Restante del rollo si se aprueba este corte (lo ya aprobado + lo de este corte).
 function tsQuedariaConCorte(r,corte){
@@ -14200,15 +14212,15 @@ function renderTsRevision(){
   const inp='padding:5px 6px;border:1px solid var(--border);border-radius:8px;text-align:right;font-family:inherit;font-size:13px';
   cont.innerHTML=`<button class="ts-volver" onclick="tsVista.modo='resumen';renderTelasStock()">‹ Telas</button>
     <div class="ts-title">Tela para revisar</div>
-    <div class="ts-sub" style="margin-bottom:12px">Un corte por tarjeta, con todos los rollos que se cargaron. Hasta que apruebes el corte, no se descuenta del stock. <b>Usado por capas</b> = capas × kg por capa del corte. Si el rollo se terminó, no queda sobrante y lo que no cierra con las capas va a <b>Sin explicar</b> (cuenta como usado). En rojo: más del 10% o más de 0,5 kg sin explicar.</div>
-    ${lista.length?lista.map(g=>{
+    <div class="ts-sub" style="margin-bottom:12px">Un corte por tarjeta, con todos los rollos que se cargaron. Hasta que apruebes el corte, no se descuenta del stock. <b>Usado por capas</b> = capas × kg por capa del corte. Si el rollo se terminó, no queda sobrante y lo que no cierra con las capas va a <b>Sin explicar</b> (cuenta como usado). En rojo: más del 10% o más de 0,5 kg sin explicar.<br><b>Ordenados por fecha de corte</b> (el más viejo primero): aprobalos en este orden para que lo que tenía cada rollo dé bien.</div>
+    ${lista.length?lista.map((g,i)=>{
       const ck=tsEsc(g.corte).replace(/'/g,'');
       const med=tsMedidasCorte(g.corte);
       const telas=[...new Set(g.filas.map(f=>f.r.tela).filter(Boolean))].map(tsEsc).join(', ');
       return `<div class="ts-card">
         <div class="ts-card-head" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div>
-          <div class="ts-tela" style="font-size:16px">Corte ${tsEsc(g.corte)}</div>
-          <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · ${tsFechaDia(g.fecha)} · ${revTelaResumenRollos(g)}<br>Kg por capa del corte: <b>${med.largo&&med.peso?tsFmt(med.largo*med.peso,2):'—'}</b>${med.largo?` <small>(largo ${tsFmt(med.largo,2)} × peso ${med.peso?tsFmt(med.peso,2):'—'})</small>`:' <small style="color:#9a3412">falta largo de capa / peso por metro</small>'}</div></div>
+          <div class="ts-tela" style="font-size:16px"><span style="display:inline-block;min-width:26px;padding:1px 8px;margin-right:6px;border-radius:20px;background:var(--green-text,#166534);color:#fff;font-size:12px;text-align:center">${i+1}°</span>Corte ${tsEsc(g.corte)} <span style="font-size:13px;font-weight:600;color:${g.fechaCorte?'var(--text2)':'#9a3412'}">· ${g.fechaCorte?'cortado '+tsFechaDia(g.fechaCorte):'sin fecha de corte'}</span></div>
+          <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · cargado ${tsFechaDia(g.fecha)} · ${revTelaResumenRollos(g)}<br>Kg por capa del corte: <b>${med.largo&&med.peso?tsFmt(med.largo*med.peso,2):'—'}</b>${med.largo?` <small>(largo ${tsFmt(med.largo,2)} × peso ${med.peso?tsFmt(med.peso,2):'—'})</small>`:' <small style="color:#9a3412">falta largo de capa / peso por metro</small>'}</div></div>
           <div style="display:flex;gap:10px;align-items:flex-start">${(()=>{ const fu=fotoFichaDeCorte(g.corte); return fu?`<img src="${tsEsc(fu)}" title="Ficha del cortador (tocar para ampliar)" onclick="window.open('${tsEsc(fu)}','_blank')" style="width:110px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in">`:'<div style="width:110px;height:80px;border-radius:8px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;color:var(--text2)">sin foto<br>de la ficha</div>'; })()}<span class="ts-rev">pendiente</span></div></div>
         <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:800px;font-size:13px">
           <thead><tr style="color:var(--text2);font-size:11px;text-transform:uppercase;text-align:left"><th style="padding:6px">Rollo</th><th style="padding:6px">Color</th><th style="padding:6px;text-align:right" title="Lo que tenía el rollo antes de este corte">Tenía</th><th style="padding:6px;text-align:right">Capas</th><th style="padding:6px;text-align:right">Usado por capas</th><th style="padding:6px;text-align:right" title="Tela que no cierra con las capas. Cuenta como usado.">Sin explicar</th><th style="padding:6px;text-align:right" title="Kilos de collareta que salieron de este rollo">Collareta</th><th style="padding:6px;text-align:right">Quedaría</th>${esA?'<th style="padding:6px;text-align:center">Terminó</th><th style="padding:6px;text-align:right">Quedó de verdad</th>':''}</tr></thead>

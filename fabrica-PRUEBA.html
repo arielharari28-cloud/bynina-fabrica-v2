@@ -7644,7 +7644,7 @@ function s3FilaCorteHtml(secId,g,sec,drag){
   const comps=g.comps.map(c=>`<span class="cmp-chip" style="margin-top:3px;display:inline-block;max-width:none">+ ${(((c.items[0][1].complemento_de)||{}).que)||'Complemento'} ${c.items[0][1].numero_corte||''} · ${c.etapa}</span>`).join(' ');
   const fecha=puedeFechaObjetivoCorte()?fechaObjetivoInputHtml(secId,g.ref[0],g.ref[1],sec,false)
     :(g.ref[1].fecha_objetivo_corte?`<span class="cmp-chip" style="background:var(--surface2);color:var(--text2)">📌 ${g.ref[1].fecha_objetivo_corte}</span>`:'');
-  const dragAttrs=drag?`draggable="true" ondragstart="s3DragStart(event,'${g.ck}')" ondragend="s3DragEnd(event)" ondragover="s3DragOver(event)" ondragleave="s3DragLeave(event)" ondrop="s3Drop(event,'${g.ts&&g.ts>=s3Hoy0()?s3TsAIso(g.ts):''}','${g.ck}')"`:'';
+  const dragAttrs=drag?`draggable="true" ondragstart="s3DragStart(event,'${g.ck}')" ondragend="s3DragEnd(event)" ondragover="s3DragOver(event)" ondragleave="s3DragLeave(event)" ondrop="s3Drop(event,'${g.ts&&g.ts>=s3Hoy0()?s3TsAIso(g.ts):(g.ts?'':'sin')}','${g.ck}')"`:'';
   const hijos=g.items.concat(...g.comps.map(c=>c.items));
   return `<div class="cmp-row s3d-row ${abierto?'cmp-open':''}" ${dragAttrs} onclick="toggleCompactItem('${secId}','${k}')">
     ${drag?'<span class="s3d-grip" title="Arrastrá a otro día">⠿</span>':''}
@@ -7682,7 +7682,7 @@ function buildS3PorDiaHtml(secId,items,sec,modo){
   };
   let html=chips;
   html+=bloque('Atrasados','late',atrasados,null);
-  html+=bloque('Sin fecha de corte','late',sinFecha,null);
+  html+=bloque('Sin fecha de corte','late',sinFecha,'sin');
   [...dias.keys()].sort((a,b)=>a-b).forEach(ts=>{ html+=bloque(s3EtiquetaDia(ts),ts===hoy?'hoy':'',dias.get(ts),s3TsAIso(ts)); });
   const compsVis=comps.filter(pasaFiltro);
   if(compsVis.length) html+=`<div class="s3d-day" style="margin-top:8px"><span>🧩 Complementos por cortar · el corte base ya salió</span><span>${compsVis.length}</span></div>
@@ -7705,14 +7705,16 @@ function s3Drop(ev,iso,antesDeCk){
   const conf=getSortedItems(sec).filter(([,it])=>!it.sin_confirmar);
   const {grupos}=s3GruposPorDia(conf);
   const mov=grupos.find(g=>g.ck===ck); if(!mov) return;
-  const nuevoTs=logiParseFechaEntregado(isoAFechaAr(iso));
+  // 'sin' = soltar en "Sin fecha de corte": le saca la fecha (nov 2026).
+  const sinF=iso==='sin';
+  const nuevoTs=sinF?Infinity:logiParseFechaEntregado(isoAFechaAr(iso));
   const resto=grupos.filter(g=>g!==mov);
-  mov.ts=nuevoTs;
+  mov.ts=sinF?null:nuevoTs;
   let pos=antesDeCk?resto.findIndex(g=>g.ck===antesDeCk):-1;
   if(pos<0){ pos=resto.findIndex(g=>(g.ts||Infinity)>nuevoTs); if(pos<0) pos=resto.length; }
   resto.splice(pos,0,mov);
-  const up={}, txt=isoAFechaAr(iso);
-  const cambioFecha=mov.items.some(([,it])=>it.fecha_objetivo_corte!==txt);
+  const up={}, txt=sinF?null:isoAFechaAr(iso);
+  const cambioFecha=mov.items.some(([,it])=>(it.fecha_objetivo_corte||null)!==txt);
   mov.items.forEach(([id])=>{ up[`fabrica_v5/sections/s3/items/${id}/fecha_objetivo_corte`]=txt; });
   let i=0;
   resto.forEach(g=>g.items.concat(...g.comps.map(c=>c.items)).forEach(([id])=>{ up[`fabrica_v5/sections/s3/items/${id}/orden`]=i++; }));
@@ -7720,8 +7722,8 @@ function s3Drop(ev,iso,antesDeCk){
   conf.forEach(([id])=>{ if(!(`fabrica_v5/sections/s3/items/${id}/orden` in up)) up[`fabrica_v5/sections/s3/items/${id}/orden`]=i++; });
   db.ref().update(up);
   const n=mov.items[0][1].numero_corte||mov.items[0][1].code||'';
-  logActivity(cambioFecha?'Fecha objetivo de corte':'Orden de cortes',`Corte ${n}: ${cambioFecha?'pasado al '+txt:'reordenado dentro del '+txt}${mov.items.length>1?` (${mov.items.length} artículos)`:''}`);
-  showToast(cambioFecha?`📌 Corte ${n} → ${s3EtiquetaDia(nuevoTs)}`:`↕️ Corte ${n} reordenado`);
+  logActivity(cambioFecha?'Fecha objetivo de corte':'Orden de cortes',`Corte ${n}: ${cambioFecha?(sinF?'sin fecha de corte':'pasado al '+txt):'reordenado'+(txt?' dentro del '+txt:'')}${mov.items.length>1?` (${mov.items.length} artículos)`:''}`);
+  showToast(cambioFecha?(sinF?`📌 Corte ${n} → sin fecha de corte`:`📌 Corte ${n} → ${s3EtiquetaDia(nuevoTs)}`):`↕️ Corte ${n} reordenado`);
 }
 
 function buildCompactRowsHtml(secId,items,sec){

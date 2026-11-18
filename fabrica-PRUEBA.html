@@ -180,6 +180,7 @@
   .ut-head:hover{background:transparent}
   .ut-group{display:flex;align-items:center;gap:8px;padding:10px 14px 6px;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px}
   .ut-group span:last-child{color:var(--text2)}
+  .ut-subgroup{padding:5px 14px 5px 30px;font-size:11px;font-weight:700;border-bottom:1px solid var(--border);background:var(--surface2)}
   .ut-exp{padding:4px 8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:default}
   .ut-row .c-corte{font-weight:700}
   .ut-row .c-art{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -6522,8 +6523,8 @@ function utTallerDe(item,secId){
   return (item.taller_corte||'').trim()||'Sin taller';
 }
 function setUtTaller(v){ utTaller=v; renderSections('talleres'); }
-let utOrden='corte';
-try{ utOrden=localStorage.getItem('talleres_ut_orden2')||'corte'; }catch(e){}
+let utOrden='taller';   // por defecto: seguimiento por taller
+try{ utOrden=localStorage.getItem('talleres_ut_orden3')||'taller'; }catch(e){}
 const utExpandidos=new Set();
 // Cortes que ya tuvieron una entrega (pasaron a Revisión final / Mejora / Producto perfecto) pero
 // todavía tienen prendas en el taller: se muestran en Talleres con lo que falta, hasta que se cuente.
@@ -6619,11 +6620,32 @@ function utAvioDetalleHtml(pend){
     </div>`;
   }).join('');
 }
+// Vista "Por taller": cada taller se separa en 3 bloques.
+//  0 = ya lo retiró y SIN fecha de entrega del taller (lo que hay que pedir) → por fecha de retiro, el más viejo arriba
+//  1 = ya lo retiró y CON fecha de entrega del taller → por fecha de entrega (vencidos primero)
+//  2 = todavía no lo retiró (pendiente retiro / taller asignado / por sacar) → por fecha de retiro coordinada
+const UT_BLOQUES_TALLER=[
+  {label:'Sin fecha de entrega del taller',icon:'❓',fg:'var(--danger)'},
+  {label:'Con fecha de entrega del taller',icon:'📅',fg:'#27500a'},
+  {label:'Todavía no retiró',icon:'🚚',fg:'var(--text2)'}
+];
+function utBloqueTaller(f){
+  if(['retiro','asignado','por_sacar'].includes(f.estado)) return 2;
+  return f.item.fecha_estimada_entrega_taller?1:0;
+}
+function utIsoTs(iso){ if(!iso) return 0; const t=new Date(iso+'T00:00:00').getTime(); return isNaN(t)?0:t; }
+function utClaveOrdenTaller(f,b){
+  const it=f.item, MAX=Number.MAX_SAFE_INTEGER;
+  if(b===1) return utIsoTs(it.fecha_estimada_entrega_taller)||MAX;
+  if(b===2) return utIsoTs(it.fecha_estimada_entrega)||MAX;   // sin retiro coordinado, al final del bloque
+  if(f.estado==='parcial') return (f.parcial&&f.parcial.desde)||MAX;
+  return it.fecha_retiro_confirmado||it.fecha_etapa||MAX;     // sin retiro cargado: desde que entró a la etapa
+}
 function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||esTalleres(); }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
 function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }
-function setUtOrden(o){ utOrden=o; try{ localStorage.setItem('talleres_ut_orden2',o); }catch(e){} renderSections('talleres'); }
+function setUtOrden(o){ utOrden=o; try{ localStorage.setItem('talleres_ut_orden3',o); }catch(e){} renderSections('talleres'); }
 // Muestra / Ficha / Ninox se tildan directo en la fila de Pendiente retiro (antes había que abrir la tarjeta completa).
 function utChecklistRetiroHtml(f){
   const it=f.item;
@@ -6710,15 +6732,19 @@ function renderResumenPipelineTalleres(){
     if(utOrden==='taller'){
       const ta=utTallerDe(a.item,a.secId), tb=utTallerDe(b.item,b.secId);
       if(ta!==tb) return ta==='Sin taller'?1:tb==='Sin taller'?-1:ta.localeCompare(tb);
-      const d=idxE(a.estado)-idxE(b.estado); if(d) return d;
+      const ba=utBloqueTaller(a), bb=utBloqueTaller(b);
+      if(ba!==bb) return ba-bb;
+      const ka=utClaveOrdenTaller(a,ba), kb=utClaveOrdenTaller(b,bb);
+      if(ka!==kb) return ka-kb;
+      return extractCorteNumber(a.item)-extractCorteNumber(b.item);
     }
     const d2=(b.dias==null?-1:b.dias)-(a.dias==null?-1:a.dias);
     return d2||extractCorteNumber(a.item)-extractCorteNumber(b.item);
   });
   const grupos={};
   const grupoKey=f=>utOrden==='taller'?utTallerDe(f.item,f.secId):utOrden==='corte'?corteStr(f):f.estado;
-  vis.forEach(f=>{ const k=grupoKey(f); grupos[k]=grupos[k]||{n:0,p:0}; grupos[k].n++; grupos[k].p+=f.cantidad; });
-  let prev=null;
+  vis.forEach(f=>{ const k=grupoKey(f); grupos[k]=grupos[k]||{n:0,p:0,b:[0,0,0]}; grupos[k].n++; grupos[k].p+=f.cantidad; if(utOrden==='taller') grupos[k].b[utBloqueTaller(f)]++; });
+  let prev=null, prevBloque=null;
   const filasHtml=vis.map((f,idx)=>{
     const e=utEstadoInfo(f.estado);
     const k=grupoKey(f);
@@ -6728,7 +6754,17 @@ function renderResumenPipelineTalleres(){
     }
     if((utOrden==='etapa'||utOrden==='taller')&&k!==prev){
       const titulo=utOrden==='taller'?`${utDot('#6b6560')}<b>🧵 ${utEsc(k)}</b>`:`${utDot(e.dot)}<b>${e.label}</b>`;
-      head=`<div class="ut-group">${titulo}<span>${grupos[k].n} corte${grupos[k].n!==1?'s':''} · ${grupos[k].p} prendas</span></div>`;
+      const gb=grupos[k].b;
+      const det=utOrden==='taller'?[gb[1]?gb[1]+' con fecha de entrega':'',gb[0]?gb[0]+' sin fecha':'',gb[2]?gb[2]+' por retirar':''].filter(Boolean).join(' · '):'';
+      head=`<div class="ut-group">${titulo}<span>${grupos[k].n} corte${grupos[k].n!==1?'s':''} · ${grupos[k].p} prendas${det?' · '+det:''}</span></div>`;
+    }
+    if(utOrden==='taller'){
+      const bq=utBloqueTaller(f);
+      if(k!==prev||bq!==prevBloque){
+        const B=UT_BLOQUES_TALLER[bq];
+        head+=`<div class="ut-subgroup" style="color:${B.fg}">${B.icon} ${B.label} · ${grupos[k].b[bq]}</div>`;
+      }
+      prevBloque=bq;
     }
     prev=k;
     const abierto=utExpandidos.has(f.secId+'/'+f.itemId);

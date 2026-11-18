@@ -10969,7 +10969,9 @@ function checkCorteListoParaTaller(secId,itemId,avios){
   ensureSeccionCorte(targetSec);
   setTimeout(()=>{
     const ts=Date.now();
-    db.ref(`fabrica_v5/sections/${targetSec}/items`).push({...item,avios,fecha_etapa:ts,...(conTaller?{fecha_salida_taller:ts,retirado_taller:false}:{})});
+    const ni={...item,avios,fecha_etapa:ts,...(conTaller?{fecha_salida_taller:ts,retirado_taller:false}:{})};
+    delete ni.pedido_sin_avio; // con el avío completo, el pedido de "sacar sin avío" ya no aplica
+    db.ref(`fabrica_v5/sections/${targetSec}/items`).push(ni);
     if(conTaller){
       cmpSiguenABase(item,ts);
       db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -12798,7 +12800,14 @@ function getMisPendientesArielStef(){
   Object.entries(sectionsData).forEach(([secId,sec])=>{
     Object.entries(sec.items||{}).forEach(([itemId,item])=>{
       if(item.ficha_control_pendiente&&!item.ficha_ajuste_pendiente) list.push({secId,itemId,item,texto:'Control de ficha corregida',ts:item.fecha_etapa||item.fecha_ingreso||0});
-      if(item.pedido_sin_avio) list.push({secId,itemId,item,texto:'Pidieron enviar sin esperar avío',ts:item.pedido_sin_avio.fecha||0});
+      if(item.pedido_sin_avio){
+        // Solo cuenta mientras siga trabado: muestra lista con avíos sin recibir, o corte en avío pendiente
+        // (s4/s5). Si ya se movió (autorizado, llegó el avío, "Mover a…"), el pedido quedó viejo: se limpia.
+        const avs=Object.values(item.avios||{}); const faltan=avs.length>0&&!avs.every(a=>a&&a.recibido);
+        const trabado=faltan&&((secId===SEC_LISTA&&item.lleva_avios===true)||secId==='s4'||secId==='s5');
+        if(trabado) list.push({secId,itemId,item,texto:'Pidieron enviar sin esperar avío',ts:item.pedido_sin_avio.fecha||0});
+        else if(currentUser==='ariel'||currentUser==='stef') db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/pedido_sin_avio`).remove();
+      }
     });
   });
   Object.entries(gruposCorteData||{}).forEach(([corteKey,grupo])=>{

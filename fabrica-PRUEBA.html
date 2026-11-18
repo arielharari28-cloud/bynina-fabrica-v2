@@ -10794,9 +10794,9 @@ function saveRollos(){
   // descuenta del stock los rollos elegidos de la app (los "fuera de la app" no tocan nada)
   const filasGuardadas=rows.filter(row=>row.color||row.kgmts||row.capas);
   const consumo=tsAplicarConsumo(tsCtxDe(secId,itemId,corteKey),filasGuardadas,{corte:item.numero_corte||'',code:item.code||''},colPlan);
-  // Nov 2026: todo corte que no carga Ariel entra a "Tela para revisar", también con rollos fuera de la app.
+  // Nov 2026: todo corte que se carga (también lo que carga Ariel) entra a "Tela para revisar", también con rollos fuera de la app.
   try{ const ckRev=corteKey||corteKeyFrom(String(item.numero_corte||''));
-    if(ckRev&&currentUser!=='ariel'&&Object.keys(rollosObj).length) revTelaMarcar(ckRev,item.numero_corte||ckRev,corteKey?'g':itemId,rollosObj); }catch(e){}
+    if(ckRev&&Object.keys(rollosObj).length) revTelaMarcar(ckRev,item.numero_corte||ckRev,corteKey?'g':itemId,rollosObj); }catch(e){}
   if(corteKey){
     db.ref(`fabrica_v5/grupos_corte/${corteKey}/rollos`).set(rollosObj);
     logActivity('Rollos utilizados',`Corte ${item.numero_corte}: ${Object.keys(rollosObj).length} rollo(s)`);
@@ -10820,7 +10820,7 @@ function saveRollos(){
     }
   }
   document.getElementById('modal-rollos').classList.add('hidden');
-  showToast(consumo.compartidos?`📦 Rollos guardados · ${consumo.compartidos} rollo${consumo.compartidos>1?'s':''} queda${consumo.compartidos>1?'n':''} para revisión de Ariel (no baja del stock hasta que lo apruebe)`:'📦 Rollos guardados');
+  showToast(consumo.compartidos?`📦 Rollos guardados · ${consumo.compartidos} rollo${consumo.compartidos>1?'s':''} queda${consumo.compartidos>1?'n':''} para revisión ${currentUser==='ariel'?'en Tela para revisar (no baja del stock hasta que lo apruebes)':'de Ariel (no baja del stock hasta que lo apruebe)'}`:'📦 Rollos guardados');
 }
 document.getElementById('close-modal-rollos').onclick=()=>document.getElementById('modal-rollos').classList.add('hidden');
 document.getElementById('cancel-modal-rollos').onclick=()=>document.getElementById('modal-rollos').classList.add('hidden');
@@ -14238,7 +14238,7 @@ function tsAplicarConsumo(ctx,rows,info,colPlan){
     // cambió la cantidad, se mantiene aprobado). Lo que carga Ariel se toma como ya revisado.
     const usadoR=Math.round(usado*100)/100;
     const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-usadoR)<0.01;
-    const pendiente=currentUser==='ariel'?false:!yaAprobado;
+    const pendiente=!yaAprobado;
     if(pendiente) compartidos++;
     const usadoCapas=Math.round((capasKgPor[id]||0)*100)/100;
     const uso={corte:info.corte||'',code:info.code||'',usado:usadoR,capas:capasPor[id]||0,usadoCapas,sinExplicar:Math.round((usadoR-usadoCapas)*100)/100,terminado:!!termPor[id],unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente};
@@ -14252,7 +14252,7 @@ function tsAplicarConsumo(ctx,rows,info,colPlan){
     Object.entries(tsData.rollos).forEach(([id,r])=>{ if(r&&r.usos&&r.usos[cctx]&&!(id in colPor)){ delete W(id)[cctx]; upd[`rollos/${id}/usos/${cctx}`]=null; } });
     Object.entries(colPor).forEach(([id,usado])=>{
       const r=tsData.rollos[id],previo=(r.usos||{})[cctx],u2=Math.round(usado*100)/100;
-      const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-u2)<0.01; const pendiente=currentUser==='ariel'?false:!yaAprobado;
+      const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-u2)<0.01; const pendiente=!yaAprobado;
       const uso={...colPlan.info,usado:u2,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente};
       W(id)[cctx]=uso; upd[`rollos/${id}/usos/${cctx}`]=uso;
       if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]='entero';
@@ -14290,7 +14290,40 @@ function revTelaMarcar(ck,numero,src,rows){
 }
 // Cortes que Noelia cargó desde el 11/11/2026 (antes de este cambio): entran a revisión una sola vez.
 let revTelaMigrando=false;
+// Una sola vez (18/11/2026): lo que Ariel cargó hoy se había aprobado solo; vuelve a "Tela para revisar"
+// (el uso queda pendiente, así al aprobarlo se descuenta una sola vez).
+let revTelaArielMigrado=false;
+function revTelaMigrarAriel(){
+  if(revTelaArielMigrado||(usuarioLogueado||currentUser)!=='ariel') return;
+  if(!tsData||!tsData.rollos||!Object.keys(tsData.rollos).length) return;
+  if(typeof actividadData==='undefined'||!actividadData||!Object.keys(actividadData).length) return;
+  revTelaArielMigrado=true;
+  db.ref('fabrica_v5/migraciones/revTelaAriel1811').once('value').then(snap=>{
+    if(snap.val()) return;
+    const desde=new Date(2026,10,18,0,0,0).getTime(), hasta=new Date(2026,10,19,0,0,0).getTime();
+    const upd={}, flags={}, toca={};
+    Object.entries(tsData.rollos).forEach(([id,r])=>{ if(!r) return;
+      Object.entries(r.usos||{}).forEach(([k,u])=>{
+        if(!u||u.pendiente||u.revisadoEn||u.por!=='ariel'||(u.fecha||0)<desde||(u.fecha||0)>=hasta) return;
+        (toca[id]=toca[id]||[]).push(k);
+        const ck=corteKeyFrom(String(u.corte||'')); if(ck) flags[ck]=String(u.corte);
+      }); });
+    Object.entries(toca).forEach(([id,ks])=>{ const r=tsData.rollos[id]; const usos={...r.usos};
+      ks.forEach(k=>{ usos[k]={...usos[k],pendiente:true}; upd[`telas_stock/rollos/${id}/usos/${k}/pendiente`]=true; });
+      const rest=tsRestanteDe({...r,usos}); upd[`telas_stock/rollos/${id}/restante`]=rest; upd[`telas_stock/rollos/${id}/estado`]=tsEstadoDe({...r,usos},rest); });
+    Object.values(actividadData).forEach(a=>{
+      if(!a||a.action!=='Rollos utilizados'||a.user!==USER_DISPLAY.ariel||(a.timestamp||0)<desde||(a.timestamp||0)>=hasta) return;
+      const m=String(a.details||'').match(/^Corte (.+?): \d+ rollo/); if(!m) return;
+      const ck=corteKeyFrom(m[1]); if(ck) flags[ck]=m[1]; });
+    Object.entries(flags).forEach(([ck,num])=>{ const prev=revTelaData[ck]||{};
+      upd[`revision_tela/${ck}/corte`]=num; upd[`revision_tela/${ck}/pendiente`]=true; upd[`revision_tela/${ck}/fecha`]=prev.fecha||Date.now();
+      if(!prev.por) upd[`revision_tela/${ck}/por`]='ariel'; });
+    upd['migraciones/revTelaAriel1811']={hecho:Date.now(),cortes:Object.values(flags)};
+    return db.ref('fabrica_v5').update(upd);
+  }).catch(e=>{ console.error(e); revTelaArielMigrado=false; });
+}
 function revTelaMigrarHoy(){
+  try{ revTelaMigrarAriel(); }catch(e){ console.error(e); }
   if(revTelaMigrando||!revTelaCargado||(usuarioLogueado||currentUser)!=='ariel') return;
   if(typeof actividadData==='undefined'||!actividadData||!Object.keys(actividadData).length) return;
   if(!sectionsData||!Object.keys(sectionsData).length) return;
@@ -14310,7 +14343,7 @@ function revTelaMigrarHoy(){
 function revTelaCodes(ck){
   const out=[];
   Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
-    if(it&&!it.es_complemento&&corteKeyFrom(String(it.numero_corte||''))===ck&&it.code&&!out.includes(it.code)) out.push(it.code); }));
+    if(it&&corteKeyFrom(String(it.numero_corte||''))===ck&&it.code&&!out.includes(it.code)) out.push(it.code); }));
   return out;
 }
 // Filas de rollos de un corte en Fábrica (grupo del corte; si no, los artículos; si no, Costeo),
@@ -14323,7 +14356,7 @@ function revTelaFilas(corte){
   Object.entries(gr).forEach(([rid,x])=>add(rid,x,`fabrica_v5/grupos_corte/${key}/rollos/${rid}`,'fabrica'));
   const usarItems=!orden.length;
   Object.entries(sectionsData||{}).forEach(([sid,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
-    if(!it||it.es_complemento||corteKeyFrom(String(it.numero_corte||''))!==key) return;
+    if(!it||corteKeyFrom(String(it.numero_corte||''))!==key) return;
     Object.entries(it.rollos||{}).forEach(([rid,x])=>{ if(usarItems||m[rid]) add(rid,x,`fabrica_v5/sections/${sid}/items/${iid}/rollos/${rid}`,'fabrica'); }); }));
   const ce=(costeosData[key]||{}).rollos||{};
   const usarCosteo=!orden.length;
@@ -14332,6 +14365,13 @@ function revTelaFilas(corte){
     if(rid) m[rid].rutas.push({ruta:`fabrica_v5/costeos/${key}/rollos/${k}`,tipo:'costeo'});
     else if(usarCosteo) add(k,x,`fabrica_v5/costeos/${key}/rollos/${k}`,'costeo'); });
   return orden.map(r=>m[r]);
+}
+// Si el N° de corte es un complemento (ej. 209B = puño del 209), devuelve {que, numero} para mostrarlo en la revisión.
+function revTelaComplemento(corte){
+  const key=corteKeyFrom(String(corte||'')); if(!key) return null;
+  for(const sec of Object.values(sectionsData||{})) for(const it of Object.values((sec&&sec.items)||{}))
+    if(it&&it.es_complemento&&corteKeyFrom(String(it.numero_corte||''))===key) return {que:(it.complemento_de&&it.complemento_de.que)||'Complemento',numero:(it.complemento_de&&it.complemento_de.numero)||''};
+  return null;
 }
 function revTelaFuera(corte){ return revTelaFilas(corte).filter(f=>!f.x.stockId&&(tsNum(f.x.kgmts)||tsNum(f.x.capas))); }
 let revFueraMap={};
@@ -14343,6 +14383,7 @@ function revTelaResumenRollos(g){
   return t?`${t} rollo${t>1?'s':''}${p.length?' · '+p.join(' · '):''}`:'sin rollos cargados';
 }
 function renderAvisoTela(){
+  try{ if(revTelaCargado) revTelaMigrarAriel(); }catch(e){}
   const c=document.getElementById('aviso-tela'); if(!c) return;
   if((usuarioLogueado||currentUser)!=='ariel'){ c.innerHTML=''; return; }
   let l=[]; try{ l=tsCortesRevision(); }catch(e){}
@@ -14418,7 +14459,7 @@ function tsFechaDia(ts){ if(!ts) return ''; const d=new Date(ts); return d.toLoc
 function tsMedidasCorte(corte){
   const key=corteKeyFrom(String(corte||'')); if(!key) return {largo:0,peso:0};
   for(const sec of Object.values(sectionsData||{})) for(const it of Object.values((sec&&sec.items)||{})){
-    if(!it||it.es_complemento||corteKeyFrom(String(it.numero_corte||''))!==key) continue;
+    if(!it||corteKeyFrom(String(it.numero_corte||''))!==key) continue;
     const largo=numAr(getLargoCapaEfectivo(it)), peso=numAr(getPesoMetroEfectivo(it));
     if(largo) return {largo,peso};
   }
@@ -14455,7 +14496,7 @@ function renderTsRevision(){
       const telas=[...new Set(g.filas.map(f=>f.r.tela).filter(Boolean))].map(tsEsc).join(', ');
       return `<div class="ts-card">
         <div class="ts-card-head" onclick="tsRevToggle('${ck}')" style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:pointer"><div>
-          <div class="ts-tela" style="font-size:16px"><span class="ts-rev-chev" data-corte="${ck}" style="color:var(--text2);font-size:12px;margin-right:6px">${ab?'▲':'▼'}</span><span style="display:inline-block;min-width:26px;padding:1px 8px;margin-right:6px;border-radius:20px;background:var(--green-text,#166534);color:#fff;font-size:12px;text-align:center">${i+1}°</span>Corte ${tsEsc(g.corte)} <span style="font-size:13px;font-weight:600;color:${g.fechaCorte?'var(--text2)':'#9a3412'}">· ${g.fechaCorte?'cortado '+tsFechaDia(g.fechaCorte):'sin fecha de corte'}</span></div>
+          <div class="ts-tela" style="font-size:16px"><span class="ts-rev-chev" data-corte="${ck}" style="color:var(--text2);font-size:12px;margin-right:6px">${ab?'▲':'▼'}</span><span style="display:inline-block;min-width:26px;padding:1px 8px;margin-right:6px;border-radius:20px;background:var(--green-text,#166534);color:#fff;font-size:12px;text-align:center">${i+1}°</span>Corte ${tsEsc(g.corte)} <span style="font-size:13px;font-weight:600;color:${g.fechaCorte?'var(--text2)':'#9a3412'}">· ${g.fechaCorte?'cortado '+tsFechaDia(g.fechaCorte):'sin fecha de corte'}</span>${(()=>{ const cm=revTelaComplemento(g.corte); return cm?` <span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;background:var(--green-bg,#e8efe9);color:var(--green-text,#166534);font-size:11px;font-weight:600">🧩 ${tsEsc(cm.que)}${cm.numero?' · complemento del '+tsEsc(cm.numero):''}</span>`:''; })()}</div>
           <div class="ts-sub">${[...g.codes].map(tsEsc).join(' · ')}${telas?' · '+telas:''}<br>Cargó ${[...g.por].map(p=>tsEsc(nom(p))).join(', ')||'—'} · cargado ${tsFechaDia(g.fecha)} · ${revTelaResumenRollos(g)}<br>Kg por capa del corte: <b>${med.largo&&med.peso?tsFmt(med.largo*med.peso,2):'—'}</b>${med.largo?` <small>(largo ${tsFmt(med.largo,2)} × peso ${med.peso?tsFmt(med.peso,2):'—'})</small>`:' <small style="color:#9a3412">falta largo de capa / peso por metro</small>'}</div></div>
           <div style="display:flex;gap:10px;align-items:flex-start">${(()=>{ const fu=fotoFichaDeCorte(g.corte); return fu?`<img src="${tsEsc(fu)}" title="Ficha del cortador (tocar para ampliar)" onclick="event.stopPropagation();window.open('${tsEsc(fu)}','_blank')" style="width:110px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--border);cursor:zoom-in">`:'<div style="width:110px;height:80px;border-radius:8px;border:1px dashed var(--border);display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;color:var(--text2)">sin foto<br>de la ficha</div>'; })()}<span class="ts-rev">pendiente</span></div></div>
         <div class="ts-rev-body" data-corte="${ck}" style="display:${ab?'':'none'}">
@@ -14646,7 +14687,7 @@ function tsAprobarCorte(corte){
     const firmas={}; const gr=(gruposCorteData[ckey]||{}).rollos;
     if(gr&&Object.keys(gr).length) firmas.g=revTelaFirma(gr);
     Object.entries(sectionsData||{}).forEach(([,sec])=>Object.entries((sec&&sec.items)||{}).forEach(([iid,it])=>{
-      if(it&&!it.es_complemento&&corteKeyFrom(String(it.numero_corte||''))===ckey&&it.rollos) firmas[iid]=revTelaFirma(it.rollos); }));
+      if(it&&corteKeyFrom(String(it.numero_corte||''))===ckey&&it.rollos) firmas[iid]=revTelaFirma(it.rollos); }));
     db.ref(`fabrica_v5/revision_tela/${ckey}`).update({corte:String(corte),pendiente:false,aprobadoPor:currentUser,aprobadoEn:Date.now(),firmas}); };
   if(Object.keys(otrosUpd).length) db.ref().update(otrosUpd).then(fin,fin); else fin();
   const nf=fuera.length, partes=[];
@@ -15157,7 +15198,7 @@ function colAplicarStock(item,usos){
   Object.entries(tsData.rollos||{}).forEach(([id,r])=>{ if(r&&r.usos&&r.usos[ctx]&&!(id in usadoPor)){ const us={...r.usos}; delete us[ctx]; const nr={...r,usos:us}; const rest=tsRestanteDe(nr);
     upd[`rollos/${id}/usos/${ctx}`]=null; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest); } });
   Object.entries(usadoPor).forEach(([id,usado])=>{ const r=tsData.rollos[id],previo=(r.usos||{})[ctx],u2=Math.round(usado*100)/100;
-    const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-u2)<0.01; const pendiente=currentUser==='ariel'?false:!yaAprobado;
+    const yaAprobado=previo&&!previo.pendiente&&Math.abs(tsNum(previo.usado)-u2)<0.01; const pendiente=!yaAprobado;
     const uso={...info,usado:u2,unidad:r.unidad||'kg',fecha:Date.now(),por:currentUser,pendiente}; const nr={...r,usos:{...(r.usos||{}),[ctx]:uso}}; const rest=tsRestanteDe(nr);
     upd[`rollos/${id}/usos/${ctx}`]=uso; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest); if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]='entero'; });
   if(Object.keys(upd).length) db.ref('fabrica_v5/telas_stock').update(upd);

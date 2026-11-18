@@ -6577,6 +6577,36 @@ function utAvioDe(secId,item){
   if(secId==='s5'||secId==='s6') return {tipo:'pedido',pend};
   return null;
 }
+// Fecha corta con día de la semana: "lun 10/11".
+function utDiaFecha(ts){
+  if(!ts) return '';
+  const d=new Date(ts); const dias=['dom','lun','mar','mié','jue','vie','sáb'];
+  return `${dias[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+// Detalle en la fila de Talleres: un renglón por avío que falta, con el estado del pedido
+// (sin pedir / pedido y cuándo llega / atrasado). La llegada es la coordinada o, si no hay,
+// la estimada desde el pedido (2 días hábiles, 7 si lleva teñido) — igual que en Pendientes.
+function utAvioDetalleHtml(pend){
+  if(!pend||!pend.length) return '';
+  return pend.map(av=>{
+    let dot='#dc2626', col='#991b1b', txt='sin pedir', bold=true;
+    if(av.fecha_pedido){
+      const pedTs=logiParseFechaEntregado(av.fecha_pedido);
+      const lleg=av.fecha_llegada?new Date(av.fecha_llegada+'T00:00:00').getTime():(pedTs?sumarDiasHabiles(pedTs,av.tenido?7:2):0);
+      const pedTxt=pedTs?utDiaFecha(pedTs):av.fecha_pedido;
+      if(lleg){
+        const h=diasHabilesHasta(lleg);
+        if(h<0){ txt=`pedido ${pedTxt} · atrasado ${-h} d`; }
+        else { dot='#d97706'; col='#92400e'; bold=false; txt=`pedido ${pedTxt} · llega ${h===0?'hoy':(av.fecha_llegada?'':'~')+utDiaFecha(lleg)}`; }
+      } else { dot='#d97706'; col='#92400e'; bold=false; txt=`pedido ${pedTxt}`; }
+    }
+    const extra=[av.proveedor||'',av.tenido?'con teñido':''].filter(Boolean).join(' · ');
+    return `<div style="display:flex;align-items:flex-start;gap:5px;margin-top:4px;font-size:11px;line-height:1.3;text-align:left">
+      <span style="width:7px;height:7px;border-radius:50%;background:${dot};flex-shrink:0;margin-top:4px"></span>
+      <span><span style="color:var(--text)">${utEsc(av.nombre||'(sin nombre)')}</span> <span style="color:${col};${bold?'font-weight:700':''}">${txt}</span>${extra?`<br><span style="color:var(--text3);font-size:10px">${utEsc(extra)}</span>`:''}</span>
+    </div>`;
+  }).join('');
+}
 function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||esTalleres(); }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
@@ -6705,8 +6735,9 @@ function renderResumenPipelineTalleres(){
     let avioHtml='<span class="ut-muted">—</span>';
     if(f.avio){
       const a=UT_AVIO[f.avio.tipo];
-      const tip=f.avio.pend.length?f.avio.pend.map(x=>x.nombre+(x.fecha_pedido?' (pedido '+x.fecha_pedido+')':' (sin pedir)')).join(', '):a.label;
-      avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}</span>`;
+      const pend=f.avio.pend||[];
+      const tip=pend.length?pend.map(x=>x.nombre+(x.fecha_pedido?' (pedido '+x.fecha_pedido+')':' (sin pedir)')).join(', '):a.label;
+      avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}${pend.length?' · '+pend.length:''}</span>`+utAvioDetalleHtml(pend);
     }
     const chkR=utChecklistRetiroHtml(f);
     if(chkR) avioHtml=(f.avio?avioHtml+'<div style="height:4px"></div>':'')+chkR.html;
@@ -6717,7 +6748,16 @@ function renderResumenPipelineTalleres(){
       const ref=it.fecha_estimada_entrega_taller||entregaAutoTaller(it);
       const pasado=ref&&new Date(ref+'T00:00:00')<hoyD;
       const txt=f.estado==='plancha'?'en estampado':f.estado==='terminacion'?'en terminación':'en taller';
-      diasTallerHtml=`<div style="font-size:10.5px;${pasado?'color:var(--danger);font-weight:700':'color:var(--text2)'}">⏱ ${f.dias} d ${txt}</div>`;
+      const est=`font-size:10.5px;${pasado?'color:var(--danger);font-weight:700':'color:var(--text2)'}`;
+      if(f.estado==='confeccion'&&it.fecha_retiro_confirmado){
+        const dR=diasEntre(it.fecha_retiro_confirmado);
+        diasTallerHtml=`<div style="${est}">🚚 Retiró ${utDiaFecha(it.fecha_retiro_confirmado)} · ${dR===0?'hoy':dR===1?'hace 1 día':'hace '+dR+' días'}</div>`;
+      } else if(f.estado==='confeccion'){
+        const ts0=it.fecha_etapa;
+        diasTallerHtml=`<div style="${est}">⏱ ${f.dias} d ${txt}${ts0?' · desde '+utDiaFecha(ts0):''}</div><div style="font-size:10px;color:var(--text3)">sin fecha de retiro cargada</div>`;
+      } else {
+        diasTallerHtml=`<div style="${est}">⏱ ${f.dias} d ${txt}</div>`;
+      }
     }
     const puede=utPuedeEditarTaller();
     const stop='onclick="event.stopPropagation()"';

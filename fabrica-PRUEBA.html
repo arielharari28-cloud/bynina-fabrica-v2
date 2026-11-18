@@ -889,7 +889,10 @@
   .ld-mas summary::-webkit-details-marker{display:none}
   .ld-mas summary::after{content:" ＋";color:var(--text2);font-weight:400}
   .ld-mas[open] summary::after{content:" －"}
-  .logi-count-table.hide-esp .c-esp,.logi-count-table.hide-pc .c-pc,.logi-count-table.hide-ft .c-ft,.logi-count-table.hide-saldo .c-saldo{display:none}
+  .logi-count-table.hide-esp .c-esp,.logi-count-table.hide-pc .c-pc,.logi-count-table.hide-ft .c-ft,.logi-count-table.hide-saldo .c-saldo,.logi-count-table.hide-falt .c-falt{display:none}
+  .logi-in-faltante{width:52px;border:1.5px solid #c2410c;border-radius:6px;padding:4px;text-align:center;font-weight:700;color:#9a3412;background:#fff7ed}
+  .logi-in-falt-mot{width:92px;margin-top:3px;font-size:10.5px;border:1px solid var(--border);border-radius:5px;padding:2px 4px}
+  .logi-in-falt-mot.req{border-color:#b0392f;background:#fdecea}
 
   /* Recorrido (etapas) y tarjeta de Talleres — oct 2026 */
   .rc-box{margin-top:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
@@ -5145,7 +5148,7 @@ function resumenEntregasFabrica(item,itemId){
     .filter(([,it])=>it.numero_corte===item.numero_corte&&it.code===item.code&&!it.proceso) // solo costura: plancha/estampado no suman como entregado
     .sort((a,b)=>(a[1].fecha_creado||0)-(b[1].fecha_creado||0));
   const totalEntregado=entregas.reduce((s,[,e])=>s+Object.values(e.grilla||{}).reduce((s2,f)=>s2+(parseInt(f.contado)||0),0),0);
-  const totalFaltante=parseInt(item.faltante_total)||0;
+  const totalFaltante=(parseInt(item.faltante_total)||0)+entregas.reduce((s,[,e])=>s+Object.values(e.grilla||{}).reduce((s2,f)=>s2+(parseInt(f.faltante)||0),0),0);
   const enTaller=Math.max(0,totalEsperado-totalEntregado-totalFaltante);
   return {filas,totalEsperado,entregas,totalEntregado,totalFaltante,enTaller};
 }
@@ -6522,7 +6525,7 @@ function utSaldoParcial(item,itemId){
   const abierta=r.entregas.some(([,e])=>e.estado!=='cerrado'&&['conteo','control'].includes(logiEstadoColumna(e)));
   if(abierta) return null;
   const cont={};
-  r.entregas.forEach(([,e])=>Object.values(e.grilla||{}).forEach(f=>{ const k=(f.color||'')+'__'+(f.talle||''); cont[k]=(cont[k]||0)+(parseInt(f.contado)||0); }));
+  r.entregas.forEach(([,e])=>Object.values(e.grilla||{}).forEach(f=>{ const k=(f.color||'')+'__'+(f.talle||''); cont[k]=(cont[k]||0)+(parseInt(f.contado)||0)+(parseInt(f.faltante)||0); }));
   const faltan=[];
   r.filas.forEach(f=>{ const n=(f.esperado||0)-(cont[(f.color||'')+'__'+(f.talle||'')]||0); if(n>0) faltan.push({color:f.color,talle:f.talle,n}); });
   const ultima=r.entregas[r.entregas.length-1][1];
@@ -16849,7 +16852,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
   entregasPrevias.forEach(it=>{
     Object.values(it.grilla||{}).forEach(f=>{
       const k=`${f.color||''}__${f.talle||''}`;
-      entregadoPorCombo[k]=(entregadoPorCombo[k]||0)+(parseInt(f.contado)||0);
+      entregadoPorCombo[k]=(entregadoPorCombo[k]||0)+(parseInt(f.contado)||0)+(parseInt(f.faltante)||0); // el faltante del taller ya no se espera
     });
   });
   const grillaObj={};
@@ -19539,6 +19542,12 @@ function logiRenderDetail(id){
   // motivo) y Ariel/Stef lo aprueban o rechazan desde la misma fila.
   const canEditarEsperado = !cerrado && (currentUser==='ariel' || currentUser==='stef');
   const canSolicitarEsperado = !cerrado && (currentUser==='emir' || pqMS);
+  // Faltante del taller (nov 2026): lo que el taller avisa que NO va a entregar (faltó tela, se
+  // perdieron piezas). Sale del saldo, así el corte no queda colgado en "Entrega parcial". Lo cargan
+  // Ariel y Noelia (todo) y Peque (Mini Sur); también con el control cerrado, porque muchas veces
+  // el taller lo avisa después. El motivo es obligatorio.
+  const canEditarFaltante = currentUser==='ariel' || currentUser==='noelia' || pqMS;
+  let totalFaltante=0, faltanteSinMotivo=0;
 
   let rowsHtml='';
   let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalFalladoTela=0, totalSaldo=0, totalPorControlar=0;
@@ -19555,7 +19564,13 @@ function logiRenderDetail(id){
       const clasificadas = (f.ok||0)+(f.detalle||0)+(f.fallado||0)+(f.fallado_tela||0);
       const contado = f.contado||0;
       const porControlar = contado - clasificadas;
-      const saldo = (f.esperado||0) - contado;
+      const faltante = parseInt(f.faltante)||0;
+      const saldo = (f.esperado||0) - contado - faltante;
+      totalFaltante+=faltante; if(faltante>0&&!(f.faltante_motivo||'').trim()) faltanteSinMotivo++;
+      const motEsc=String(f.faltante_motivo||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+      const faltanteCell = canEditarFaltante
+        ? `<input type="number" min="0" class="logi-in-faltante" value="${faltante}" onchange="logiSetFaltante('${id}','${key}',this.value)">${faltante>0?`<br><input type="text" class="logi-in-falt-mot${(f.faltante_motivo||'').trim()?'':' req'}" placeholder="motivo (obligatorio)" value="${motEsc}" onchange="logiSetFaltanteMotivo('${id}','${key}',this.value)">`:''}`
+        : (faltante?`<b style="color:#9a3412">${faltante}</b>${f.faltante_motivo?`<div style="font-size:10px;color:#9a3412">${motEsc}</div>`:''}`:'0');
       const completo = f.esperado>0 && saldo===0 && porControlar===0;
       const tieneNotaDetalle = f.notas && Object.values(f.notas).some(n=>n.tipo==='detalle');
       const tieneNotaFallado = f.notas && Object.values(f.notas).some(n=>n.tipo==='fallado');
@@ -19598,6 +19613,7 @@ function logiRenderDetail(id){
           <input type="number" min="0" class="logi-in-fallado-tela" value="${f.fallado_tela||0}" ${inputAttr} onchange="logiSetConteo('${id}','${key}','fallado_tela',this.value)">
           ${cerrado?'':`<button class="logi-note-btn ${tieneNotaFalladoTela?'has-note':''}" title="Motivo" onclick="logiEditarNota('${id}','${key}','fallado_tela')">📝</button>`}
         </td>
+        <td class="c-falt">${faltanteCell}</td>
         <td class="c-saldo" style="font-weight:700;color:${saldo<0?'#b0392f':(saldo===0&&f.esperado?'#2e7d4f':'var(--text2)')}">${f.esperado?saldo:'—'}</td>
         ${canEditarGrilla?`<td><button class="logi-note-btn" title="Borrar fila" onclick="logiBorrarFila('${id}','${key}')">🗑️</button></td>`:''}
       </tr>`;
@@ -19611,14 +19627,15 @@ function logiRenderDetail(id){
       <td>${totalDetalle}</td>
       <td class="c-ft">${totalFallado}</td>
       <td>${totalFalladoTela}</td>
+      <td class="c-falt" style="color:${totalFaltante?'#9a3412':'var(--text2)'}">${totalFaltante}</td>
       <td class="c-saldo" style="color:${totalSaldo<0?'#b0392f':(totalSaldo===0&&totalEsperado?'#2e7d4f':'var(--text2)')}">${totalEsperado?totalSaldo:'—'}</td>
       ${canEditarGrilla?'<td></td>':''}
     </tr>`;
     // Con el conteo cerrado se esconden las columnas que no aportan (esperado, y las que están todas en 0).
-    const ocultas=[cerrado?'hide-esp':'', (cerrado&&totalPorControlar===0)?'hide-pc':'', (cerrado&&totalFallado===0)?'hide-ft':'', (cerrado&&totalSaldo===0)?'hide-saldo':''].filter(Boolean).join(' ');
+    const ocultas=[cerrado?'hide-esp':'', (cerrado&&totalPorControlar===0)?'hide-pc':'', (cerrado&&totalFallado===0)?'hide-ft':'', (cerrado&&totalSaldo===0)?'hide-saldo':'', (!canEditarFaltante&&totalFaltante===0)?'hide-falt':''].filter(Boolean).join(' ');
     rowsHtml = `<div style="overflow-x:auto"><table class="logi-count-table ${ocultas}">
       <thead><tr>
-        <th>Color</th><th>Talle</th><th class="c-esp">Esperado</th><th>Contado</th><th class="c-pc">Por controlar</th><th>OK</th><th>Detalle</th><th class="c-ft" title="Fallado por culpa del taller — sí se le descuenta/no se le paga">Fallado taller</th><th title="Fallado por defecto de tela — no es responsabilidad del taller">Fallado tela</th><th class="c-saldo">Saldo</th>${canEditarGrilla?'<th></th>':''}
+        <th>Color</th><th>Talle</th><th class="c-esp">Esperado</th><th>Contado</th><th class="c-pc">Por controlar</th><th>OK</th><th>Detalle</th><th class="c-ft" title="Fallado por culpa del taller — sí se le descuenta/no se le paga">Fallado taller</th><th title="Fallado por defecto de tela — no es responsabilidad del taller">Fallado tela</th><th class="c-falt" style="color:#9a3412" title="Lo que el taller avisa que NO va a entregar (faltó tela, piezas perdidas). Sale del saldo y no se factura">Faltante taller</th><th class="c-saldo">Saldo</th>${canEditarGrilla?'<th></th>':''}
       </tr></thead>
       <tbody>${body}</tbody>
       <tfoot>${totalRow}</tfoot>
@@ -19630,11 +19647,11 @@ function logiRenderDetail(id){
     (!cerrado && filas.length ? `<button class="btn-sm" style="margin-top:10px;margin-left:8px" onclick="logiOpenClasifGridModal('${id}')">🔢 Cargar OK/Detalle/Fallado por grilla</button>` : '');
 
   const totalClasificadas = totalOk+totalDetalle+totalFallado+totalFalladoTela;
-  const puedeCerrar = !cerrado && filas.length>0 && totalContado>0 && totalPorControlar===0;
+  const puedeCerrar = !cerrado && filas.length>0 && totalContado>0 && totalPorControlar===0 && faltanteSinMotivo===0;
 
   const kpi=(l,v,c)=>`<div class="ld-kpi"><span>${l}</span><b style="color:${c}">${v}</b></div>`;
   document.getElementById('logi-detail-kpis').innerHTML = filas.length
-    ? kpi('Contado',totalContado,'var(--text)')+kpi('OK (depósito)',totalOk,'#2d6a4f')+kpi('Con detalle (local)',totalDetalle,'#7a5200')+kpi('Fallado tela',totalFalladoTela,'#9a3412')+kpi('Fallado taller',totalFallado,totalFallado?'#b0392f':'var(--text2)')
+    ? kpi('Contado',totalContado,'var(--text)')+kpi('OK (depósito)',totalOk,'#2d6a4f')+kpi('Con detalle (local)',totalDetalle,'#7a5200')+kpi('Fallado tela',totalFalladoTela,'#9a3412')+kpi('Fallado taller',totalFallado,totalFallado?'#b0392f':'var(--text2)')+(totalFaltante?kpi('Faltante taller',totalFaltante,'#9a3412'):'')
     : '';
   document.getElementById('logi-detail-estado').innerHTML = cerrado
     ? '<span class="ld-chip" style="background:#e8f4ef;color:#2d6a4f">✓ Conteo cerrado</span>'
@@ -19660,7 +19677,8 @@ function logiRenderDetail(id){
     const btnGuardarPendiente = totalContado>0
       ? `<button class="btn-sm" ${puedeGuardarPendiente?'':'disabled'} onclick="logiGuardarPendienteControlar('${id}')" style="margin-right:6px">💾 Guardar y dejar pendiente controlar</button>`
       : '';
-    html += avisoControl + yaMarcado + `<div class="logi-summary-bar">
+    const avisoFaltante = faltanteSinMotivo>0 ? `<div style="text-align:center;font-size:12px;color:#b0392f;margin-bottom:6px">⚠️ Falta escribir el motivo del faltante en ${faltanteSinMotivo} fila${faltanteSinMotivo!==1?'s':''} — es obligatorio para cerrar</div>` : '';
+    html += avisoControl + avisoFaltante + yaMarcado + `<div class="logi-summary-bar">
       <div class="logi-totals">${totalContado} / ${totalEsperado||'—'} contadas</div>
       <div>${btnGuardarPendiente}<button class="logi-close-btn" ${puedeCerrar?'':'disabled'} onclick="logiCerrarConteo('${id}')">${(()=>{const s=logiSigueA(it);return s?'Cerrar control → Facturar y sigue a '+utEsc(s):logiEsMinisur(it)?'Cerrar control → Finalizar (Mini Sur)':'Cerrar control → Pendiente dividir';})()}</button></div>
     </div>`;
@@ -19671,6 +19689,27 @@ function logiRenderDetail(id){
 // Edición directa: escribe el valor tal cual (no suma de a uno), así se puede corregir un error
 // de tipeo sin tener que resetear todo. Para OK/Detalle/Fallado, no deja que la suma de los tres
 // supere lo Contado en esa fila — si te pasás, lo recorta al máximo posible y avisa.
+// Faltante del taller por fila: no puede superar lo que falta entregar (esperado − contado).
+function logiSetFaltante(itemId,rowKey,valor){
+  const it=logiItemsData[itemId];
+  const f=(it&&it.grilla&&it.grilla[rowKey])||{};
+  const max=Math.max(0,(f.esperado||0)-(f.contado||0));
+  let n=Math.max(0,parseInt(valor)||0);
+  if(n>max){ n=max; showToast(`El faltante no puede ser más que lo que falta entregar (${max})`); }
+  const upd={faltante:n};
+  if(n===0) upd.faltante_motivo=null;
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}`).update(upd);
+  logActivity('Cargó faltante del taller',`${it&&it.code||''} — Corte ${it&&it.numero_corte||'?'} · ${f.color||''} ${f.talle||''}: ${n}`);
+  if(it&&it.grilla&&it.grilla[rowKey]){ it.grilla[rowKey].faltante=n; if(n===0) delete it.grilla[rowKey].faltante_motivo; }
+  logiRenderDetail(itemId);
+}
+function logiSetFaltanteMotivo(itemId,rowKey,valor){
+  const it=logiItemsData[itemId];
+  const m=String(valor||'').trim();
+  db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/faltante_motivo`).set(m||null);
+  if(it&&it.grilla&&it.grilla[rowKey]) it.grilla[rowKey].faltante_motivo=m;
+  logiRenderDetail(itemId);
+}
 function logiSetEsperado(itemId,rowKey,valor){
   const n=Math.max(0,parseInt(valor)||0);
   db.ref(`fabrica_v5/logistica/items/${itemId}/grilla/${rowKey}/esperado`).set(n);

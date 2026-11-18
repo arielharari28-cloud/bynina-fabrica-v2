@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fábrica — By Nina</title>
@@ -181,6 +182,33 @@
   .ut-group{display:flex;align-items:center;gap:8px;padding:10px 14px 6px;background:var(--bg);border-bottom:1px solid var(--border);font-size:12px}
   .ut-group span:last-child{color:var(--text2)}
   .ut-subgroup{padding:5px 14px 5px 30px;font-size:11px;font-weight:700;border-bottom:1px solid var(--border);background:var(--surface2)}
+  /* Talleres (nov 2026): letra Inter / Poppins, más grande y fila simplificada */
+  #resumen-pipeline-talleres{font-family:'Inter',-apple-system,'Segoe UI',sans-serif}
+  #resumen-pipeline-talleres button,#resumen-pipeline-talleres input,#resumen-pipeline-talleres select{font-family:inherit}
+  #resumen-pipeline-talleres .ut-group{font-size:13.5px;padding:12px 16px 8px}
+  #resumen-pipeline-talleres .ut-group b{font-family:'Poppins',sans-serif;font-weight:600;font-size:17px}
+  #resumen-pipeline-talleres .ut-subgroup{font-size:13px;padding:7px 16px 7px 32px}
+  #resumen-pipeline-talleres .ut-card{font-size:13px}
+  #resumen-pipeline-talleres .ut-orden{font-size:13px}
+  .ut-row.ut-v2{grid-template-columns:56px minmax(0,1fr) 70px 220px 210px;gap:14px;padding:12px 16px;font-size:14px}
+  .ut-row.ut-v2.ut-head{font-size:11.5px;padding:10px 16px}
+  .ut-v2 .ut-foto{width:56px;height:56px}
+  .ut-v2 .c-art{overflow:hidden}
+  .ut-v2 .ut-tit{font-family:'Poppins',sans-serif;font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ut-v2 .ut-sub{display:flex;flex-wrap:wrap;gap:5px;align-items:center;font-size:13px;color:var(--text2);margin-top:2px}
+  .ut-v2 .c-prendas{text-align:right;font-size:15px}
+  .ut-v2 .c-info{font-size:13px;line-height:1.45;color:var(--text2)}
+  .ut-v2 .c-info>div[style*="font-size"]{font-size:13px!important}
+  .ut-v2 .ut-pill{font-size:12.5px}
+  .ut-v2 .ut-estado{font-size:13px;padding:6px 12px}
+  #resumen-pipeline-talleres .tc{font-size:14px}
+  #resumen-pipeline-talleres .tc-acl{font-size:14px;line-height:1.5}
+  #resumen-pipeline-talleres .tc-h{font-size:12px}
+  .tc-acl-fotos summary{cursor:pointer;text-decoration:underline;margin-top:4px;font-size:13px}
+  .tc-falta{display:flex;flex-direction:column;gap:8px}
+  .tc-kv2{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px}
+  .tc-kv2>span:first-child{color:var(--text2);min-width:120px}
+
   .ut-exp{padding:4px 8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:default}
   .ut-row .c-corte{font-weight:700}
   .ut-row .c-art{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -221,6 +249,8 @@
     .ut-row .c-dias{order:5;flex-basis:100%}
     .ut-row .c-avio{order:6;flex-basis:100%}
     .ut-row .c-avio .ut-muted{display:none}
+    .ut-row.ut-v2 .c-art{order:3;flex-basis:100%}
+    .ut-row.ut-v2 .c-info{order:5;flex-basis:100%}
     .ut-m{display:inline}
   }
   .rt-box{margin:2px 18px 14px}
@@ -5415,16 +5445,17 @@ function etapaEntrega(secId,itemId,id){
 // Lo que se usa en taller arriba (aclaración, taller, entregas, recorrido, acciones); todo lo
 // demás (datos del artículo y todas las opciones de siempre) plegado en "Tarjeta completa".
 function tcFoldToggle(k,open){ if(open) tcFoldAbierto.add(k); else tcFoldAbierto.delete(k); }
-function buildTallerCardHtml(f,idx,total){
+function buildTallerCardHtml(f,idx,total,queFalta){
   const {secId,itemId,item:it,sec}=f;
   const k=secId+'/'+itemId;
   const puedeT=utPuedeEditarTaller();
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
   const fotos=it.fotos_prueba&&Object.keys(it.fotos_prueba).length?`<div class="diseno-fotos-grid" style="margin-top:6px">${Object.values(it.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}</div>`:'';
-  const aclaracion=it.nota?`<div class="tc-acl">📝 <b>Aclaración de diseño:</b> ${it.nota}${fotos}</div>`:'';
+  const nFotos=it.fotos_prueba?Object.keys(it.fotos_prueba).length:0;
+  const aclaracion=it.nota?`<div class="tc-acl">📝 <b>Aclaración de diseño:</b> ${it.nota}${fotos?`<details class="tc-acl-fotos" onclick="event.stopPropagation()"><summary>Ver ${nFotos} foto${nFotos!==1?'s':''}</summary>${fotos}</details>`:''}</div>`:'';
   let full=''; window.__sinRecorrido=true;
   try{ full=(f.estado==='retiro'?buildResumenTalleresHtml(secId,[[itemId,it]]):'')+buildItem(secId,itemId,it,sec,idx,total); }catch(err){ console.error(err); } finally{ window.__sinRecorrido=false; }
-  const fold=`<details class="tc-fold" ${tcFoldAbierto.has(k)?'open':''} ontoggle="tcFoldToggle('${k}',this.open)"><summary>▸ Tarjeta completa (datos del artículo y todas las opciones)</summary>${full}</details>`;
+  const fold=`<details class="tc-fold" ${tcFoldAbierto.has(k)?'open':''} ontoggle="tcFoldToggle('${k}',this.open)"><summary>Ver ficha completa del artículo ›</summary>${full}</details>`;
   const retiroBtn=(secId==='sFIN'&&!it.retirado_taller&&puedeT)?`<button class="btn-advance" onclick="event.stopPropagation();confirmarRetiroTaller('${secId}','${itemId}')">✓ ${etEsc(it.taller_corte||'El taller')} ya lo retiró</button>`:'';
   if(it.es_complemento){
     const comb=(typeof colOrdenLineaHtml==='function')?colOrdenLineaHtml(it):'';
@@ -5438,12 +5469,16 @@ function buildTallerCardHtml(f,idx,total){
     </div>`;
   }
   const avPend=Object.values(it.avios||{}).filter(a=>a&&!a.recibido);
-  const avioBanner=avPend.length?`<div class="tc-avio">⚠️ Avío pendiente: ${avPend.map(a=>etEsc(a.nombre)).join(', ')}</div>`:'';
+  const avioBanner=(avPend.length&&queFalta===undefined)?`<div class="tc-avio">⚠️ Avío pendiente: ${avPend.map(a=>etEsc(a.nombre)).join(', ')}</div>`:'';
   let retiroInfo='';
   if(secId==='sFIN'&&it.retirado_taller) retiroInfo=`<div class="tc-kv"><span>Retiró</span><span><b>${it.fecha_retiro_confirmado?fmtFecha(it.fecha_retiro_confirmado):'—'}</b> ${puedeT?`<button class="btn-sm" onclick="event.stopPropagation();editFechaRetiroTaller('${secId}','${itemId}')">Editar</button>`:''}</span></div>`;
   else if(secId==='sFIN') retiroInfo=`<div class="tc-kv"><span>Asignado</span><span><b>${it.fecha_salida_taller?fmtFecha(it.fecha_salida_taller):'—'}</b> · pendiente de retiro</span></div>`;
   const entregaFechas=(secId==='sFIN'&&it.retirado_taller)?buildEntregaTallerCardHtml(secId,itemId,it,puedeT):'';
-  let entregas=''; try{ entregas=buildEntregasFabricaHtml(secId,itemId,it)||''; }catch(err){}
+  let entregas=''; try{
+    const rs=resumenEntregasFabrica(it,itemId);
+    // Sin ninguna entrega ni faltante: una sola línea en vez de los cuatro números en 0.
+    entregas=(rs.totalEsperado&&!rs.entregas.length&&!rs.totalFaltante)?`<div class="tc-blk"><div class="tc-h">Entregas del taller</div><div class="tc-sub">Todavía ninguna · ${rs.totalEsperado} prendas en el taller</div></div>`:(buildEntregasFabricaHtml(secId,itemId,it)||'');
+  }catch(err){}
   const acts=[];
   if(retiroBtn) acts.push(retiroBtn);
   if(secId==='sLT'&&(canEdit||esTalleres())) acts.push(it.taller_corte?`<button class="btn-advance" onclick="event.stopPropagation();sacarATaller('${secId}','${itemId}')">📦 Pasar a pendiente retiro</button>`:`<span class="tc-sub">Elegí el taller y pasa solo a Pendiente retiro</span>`);
@@ -5461,6 +5496,7 @@ function buildTallerCardHtml(f,idx,total){
   return `<div class="tc">
     ${aclaracion}
     ${avioBanner}
+    ${queFalta?`<div class="tc-blk tc-falta"><div class="tc-h">Qué falta</div>${queFalta}</div>`:''}
     <div class="tc-grid">
       <div class="tc-blk"><div class="tc-h">${(secId===SEC_TALLER_TERMINACION||secId===SEC_ESTAMPADO_TALLER)?'Confección':'En el taller'}</div>
         ${puedeT?`<div onclick="event.stopPropagation()">${buildTallerCorteHtml(secId,itemId,it)}</div>`:`<div class="tc-kv"><span>Taller</span><b>${etEsc(it.taller_corte||'Sin taller')}</b></div>`}
@@ -5600,6 +5636,12 @@ function marcarEntregadoTerminacion(secId,itemId){
 function marcarEntregadoEstampadoTaller(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   if(tieneMovimientosSinContar(item)){ showToast(`⏳ Todavía no volvió del taller: ${nombresMovimientosSinContar(item)}`); return; }
+  // (nov 2026) No se puede cerrar el estampado mientras la entrega de costura de ese artículo
+  // sigue sin contar/controlar en Logística: pasó con el corte 184 (se marcó estampado entregado
+  // segundos después de abrir la entrega de costura y quedaron entregas duplicadas).
+  const costuraAbierta=Object.values(logiItemsData||{}).some(l=>l&&String(l.numero_corte)===String(item.numero_corte)&&l.code===item.code&&!l.proceso&&['pendiente_conteo','pendiente_control'].includes(l.estado));
+  if(costuraAbierta){ showToast('⏳ Primero hay que contar y controlar la entrega de costura en Logística; recién después se marca el estampado entregado'); return; }
+  if(!confirm(`¿Confirmás que ${item.code||'este artículo'} ya está ESTAMPADO y vuelve del estampado? Se abre la entrega de estampado en Logística.`)) return;
   const fechaFinal=pedirFechaEntrega('¿Qué fecha terminó el estampado?');
   if(fechaFinal===null) return;
   const grillaControlada=grillaQuePasoControlCostura(item);
@@ -6895,26 +6937,46 @@ function renderResumenPipelineTalleres(){
         :(tal?`<span class="${venc(tal)?'ut-venc':''}">${fmtIsoCorta(tal)}</span>`:'<span class="ut-muted">sin cargar</span>');
       entregaHtml=`<div class="ut-ent"><span>Estimada ${autoTxt}</span><label ${stop}>Taller ${talCampo}</label></div>`;
     }
-    return head+`<div class="ut-row${abierto?' ut-open':''}" onclick="toggleUtFila('${f.secId}','${f.itemId}')">
+    // (nov 2026) Fila simple: foto · corte y nombre · prendas · retiro/días · estado. Precio, fecha
+    // de entrega del taller y el detalle de avíos se cargan adentro de la tarjeta ("Qué falta").
+    const tallerTxt=(()=>{
+      if(actual&&(actual.tipo==='etapa'||actual.tipo==='paso'||actual.tipo==='sin')&&f.secId===SEC_TALLER_TERMINACION){
+        const conf=it.taller_corte?` <span class="ut-muted">· confección ${utEsc(it.taller_corte)} ✓</span>`:'';
+        if(actual.taller) return `${utEsc(actual.label)} · <b>${utEsc(actual.taller)}</b>${conf}`;
+        return `<span style="color:var(--danger);font-weight:700">⚠ Falta cargar el taller de terminación</span>${conf}`;
+      }
+      if(utOrden==='taller') return '';
+      return it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>';
+    })();
+    let entregaResumen='';
+    if(['confeccion','terminacion','plancha'].includes(f.estado)&&!it.es_complemento){
+      const hoyE=new Date(); hoyE.setHours(0,0,0,0);
+      const venc=iso=>iso&&new Date(iso+'T00:00:00')<hoyE;
+      const tal=it.fecha_estimada_entrega_taller||'', auto=entregaAutoTaller(it);
+      if(tal) entregaResumen=`<div class="${venc(tal)?'ut-venc':''}">📅 Entrega ${utDiaFecha(utIsoTs(tal))}</div>`;
+      else if(auto) entregaResumen=`<div class="${venc(auto)?'ut-venc':'ut-muted'}">Estimada ${utDiaFecha(utIsoTs(auto))}</div>`;
+    }
+    const infoSimple=(['parcial','por_sacar','retiro','previo'].includes(f.estado)||it.es_complemento)?`<div>${entregaHtml}</div>`:'';
+    const avioFlag=f.avio?(()=>{const a=UT_AVIO[f.avio.tipo];return `<span class="ut-flag" style="margin-left:0;background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}</span>`;})():'';
+    const sinPrecio=(!it.es_complemento&&f.estado!=='parcial'&&/Falta precio/.test(precioHtml||''))?'<span class="ut-flag" style="margin-left:0;color:var(--danger);border-color:var(--danger)">falta precio</span>':'';
+    const nombre=it.es_complemento&&it.complemento_de?`🧩 ${it.complemento_de.que||'Complemento'} del ${it.complemento_de.numero}`:(it.name||'(sin nombre)');
+    // Lo que se carga adentro de la tarjeta (antes estaba en columnas de la fila).
+    const avioCard=f.avio?(()=>{const a=UT_AVIO[f.avio.tipo];const pend=f.avio.pend||[];return `<span class="ut-pill" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}${pend.length?' · '+pend.length:''}</span>`+utAvioDetalleHtml(pend,f.secId,f.itemId);})():'';
+    const queFalta=[
+      avioCard?`<div>${avioCard}</div>`:'',
+      precioHtml?`<div class="tc-kv2"><span>Precio del taller</span><span onclick="event.stopPropagation()">${precioHtml}</span></div>`:'',
+      (['confeccion','terminacion','plancha'].includes(f.estado)&&!it.es_complemento)?`<div class="tc-kv2"><span>Fecha de entrega</span><span onclick="event.stopPropagation()">${entregaHtml}</span></div>`:''
+    ].filter(Boolean).join('');
+    return head+`<div class="ut-row ut-v2${abierto?' ut-open':''}" onclick="toggleUtFila('${f.secId}','${f.itemId}')">
       <div class="c-foto">${it.foto?`<img class="ut-foto" src="${utEsc(it.foto)}" loading="lazy" alt="">`:'<div class="ut-foto"></div>'}</div>
-      <div class="c-corte">${utEsc(it.numero_corte||'s/n°')}${it.nota?'<div><span class="ut-flag" style="margin-left:0" title="Tiene aclaración de diseño">📝 Aclaración</span></div>':''}${utComplementosHtml(it)}</div>
-      <div class="c-art" title="${utEsc(art)}">${utEsc(art)}</div>
-      <div class="c-prendas">${f.cantidad}<span class="ut-m"> prendas</span></div>
-      <div class="c-precio">${precioHtml}</div>
-      <div class="c-taller">${(()=>{
-        if(actual&&(actual.tipo==='etapa'||actual.tipo==='paso'||actual.tipo==='sin')&&f.secId===SEC_TALLER_TERMINACION){
-          const conf=it.taller_corte?`<div style="font-size:10.5px;color:var(--text2)">Confección: ${utEsc(it.taller_corte)} ✓</div>`:'';
-          if(actual.taller) return `${utEsc(actual.label)} · <b>${utEsc(actual.taller)}</b>${conf}`;
-          return `<span style="color:var(--danger);font-weight:700;font-size:11px">⚠ Falta cargar el taller de terminación</span>${conf}`;
-        }
-        return it.taller_corte?'🧵 '+utEsc(it.taller_corte):'<span class="ut-muted">Sin taller</span>';
-      })()}${avisoRetiro}${diasTallerHtml}</div>
-      <div class="c-dias">${entregaHtml}</div>
-      <div class="c-avio">${avioHtml}</div>
+      <div class="c-art"><div class="ut-tit" title="${utEsc(art)}">${utEsc(it.numero_corte||'s/n°')} · ${utEsc(nombre)}</div>
+        <div class="ut-sub">${it.code&&!it.es_complemento?utEsc(it.code):''}${it.nota?'<span class="ut-flag" style="margin-left:0" title="Tiene aclaración de diseño">📝 Aclaración</span>':''}${avioFlag}${sinPrecio}</div>${utComplementosHtml(it)}</div>
+      <div class="c-prendas">${f.cantidad}<div class="ut-muted" style="font-size:12px">prendas</div></div>
+      <div class="c-info">${tallerTxt?`<div>${tallerTxt}</div>`:''}${avisoRetiro}${diasTallerHtml}${entregaResumen}${infoSimple}${chkR?`<div style="margin-top:4px" onclick="event.stopPropagation()">${chkR.html}</div>`:''}</div>
       <div class="c-estado" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span>${
         (f.secId==='sLT'&&it.taller_corte&&utPuedeEditarTaller())?`<button class="ut-go" onclick="event.stopPropagation();sacarATaller('${f.secId}','${f.itemId}',{auto:true})">→ Pendiente retiro</button>`
         :(chkR&&chkR.completo&&utPuedeEditarTaller())?`<button class="ut-go" onclick="event.stopPropagation();confirmarRetiroTaller('${f.secId}','${f.itemId}')">✓ ${utEsc(it.taller_corte||'El taller')} lo retiró</button>`:''}</div>
-    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='parcial'?utSaldoDetalleHtml(f):buildTallerCardHtml(f,idx,vis.length)}</div>`:''}`;
+    </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='parcial'?utSaldoDetalleHtml(f):buildTallerCardHtml(f,idx,vis.length,queFalta)}</div>`:''}`;
   }).join('');
   const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
   cont.innerHTML=`<div class="rt-box">
@@ -6930,7 +6992,7 @@ function renderResumenPipelineTalleres(){
     <div class="ut-cards">${cardsHtml}</div>
     ${buildTiemposTallerHtml()}
     <div class="ut-table">
-      <div class="ut-row ut-head"><div class="c-foto">Foto</div><div class="c-corte">Corte</div><div class="c-art">Artículo</div><div class="c-prendas">Prendas</div><div class="c-precio">${utPuedeEditarTaller()?'Precio':''}</div><div class="c-taller">Taller</div><div class="c-dias">Entrega</div><div class="c-avio">Avío</div><div class="c-estado">Estado</div></div>
+      <div class="ut-row ut-v2 ut-head"><div class="c-foto"></div><div class="c-art">Corte · artículo</div><div class="c-prendas">Prendas</div><div class="c-info">Retiro · entrega</div><div class="c-estado">Estado</div></div>
       ${filasHtml||'<div class="empty-state">No hay cortes con ese filtro</div>'}
     </div>
   </div>`;

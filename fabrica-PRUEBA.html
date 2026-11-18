@@ -1102,7 +1102,7 @@
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
         <div id="logi-acciones" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <button class="btn-sm logi-btn-ingreso" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
+          <button class="btn-sm logi-btn-ingreso" id="logi-btn-nueva-entrega" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
           <button class="btn-sm logi-btn-ingreso" onclick="logiOpenProveedorModal()">➕ Agregar prenda de proveedor</button>
           <button class="btn-sm logi-btn-aviso hidden" onclick="abrirAvisoLlegada()">📣 Avisar que llegó mercadería</button>
         </div>
@@ -3544,6 +3544,7 @@ function doLogin(user){
     const ing=puedeCargarIngreso();
     document.querySelectorAll('.logi-btn-ingreso').forEach(b=>b.classList.toggle('hidden',!ing));
     document.querySelectorAll('.logi-btn-aviso').forEach(b=>b.classList.toggle('hidden',ing));
+    if(!ing&&quienSoy()==='peque'){ const bn=document.getElementById('logi-btn-nueva-entrega'); if(bn) bn.classList.remove('hidden'); } // Peque: entregas de Mini Sur
     actualizarBadgeTablero();
   }
   applyTabVisibility(user);
@@ -5359,8 +5360,8 @@ function etapaSalida(secId,itemId,id){
   showToast(`📤 Salió a ${e.taller}`);
 }
 function etapaEntrega(secId,itemId,id){
-  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   const item=sectionsData[secId].items[itemId], e=(item.etapas||{})[id]; if(!e) return;
+  if(!puedeCargarEntregaTaller(item)){ sinPermisoIngreso('talleres'); return; }
   const hab=e.momento==='antes'?etapasAntesHabilitadas(secId,item):etapasDespuesHabilitadas(secId);
   if(!hab){ showToast(e.momento==='antes'?'Esta etapa va antes de confección':'Esta etapa se entrega cuando el corte vuelve de confección'); return; }
   if(e.momento==='despues'){
@@ -5443,7 +5444,7 @@ function buildTallerCardHtml(f,idx,total){
     if(puedeAvioRecibido()) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();avioRecibidoDesdeTalleres('${secId}','${itemId}')">📦 Marcar avío recibido</button>`);
   } else if(secId==='sFIN'){
     // En taller: la entrega respeta el recorrido (terminación / estampado / revisión) y pasa por Logística.
-    if(it.retirado_taller&&puedeCargarIngreso()) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${destinoEntregaLabel(it)}</button>`);
+    if(it.retirado_taller&&puedeCargarEntregaTaller(it)) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();marcarEntregadoCorte('${secId}','${itemId}')">✅ Entregado → ${destinoEntregaLabel(it)}</button>`);
   } else if(canEdit&&!PASOS_SIN_SIGUIENTE.includes(secId)) acts.push(`<button class="btn-advance" onclick="event.stopPropagation();siguientePaso('${secId}','${itemId}')">▶ Siguiente paso</button>`);
   const mv=buildMoveOptsForItem(secId,itemId); if(mv) acts.push(`<span onclick="event.stopPropagation()">${mv}</span>`);
   return `<div class="tc">
@@ -5463,8 +5464,8 @@ function buildTallerCardHtml(f,idx,total){
 }
 
 function marcarEntregadoCorte(secId,itemId){
-  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   const item=sectionsData[secId].items[itemId];
+  if(!puedeCargarEntregaTaller(item)){ sinPermisoIngreso('talleres'); return; }
   if(item&&item.es_complemento){ showToast(`🧩 El ${(item.complemento_de&&item.complemento_de.que)||'complemento'} se entrega con el corte ${(item.complemento_de&&item.complemento_de.numero)||'base'}`); return; }
   // El precio pactado con el taller es obligatorio antes de marcar la entrega: sin él, la
   // entrega llega a Logística/Facturación sin poder calcular lo que se le debe.
@@ -8163,6 +8164,12 @@ function marcaMinisurNombre(){ return (marcasList||[]).find(n=>esMinisur({marca:
 function esMinisurPeque(item){
   return currentUser==='peque' && esMinisur(item);
 }
+// Logística (nov 2026): en las entregas de Mini Sur Peque hace todo lo que hace Emir (cargar la
+// entrega, talles/colores, conteo, control, plancha, prioridad, reabrir) + cerrar la entrega.
+// Plata: ve el precio del taller y lo carga si está vacío; para cambiar uno ya cargado le pide
+// permiso a Ariel. Forzar etapa, eliminar y editar nombre/código siguen siendo solo de Ariel.
+function logiPequeMS(it){ return currentUser==='peque' && logiEsMinisur(it); }
+function puedeCargarEntregaTaller(item){ return puedeCargarIngreso() || (quienSoy()==='peque' && !!item && esMinisur(item)); }
 // Minisur + Adela: al aprobar la muestra, antes de digitalizar faltan las progresiones.
 function necesitaProgresiones(item){
   return item.modelista==='Adela' && esMinisur(item) && !item.progresiones_ok;
@@ -12477,7 +12484,8 @@ const TAB_VISIBILITY={
   // el resto de los campos de Costeo (kg, precio x kg, otros gastos, precios de venta) le
   // quedan de solo lectura igual que a cualquiera que no sea Ariel/Stef (ver canEdit en
   // renderCosteoDetail), así que no se le expone nada más de lo necesario.
-  peque:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-telas','tab-btn-actividad','tab-btn-cortes','tab-btn-costeo'],
+  // Logística (nov 2026): Peque la ve filtrada solo en Mini Sur y la maneja de punta a punta.
+  peque:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-telas','tab-btn-actividad','tab-btn-cortes','tab-btn-costeo','tab-btn-logistica'],
   emir:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-estampas','tab-btn-logistica','tab-btn-costeo','tab-btn-cortes','tab-btn-telas'],
   arimoron:['tab-btn-diseno','tab-btn-fabrica','tab-btn-pendientes'],
   nahuel:['tab-btn-logistica'],
@@ -16688,7 +16696,8 @@ function fmtTime(ts){
 // cuentan y controlan con las mismas herramientas de siempre. Ese conteo es lo único que
 // mueve "Entregado"/"En taller" en la tarjeta de Fábrica — no hay carga por duplicado.
 function logiAbrirNuevaEntregaCorte(){
-  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
+  const soloMinisur=!puedeCargarIngreso()&&quienSoy()==='peque'; // Peque: solo cortes de Mini Sur
+  if(!puedeCargarIngreso()&&!soloMinisur){ sinPermisoIngreso('talleres'); return; }
   // Busca candidatos en las TRES secciones donde un corte puede estar esperando que lo cuenten:
   // recién salido de costura (sFIN), en Taller de Estampado, o en Taller de Terminación. Antes
   // solo miraba sFIN, así que un corte que ya había pasado a Estampado/Terminación con el botón
@@ -16751,7 +16760,8 @@ function logiAbrirNuevaEntregaCorte(){
         sub:`${E(etapaLabel(e))} · ${E(e.taller||'—')} · ${e.momento==='antes'?'antes':'después'} de confección${e.estado==='en_taller'&&e.cantidad_salida?' · salieron '+E(e.cantidad_salida):''}`});
     });
   }));
-  if(!candidatos.length){ showToast('No hay cortes con saldo pendiente en taller'); return; }
+  if(soloMinisur) candidatos=candidatos.filter(x=>esMinisur(x.it));
+  if(!candidatos.length){ showToast(soloMinisur?'No hay cortes de Mini Sur con saldo pendiente en taller':'No hay cortes con saldo pendiente en taller'); return; }
   candidatos.sort((a,b)=>(a.it.numero_corte||'').localeCompare(b.it.numero_corte||'',undefined,{numeric:true}));
   const listHtml=candidatos.map(x=>x.accion?`<div class="logi-note-btn" style="display:block;text-align:left;padding:8px 10px;margin-bottom:6px;cursor:pointer" onclick="logiCerrarNuevaEntregaModal();${x.accion}">
     <div style="font-weight:700;font-size:13px">Corte ${(x.it.numero_corte||'?').toString().replace(/</g,'&lt;')} — ${(x.it.code||'').replace(/</g,'&lt;')}</div>
@@ -16783,8 +16793,8 @@ function pedirFechaEntrega(msg){
   }
 }
 function logiCrearEntregaDesdeCorte(secId,itemId){
-  if(!puedeCargarIngreso()){ sinPermisoIngreso('talleres'); return; }
   const item=sectionsData[secId].items[itemId];
+  if(!puedeCargarEntregaTaller(item)){ sinPermisoIngreso('talleres'); return; }
   if(item&&item.es_complemento){ showToast(`🧩 El ${(item.complemento_de&&item.complemento_de.que)||'complemento'} se entrega con el corte ${(item.complemento_de&&item.complemento_de.numero)||'base'}`); return; }
   // Antes esta entrega se creaba SIN fecha_entregado → aparecía "Entregado sin fecha de entrega".
   const fechaEntrega=pedirFechaEntrega(`¿Qué fecha entregó el taller? (Corte ${item.numero_corte||''} — ${item.code||''})`);
@@ -16922,7 +16932,7 @@ const listaEntState={
   facturacion:{filtro:'sinfac',taller:'',buscar:'',verTodas:false}
 };
 // Precio y facturación: los ven Ariel, Emir y Meli (Stef no). Facturar: Ariel y Meli.
-function listaEntVePlata(){ return ['ariel','emir','meli'].includes(currentUser); }
+function listaEntVePlata(){ return ['ariel','emir','meli','peque'].includes(currentUser); } // Peque solo ve filas de Mini Sur
 function listaEntPuedeFacturar(){ return ['ariel','meli'].includes(currentUser); }
 const LISTA_ENT_ETAPAS_PEND=['pendientes','conteo','control','dividir','proceso','precio'];
 function listaEntDestino(it){ return (it.origen==='proveedor'?it.proveedor:it.taller)||it.taller||it.proveedor||'Sin taller'; }
@@ -16933,6 +16943,7 @@ function listaEntFechaTs(it){ return logiParseFechaEntregado(it.fecha_entregado)
 function listaEntBase(ctx){
   const st=listaEntState[ctx];
   let filas=Object.entries(logiItemsData||{}).map(([id,it])=>({id,it,col:logiEstadoColumna(it)}));
+  if(ctx==='logistica'&&currentUser==='peque') filas=filas.filter(f=>logiEsMinisur(f.it)); // Peque: solo Mini Sur
   if(st.taller) filas=filas.filter(f=>listaEntDestino(f.it)===st.taller);
   if(st.marca) filas=filas.filter(f=>logiMarcaDe(f.it)===st.marca);
   const q=(st.buscar||'').trim().toLowerCase();
@@ -17061,7 +17072,7 @@ function listaEntHtml(ctx){
     <select class="filtro-corte-select" onchange="listaEntSet('${ctx}','taller',this.value)">
       <option value="">Taller o proveedor: todos</option>${talleres.map(t=>`<option value="${esc(t)}" ${st.taller===t?'selected':''}>${esc(t)}</option>`).join('')}
     </select>
-    ${ctx==='logistica'?`<select class="filtro-corte-select" onchange="listaEntSet('${ctx}','marca',this.value)">
+    ${ctx==='logistica'&&currentUser!=='peque'?`<select class="filtro-corte-select" onchange="listaEntSet('${ctx}','marca',this.value)">
       <option value="">Marca: todas</option>${[...new Set(Object.values(logiItemsData||{}).map(logiMarcaDe))].sort((a,b)=>a===LOGI_SIN_MARCA?1:b===LOGI_SIN_MARCA?-1:a.localeCompare(b,'es')).map(m=>`<option value="${esc(m)}" ${st.marca===m?'selected':''}>${esc(m)}</option>`).join('')}
     </select>`:''}
     <input type="text" placeholder="Buscar código, artículo o N° de corte..." value="${esc(st.buscar)}"
@@ -17069,7 +17080,7 @@ function listaEntHtml(ctx){
       style="flex:1;min-width:160px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
   </div>`;
   const filas=listaEntFiltrar(ctx);
-  const resumenEst=listaEntAvisoMinisur(ctx)+listaEntResumenEstampado();
+  const resumenEst=listaEntAvisoMinisur(ctx)+(currentUser==='peque'?'':listaEntResumenEstampado());
   if(!filas.length) return resumenEst+filtrosHtml+'<div class="empty">No hay entregas con ese filtro.</div>';
   const LIM=60;
   const visibles=st.verTodas?filas:filas.slice(0,LIM);
@@ -18948,8 +18959,9 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   const minisurCliente=logiEsMinisur(it);
   if(!minisurCliente) botones.push(btn(it.cargado_ninox,'Cargar a Ninox',`Cargado a Ninox <small>${quien(it.cargado_ninox_por)}</small>`,`logiToggleCargadoNinox('${id}',${!it.cargado_ninox})`));
   pend.innerHTML=`<div class="ld-card ld-pend"><div class="ld-pend-t">Pendientes de este corte</div><div class="ld-pend-row">${botones.join('')}</div></div>`;
-  // Plata: solo Ariel y Meli
-  if(currentUser==='ariel'||currentUser==='meli'){
+  // Plata: Ariel y Meli; Peque en Mini Sur también (precio ya cargado: pide permiso)
+  const pqPlata=logiPequeMS(it);
+  if(currentUser==='ariel'||currentUser==='meli'||pqPlata){
     const ck=corteKeyFrom(it.numero_corte);
     const ce=ck?(costeosData[ck]||null):null;
     let costo='—';
@@ -18962,7 +18974,9 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
       <div class="ld-row"><span>Se le debe al proveedor</span><b style="color:var(--accent)">${it.precio_costo?'$ '+(it.precio_costo*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>
       <div class="ld-row"><span>Lista local</span><span>$ ${inp('precio_lista_local','—')}</span></div>
       <div class="ld-row"><span>TN minorista</span><span>$ ${inp('precio_tn_minorista','—')}</span></div>
-      <div class="ld-row"><span>TN mayorista</span><span>$ ${inp('precio_tn_mayorista','—')}</span></div>`})():`<div class="ld-row"><span>Precio taller</span><span>$ <input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.</span></div>
+      <div class="ld-row"><span>TN mayorista</span><span>$ ${inp('precio_tn_mayorista','—')}</span></div>`})():`<div class="ld-row"><span>Precio taller</span><span>${(pqPlata&&it.precio_taller)
+        ? `<b>$ ${Number(it.precio_taller).toLocaleString('es-AR')}</b> / u. ${it.facturado_cta_cte?'':(it.precio_solicitud?`<small style="color:#b8860b">⏳ pediste $${Number(it.precio_solicitud.valor).toLocaleString('es-AR')}</small>`:`<button class="btn-sm" onclick="listaEntEditarPrecio('logistica','${id}');setTimeout(()=>logiRenderDetail('${id}'),400)">📝 Pedir cambio</button>`)}`
+        : `$ <input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.`}</span></div>
       <div class="ld-row"><span>Se le debe al taller</span><b style="color:var(--accent)">${it.precio_taller?'$ '+(it.precio_taller*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>`}
       <div class="ld-row"><span>Costo por prenda</span><b>${costo}${it.costo_confirmado?'':' <small style="font-weight:500;color:var(--text2)">· sin confirmar</small>'}</b></div>
       ${it.origen==='proveedor'?'':costoConfirmadoCheckboxHtml(id,it.costo_confirmado)}
@@ -19325,9 +19339,9 @@ function buildMedidasHtml(id,it,canEdit,mostrarSubidaWeb){
 // (ej. descripción mal puesta) sin importar en qué etapa esté el movimiento.
 // Cambiar la foto de un movimiento ya cargado en Logística — solo Ariel, mismo criterio que
 // la edición de nombre/código: para corregir sin depender de en qué etapa esté.
-function puedeEditarFotoLogi(){ return currentUser==='ariel'||currentUser==='noelia'; }
+function puedeEditarFotoLogi(it){ return currentUser==='ariel'||currentUser==='noelia'||(!!it&&logiPequeMS(it)); }
 function logiEditFoto(id){
-  if(!puedeEditarFotoLogi()) return;
+  if(!puedeEditarFotoLogi(logiItemsData[id])) return;
   const input=document.createElement('input');
   input.type='file';input.accept='image/*';
   input.onchange=async(e)=>{
@@ -19422,7 +19436,8 @@ function logiRenderDetail(id){
   const it = logiItemsData[id];
   if(!it){ logiCloseDetail(); return; }
   const puedeEditarNombreCodigo = currentUser==='ariel';
-  const fotoEditableAttrs = puedeEditarFotoLogi() ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
+  const pqMS = logiPequeMS(it); // Peque en una entrega de Mini Sur: mismos permisos que Emir
+  const fotoEditableAttrs = puedeEditarFotoLogi(it) ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
   document.getElementById('logi-detail-photo').outerHTML = `<div id="logi-detail-photo"${fotoEditableAttrs}>${it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`}</div>`;
   document.getElementById('logi-detail-code').innerHTML = `${it.code||'(sin código)'}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditCodigo('${id}')" style="cursor:pointer;font-size:13px;color:var(--accent)" title="Editar código">✏️</span>`:''}`;
   document.getElementById('logi-detail-name').innerHTML = `${it.name||''}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditNombre('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar nombre">✏️</span>`:''}`;
@@ -19438,7 +19453,7 @@ function logiRenderDetail(id){
     (quienesDet.contadoPor.length&&quienesDet.controladoPor.length?' · ':'') +
     (quienesDet.controladoPor.length?`🔍 Controló: ${quienesDet.controladoPor.join(', ')}`:'');
 
-  const canPrioridad=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
+  const canPrioridad=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir'||pqMS);
   document.getElementById('logi-detail-prioridad').innerHTML = canPrioridad
     ? `<label style="font-size:11px;color:var(--text2);margin-right:6px">Prioridad:</label>
        <select class="logi-prio-select" onchange="logiSetPrioridad('${id}',this.value)">
@@ -19477,13 +19492,13 @@ function logiRenderDetail(id){
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';
-  const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel');
+  const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel' || pqMS);
   // El "esperado" viene de las capas/rollos que se cargaron en Orden de corte para ese ítem —
   // si hubo un error de carga (ej: quedó el total del corte entero en vez de la parte de esa
   // estampa), Ariel/Stef lo corrigen acá directo. Emir no edita directo — pide el cambio (con
   // motivo) y Ariel/Stef lo aprueban o rechazan desde la misma fila.
   const canEditarEsperado = !cerrado && (currentUser==='ariel' || currentUser==='stef');
-  const canSolicitarEsperado = !cerrado && currentUser==='emir';
+  const canSolicitarEsperado = !cerrado && (currentUser==='emir' || pqMS);
 
   let rowsHtml='';
   let totalEsperado=0, totalContado=0, totalOk=0, totalDetalle=0, totalFallado=0, totalFalladoTela=0, totalSaldo=0, totalPorControlar=0;
@@ -19492,7 +19507,7 @@ function logiRenderDetail(id){
       ? '<div class="empty">Este corte se cerró sin talles/colores cargados.</div>'
       : (canEditarGrilla
           ? '<div class="empty">Este corte no tiene talle/color cargado. Cargalo con el botón de abajo.</div>'
-          : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo cargue.</div>');
+          : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo cargue.</div>'); // (Peque en Mini Sur lo carga ella)
   } else {
     // Ordenamos por color y después por talle (orden lógico S/M/L/XL, no alfabético).
     filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || compareTalles(a[1].talle,b[1].talle));
@@ -19513,7 +19528,7 @@ function logiRenderDetail(id){
       if(canEditarEsperado){
         esperadoCell=`<input type="number" min="0" class="logi-in-esperado" value="${f.esperado||0}" onchange="logiSetEsperado('${id}','${key}',this.value)">`;
         if(solicitud){
-          esperadoCell+=`<div style="font-size:10px;color:#b8860b;margin-top:3px;line-height:1.4">📝 Emir pidió <strong>${solicitud.valor}</strong>${solicitud.motivo?` — ${solicitud.motivo.replace(/</g,'&lt;')}`:''}<br>
+          esperadoCell+=`<div style="font-size:10px;color:#b8860b;margin-top:3px;line-height:1.4">📝 ${USER_DISPLAY[solicitud.por]||'Emir'} pidió <strong>${solicitud.valor}</strong>${solicitud.motivo?` — ${solicitud.motivo.replace(/</g,'&lt;')}`:''}<br>
             <button class="btn-sm" onclick="logiAprobarSolicitudEsperado('${id}','${key}')">✓ Aprobar</button>
             <button class="btn-sm" onclick="logiRechazarSolicitudEsperado('${id}','${key}')">✕ Rechazar</button></div>`;
         }
@@ -19592,7 +19607,7 @@ function logiRenderDetail(id){
   let html = logiPlanchaHtml(id,it);
 
   if(cerrado){
-    const puedeReabrir=(currentUser==='emir'||currentUser==='ariel');
+    const puedeReabrir=(currentUser==='emir'||currentUser==='ariel'||pqMS);
     html += `<div style="text-align:center;margin-top:10px;color:#2e7d4f;font-weight:700;font-size:13px">${it.sigue_a_estampado?`✅ Controlado — facturable a ${it.taller||'el taller'} · sigue a ${utEsc(it.sigue_a||'Estampado')} (se divide con la última entrega)`:logiEsMinisur(it)?`✅ Controlado — Mini Sur: facturable a ${utEsc(it.taller||'el taller')}, va al cliente (no se divide ni se comercializa)`:'✅ Conteo cerrado'}</div>` +
       (puedeReabrir?`<div style="text-align:center;margin-top:8px"><button class="btn-sm" onclick="logiReabrirConteo('${id}')">🔓 Reabrir conteo</button></div>`:'');
   } else {
@@ -19748,7 +19763,7 @@ function logiMarcaDe(it){
 // recorrido, el corte aparece en Talleres en ese taller y la entrega queda facturable a su taller
 // al cerrar el control. Irma recibe la tanda de ESTA entrega, no el corte entero; cada tanda se
 // manda desde su propia entrega.
-function logiPuedeMandarPlancha(){ return ['ariel','stef','emir'].includes(currentUser); }
+function logiPuedeMandarPlancha(it){ return ['ariel','stef','emir'].includes(currentUser)||(!!it&&logiPequeMS(it)); }
 function logiCorteDeEntrega(it){
   if(!it||!it.numero_corte) return null;
   const norm=v=>String(v==null?'':v).trim().toUpperCase().replace(/^#/,'');
@@ -19766,7 +19781,7 @@ function logiPlanchaHtml(id,it){
     const mp=it.mandada_plancha;
     return `<div style="text-align:center;font-size:12px;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:8px;padding:6px 8px;margin-bottom:10px">🧺 Mandada a plancha · ${utEsc(mp.taller||'')}${mp.detalle?' ('+utEsc(mp.detalle)+')':''}</div>`;
   }
-  if(!logiPuedeMandarPlancha()||it.etapa_tipo==='plancha') return '';
+  if(!logiPuedeMandarPlancha(it)||it.etapa_tipo==='plancha') return '';
   const lista=(talleresCorteList||[]).filter(t=>t!==TALLER_INTERNO);
   const irma=lista.find(t=>String(t).trim().toLowerCase()==='irma');
   const opciones=(irma?lista:['Irma',...lista]).map(t=>`<option value="${utEsc(t)}" ${String(t).trim().toLowerCase()==='irma'?'selected':''}>${utEsc(t)}</option>`).join('');
@@ -19779,8 +19794,8 @@ function logiPlanchaHtml(id,it){
     </div></div>`;
 }
 function logiMandarAPlancha(id){
-  if(!logiPuedeMandarPlancha()){ showToast('Esto lo hacen Ariel, Stef o Emir'); return; }
   const it=logiItemsData[id];
+  if(!logiPuedeMandarPlancha(it)){ showToast('Esto lo hacen Ariel, Stef o Emir (Mini Sur también Peque)'); return; }
   if(!it||it.mandada_plancha) return;
   const taller=((document.getElementById('logi-plancha-taller')||{}).value||'').trim();
   const detalle=((document.getElementById('logi-plancha-detalle')||{}).value||'').trim();
@@ -19841,7 +19856,7 @@ function logiMinisurEnDividir(){
   return Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='pendiente_dividir'&&logiEsMinisur(it));
 }
 function listaEntAvisoMinisur(ctx){
-  if(ctx!=='logistica'||currentUser!=='ariel') return '';
+  if(ctx!=='logistica'||!['ariel','peque'].includes(currentUser)) return '';
   const ents=logiMinisurEnDividir();
   if(!ents.length) return '';
   const filas=ents.map(([,it])=>`<li>Corte ${utEsc(it.numero_corte||'?')} · ${utEsc(it.code||'')} ${utEsc(it.name||'')} — ${utEsc(it.taller||'sin taller')}</li>`).join('');
@@ -19850,7 +19865,7 @@ function listaEntAvisoMinisur(ctx){
     <button class="le-sol-ok" onclick="logiCerrarMinisurDividir()">✓ Cerrar ${ents.length===1?'esta entrega':'estas '+ents.length+' entregas'}</button></div>`;
 }
 function logiCerrarMinisurDividir(){
-  if(currentUser!=='ariel'){ showToast('Solo Ariel puede cerrarlas'); return; }
+  if(!['ariel','peque'].includes(currentUser)){ showToast('Solo Ariel o Peque pueden cerrarlas'); return; }
   const ents=logiMinisurEnDividir();
   if(!ents.length) return;
   if(!confirm(`¿Cerrar ${ents.length} entrega${ents.length!==1?'s':''} de Mini Sur sin dividir?`)) return;
@@ -20275,7 +20290,7 @@ function logiClasifGridConfirmar(){
 let logiGridCtx={itemId:null,colores:[],talles:[]};
 
 function logiOpenGridModal(itemId){
-  if(!(currentUser==='emir' || currentUser==='ariel')){ showToast('Solo Emir o Ariel pueden cargar talles/colores'); return; }
+  if(!(currentUser==='emir' || currentUser==='ariel' || logiPequeMS(logiItemsData[itemId]))){ showToast('Solo Emir o Ariel pueden cargar talles/colores (Mini Sur también Peque)'); return; }
   logiGridCtx={itemId,colores:[],talles:[]};
   document.getElementById('logi-grid-color-input').value='';
   document.getElementById('logi-grid-talle-input').value='';

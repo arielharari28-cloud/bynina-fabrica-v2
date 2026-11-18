@@ -6630,14 +6630,31 @@ function utAvioDetalleHtml(pend,secId,itemId){
 //  0 = ya lo retiró y SIN fecha de entrega del taller (lo que hay que pedir) → por fecha de retiro, el más viejo arriba
 //  1 = ya lo retiró y CON fecha de entrega del taller → por fecha de entrega (vencidos primero)
 //  2 = todavía no lo retiró (pendiente retiro / taller asignado / por sacar) → por fecha de retiro coordinada
+//  3 = saldos de entregas parciales (ya entregó una parte) → la última entrega más vieja arriba
 const UT_BLOQUES_TALLER=[
   {label:'Sin fecha de entrega del taller',icon:'❓',fg:'var(--danger)'},
   {label:'Con fecha de entrega del taller',icon:'📅',fg:'#27500a'},
-  {label:'Todavía no retiró',icon:'🚚',fg:'var(--text2)'}
+  {label:'Todavía no retiró',icon:'🚚',fg:'var(--text2)'},
+  {label:'Saldos de entregas parciales',icon:'🧩',fg:'#9f1239'}
 ];
+const UT_BLOQUE_RANGO={0:0,1:1,3:2,2:3};   // orden en pantalla: sin fecha, con fecha, saldos, no retiró
 function utBloqueTaller(f){
+  if(f.estado==='parcial') return 3;
   if(['retiro','asignado','por_sacar'].includes(f.estado)) return 2;
   return f.item.fecha_estimada_entrega_taller?1:0;
+}
+// Talleres colapsados en la vista "Por taller" (se recuerda por usuario/navegador).
+let utTalleresColapsados=new Set();
+try{ utTalleresColapsados=new Set(JSON.parse(localStorage.getItem('talleres_ut_colapsados')||'[]')); }catch(e){}
+function toggleUtTallerColapso(k){
+  if(utTalleresColapsados.has(k)) utTalleresColapsados.delete(k); else utTalleresColapsados.add(k);
+  try{ localStorage.setItem('talleres_ut_colapsados',JSON.stringify([...utTalleresColapsados])); }catch(e){}
+  renderSections('talleres');
+}
+function setUtTalleresTodos(colapsar,lista){
+  utTalleresColapsados=colapsar?new Set(lista):new Set();
+  try{ localStorage.setItem('talleres_ut_colapsados',JSON.stringify([...utTalleresColapsados])); }catch(e){}
+  renderSections('talleres');
 }
 function utIsoTs(iso){ if(!iso) return 0; const t=new Date(iso+'T00:00:00').getTime(); return isNaN(t)?0:t; }
 function utClaveOrdenTaller(f,b){
@@ -6649,7 +6666,7 @@ function utClaveOrdenTaller(f,b){
 }
 // Reprogramar la llegada de un avío: la fecha que no se cumplió NO se borra, queda en
 // avios/{id}/fechas_incumplidas (fecha, si era la estimada, quién y cuándo reprogramó).
-function puedeReprogramarAvio(){ return ['ariel','stef','peque','emir'].includes(quienSoy()); }
+function puedeReprogramarAvio(){ return ['ariel','stef','peque','noelia'].includes(quienSoy()); }
 function avioFechaVigenteIso(av){
   if(!av) return null;
   if(av.fecha_llegada) return {fecha:av.fecha_llegada,estimada:false};
@@ -6764,7 +6781,7 @@ function renderResumenPipelineTalleres(){
       const ta=utTallerDe(a.item,a.secId), tb=utTallerDe(b.item,b.secId);
       if(ta!==tb) return ta==='Sin taller'?1:tb==='Sin taller'?-1:ta.localeCompare(tb);
       const ba=utBloqueTaller(a), bb=utBloqueTaller(b);
-      if(ba!==bb) return ba-bb;
+      if(ba!==bb) return UT_BLOQUE_RANGO[ba]-UT_BLOQUE_RANGO[bb];
       const ka=utClaveOrdenTaller(a,ba), kb=utClaveOrdenTaller(b,bb);
       if(ka!==kb) return ka-kb;
       return extractCorteNumber(a.item)-extractCorteNumber(b.item);
@@ -6774,7 +6791,7 @@ function renderResumenPipelineTalleres(){
   });
   const grupos={};
   const grupoKey=f=>utOrden==='taller'?utTallerDe(f.item,f.secId):utOrden==='corte'?corteStr(f):f.estado;
-  vis.forEach(f=>{ const k=grupoKey(f); grupos[k]=grupos[k]||{n:0,p:0,b:[0,0,0]}; grupos[k].n++; grupos[k].p+=f.cantidad; if(utOrden==='taller') grupos[k].b[utBloqueTaller(f)]++; });
+  vis.forEach(f=>{ const k=grupoKey(f); grupos[k]=grupos[k]||{n:0,p:0,b:[0,0,0,0]}; grupos[k].n++; grupos[k].p+=f.cantidad; if(utOrden==='taller') grupos[k].b[utBloqueTaller(f)]++; });
   let prev=null, prevBloque=null;
   const filasHtml=vis.map((f,idx)=>{
     const e=utEstadoInfo(f.estado);
@@ -6786,9 +6803,13 @@ function renderResumenPipelineTalleres(){
     if((utOrden==='etapa'||utOrden==='taller')&&k!==prev){
       const titulo=utOrden==='taller'?`${utDot('#6b6560')}<b>🧵 ${utEsc(k)}</b>`:`${utDot(e.dot)}<b>${e.label}</b>`;
       const gb=grupos[k].b;
-      const det=utOrden==='taller'?[gb[1]?gb[1]+' con fecha de entrega':'',gb[0]?gb[0]+' sin fecha':'',gb[2]?gb[2]+' por retirar':''].filter(Boolean).join(' · '):'';
-      head=`<div class="ut-group">${titulo}<span>${grupos[k].n} corte${grupos[k].n!==1?'s':''} · ${grupos[k].p} prendas${det?' · '+det:''}</span></div>`;
+      const det=utOrden==='taller'?[gb[0]?gb[0]+' sin fecha':'',gb[1]?gb[1]+' con fecha de entrega':'',gb[3]?gb[3]+' saldos':'',gb[2]?gb[2]+' por retirar':''].filter(Boolean).join(' · '):'';
+      if(utOrden==='taller'){
+        const col=utTalleresColapsados.has(k);
+        head=`<div class="ut-group" data-k="${utEsc(k)}" onclick="toggleUtTallerColapso(this.dataset.k)" style="cursor:pointer" title="${col?'Mostrar':'Ocultar'} los cortes de ${utEsc(k)}"><span style="font-size:10px;width:10px;color:var(--text2)">${col?'▶':'▼'}</span>${titulo}<span>${grupos[k].n} corte${grupos[k].n!==1?'s':''} · ${grupos[k].p} prendas${det?' · '+det:''}</span></div>`;
+      } else head=`<div class="ut-group">${titulo}<span>${grupos[k].n} corte${grupos[k].n!==1?'s':''} · ${grupos[k].p} prendas${det?' · '+det:''}</span></div>`;
     }
+    if(utOrden==='taller'&&utTalleresColapsados.has(k)){ prev=k; return head; }
     if(utOrden==='taller'){
       const bq=utBloqueTaller(f);
       if(k!==prev||bq!==prevBloque){
@@ -6904,7 +6925,7 @@ function renderResumenPipelineTalleres(){
           <option value="">Todos</option>
           ${talleresLista.map(t=>`<option value="${utEsc(t)}" ${t===utTaller?'selected':''}>${utEsc(t)}</option>`).join('')}
         </select></label>
-      <span style="font-size:11px;color:var(--text2);margin-left:6px">Ordenar</span>${ordenBtn('corte','Por N° de corte')}${ordenBtn('etapa','Por etapa')}${ordenBtn('taller','Por taller')}${ordenBtn('dias','Más días primero')}</div>
+      <span style="font-size:11px;color:var(--text2);margin-left:6px">Ordenar</span>${ordenBtn('corte','Por N° de corte')}${ordenBtn('etapa','Por etapa')}${ordenBtn('taller','Por taller')}${ordenBtn('dias','Más días primero')}${utOrden==='taller'?(()=>{const ts=[...new Set(vis.map(f=>utTallerDe(f.item,f.secId)))];const todos=ts.length&&ts.every(t=>utTalleresColapsados.has(t));return `<button class="ut-orden" data-l="${utEsc(JSON.stringify(ts))}" onclick="setUtTalleresTodos(${todos?'false':'true'},JSON.parse(this.dataset.l))">${todos?'▼ Abrir todos':'▶ Colapsar todos'}</button>`;})():''}</div>
     </div>
     <div class="ut-cards">${cardsHtml}</div>
     ${buildTiemposTallerHtml()}

@@ -6584,7 +6584,7 @@ function utEstadoDe(secId,item){
   return 'confeccion';
 }
 function utAvioDe(secId,item){
-  const pend=Object.values(item.avios||{}).filter(a=>a&&!a.recibido);
+  const pend=Object.entries(item.avios||{}).filter(([,a])=>a&&!a.recibido).map(([id,a])=>({...a,_id:id}));
   if(secId==='s4') return {tipo:'sin_pedir',pend};
   if(pend.length) return {tipo:pend.some(a=>!a.fecha_pedido)?'sin_pedir':'pedido',pend};
   if(secId==='s5'||secId==='s6') return {tipo:'pedido',pend};
@@ -6599,9 +6599,10 @@ function utDiaFecha(ts){
 // Detalle en la fila de Talleres: un renglón por avío que falta, con el estado del pedido
 // (sin pedir / pedido y cuándo llega / atrasado). La llegada es la coordinada o, si no hay,
 // la estimada desde el pedido (2 días hábiles, 7 si lleva teñido) — igual que en Pendientes.
-function utAvioDetalleHtml(pend){
+function utAvioDetalleHtml(pend,secId,itemId){
   if(!pend||!pend.length) return '';
   return pend.map(av=>{
+    let atrasado=false;
     let dot='#dc2626', col='#991b1b', txt='sin pedir', bold=true;
     if(av.fecha_pedido){
       const pedTs=logiParseFechaEntregado(av.fecha_pedido);
@@ -6609,14 +6610,19 @@ function utAvioDetalleHtml(pend){
       const pedTxt=pedTs?utDiaFecha(pedTs):av.fecha_pedido;
       if(lleg){
         const h=diasHabilesHasta(lleg);
-        if(h<0){ txt=`pedido ${pedTxt} · atrasado ${-h} d`; }
+        if(h<0){ txt=`pedido ${pedTxt} · atrasado ${-h} d`; atrasado=true; }
         else { dot='#d97706'; col='#92400e'; bold=false; txt=`pedido ${pedTxt} · llega ${h===0?'hoy':(av.fecha_llegada?'':'~')+utDiaFecha(lleg)}`; }
       } else { dot='#d97706'; col='#92400e'; bold=false; txt=`pedido ${pedTxt}`; }
     }
     const extra=[av.proveedor||'',av.tenido?'con teñido':''].filter(Boolean).join(' · ');
+    // Fechas que el proveedor no cumplió (quedan guardadas al reprogramar, no se pisan).
+    const inc=Object.values(av.fechas_incumplidas||{}).filter(x=>x&&x.fecha).sort((a,b)=>(a.ts||0)-(b.ts||0));
+    const incHtml=inc.length?`<div style="margin-top:3px;padding:3px 6px;background:#fee2e2;border-radius:6px;color:#991b1b;font-size:10px;line-height:1.35">No cumplió: ${inc.map(x=>`<s>${utDiaFecha(utIsoTs(x.fecha))}</s>${x.estimada?' (estimada)':''}`).join(', ')}${(()=>{const u=inc[inc.length-1];return u.ts?`<br>Reprogramado${u.por?' por '+utEsc(USER_DISPLAY[u.por]||u.por):''} el ${utDiaFecha(u.ts)}`:'';})()}</div>`:'';
+    const puedeRep=atrasado&&secId&&itemId&&av._id&&puedeReprogramarAvio();
+    const repHtml=puedeRep?`<label onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:10px;color:var(--text2)">Nueva fecha <input class="ut-in falta" type="date" onclick="event.stopPropagation()" onchange="reprogramarAvioFecha('${secId}','${itemId}','${av._id}',this.value)" style="font-size:10.5px"></label>`:'';
     return `<div style="display:flex;align-items:flex-start;gap:5px;margin-top:4px;font-size:11px;line-height:1.3;text-align:left">
       <span style="width:7px;height:7px;border-radius:50%;background:${dot};flex-shrink:0;margin-top:4px"></span>
-      <span><span style="color:var(--text)">${utEsc(av.nombre||'(sin nombre)')}</span> <span style="color:${col};${bold?'font-weight:700':''}">${txt}</span>${extra?`<br><span style="color:var(--text3);font-size:10px">${utEsc(extra)}</span>`:''}</span>
+      <span><span style="color:var(--text)">${utEsc(av.nombre||'(sin nombre)')}</span> <span style="color:${col};${bold?'font-weight:700':''}">${txt}</span>${incHtml}${repHtml}${extra?`<br><span style="color:var(--text3);font-size:10px">${utEsc(extra)}</span>`:''}</span>
     </div>`;
   }).join('');
 }
@@ -6640,6 +6646,31 @@ function utClaveOrdenTaller(f,b){
   if(b===2) return utIsoTs(it.fecha_estimada_entrega)||MAX;   // sin retiro coordinado, al final del bloque
   if(f.estado==='parcial') return (f.parcial&&f.parcial.desde)||MAX;
   return it.fecha_retiro_confirmado||it.fecha_etapa||MAX;     // sin retiro cargado: desde que entró a la etapa
+}
+// Reprogramar la llegada de un avío: la fecha que no se cumplió NO se borra, queda en
+// avios/{id}/fechas_incumplidas (fecha, si era la estimada, quién y cuándo reprogramó).
+function puedeReprogramarAvio(){ return ['ariel','stef','peque','emir'].includes(quienSoy()); }
+function avioFechaVigenteIso(av){
+  if(!av) return null;
+  if(av.fecha_llegada) return {fecha:av.fecha_llegada,estimada:false};
+  const pedTs=av.fecha_pedido?logiParseFechaEntregado(av.fecha_pedido):0;
+  return pedTs?{fecha:isoFechaLocal(sumarDiasHabiles(pedTs,av.tenido?7:2)),estimada:true}:null;
+}
+function guardarFechaIncumplidaAvio(secId,itemId,avioId,av){
+  const vig=avioFechaVigenteIso(av); if(!vig) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fechas_incumplidas`).push({fecha:vig.fecha,estimada:vig.estimada,ts:Date.now(),por:quienSoy()});
+}
+function reprogramarAvioFecha(secId,itemId,avioId,iso){
+  if(!iso) return;
+  const item=sectionsData[secId]&&sectionsData[secId].items&&sectionsData[secId].items[itemId];
+  const av=item&&item.avios&&item.avios[avioId]; if(!av) return;
+  if(!puedeReprogramarAvio()){ showToast('No tenés permiso para reprogramar avíos'); return; }
+  if(av.fecha_llegada===iso) return;
+  guardarFechaIncumplidaAvio(secId,itemId,avioId,av);
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/avios/${avioId}/fecha_llegada`).set(iso);
+  const vig=avioFechaVigenteIso(av);
+  logActivity('Avío reprogramado',`${av.nombre||'Avío'} — ${item.code||''}: no cumplió ${vig?fmtIsoCorta(vig.fecha):'—'} → nueva ${fmtIsoCorta(iso)}`);
+  showToast(`📅 ${av.nombre||'Avío'}: nueva fecha ${fmtIsoCorta(iso)} (la anterior quedó guardada)`);
 }
 function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||esTalleres(); }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
@@ -6785,7 +6816,7 @@ function renderResumenPipelineTalleres(){
       const a=UT_AVIO[f.avio.tipo];
       const pend=f.avio.pend||[];
       const tip=pend.length?pend.map(x=>x.nombre+(x.fecha_pedido?' (pedido '+x.fecha_pedido+')':' (sin pedir)')).join(', '):a.label;
-      avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}${pend.length?' · '+pend.length:''}</span>`+utAvioDetalleHtml(pend);
+      avioHtml=`<span class="ut-pill" title="${utEsc(tip)}" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}${pend.length?' · '+pend.length:''}</span>`+utAvioDetalleHtml(pend,f.secId,f.itemId);
     }
     const chkR=utChecklistRetiroHtml(f);
     if(chkR) avioHtml=(f.avio?avioHtml+'<div style="height:4px"></div>':'')+chkR.html;
@@ -12341,7 +12372,10 @@ function saveEditItem(){
       fecha_pedido:nuevaFechaPedido,
       tenido:!!document.getElementById(`at-${avioId}`)?.checked,
     };
-    { const al=document.getElementById(`al-${avioId}`); if(al) avioUpdate.fecha_llegada=al.value||null; }
+    { const al=document.getElementById(`al-${avioId}`); if(al){ avioUpdate.fecha_llegada=al.value||null;
+      // Cambiar una fecha de llegada ya cargada no la pisa: la anterior queda como "no cumplió".
+      if(avioOriginal.fecha_llegada&&avioUpdate.fecha_llegada&&avioUpdate.fecha_llegada!==avioOriginal.fecha_llegada&&!avioOriginal.recibido)
+        guardarFechaIncumplidaAvio(secId,itemId,avioId,avioOriginal); } }
     // Si cargan una fecha de pedido anterior a hoy (ej: Peque anota que lo pidió hace unos días
     // y recién ahora lo carga), se guarda igual — pero le queda un aviso a Ariel/Stef en "Mis
     // pendientes" para que lo revisen después, en vez de bloquear la carga en el momento.

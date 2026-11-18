@@ -2935,6 +2935,13 @@ function buildProductosPerfectosOptions(){
         out.push({secId:sid,itemId:iid,label:`${it.code?it.code+' — ':''}${it.name||'(sin nombre)'}`});
       });
     }
+    // Nov 2026: las mejoras ya resueltas (por Peque) también se pueden elegir al armar tizada,
+    // sin pasar por Producto perfecto.
+    if(sec&&sec.tipo==='mejora'){
+      Object.entries(sec.items||{}).forEach(([iid,it])=>{
+        if(it&&it.mejora_resuelta) out.push({secId:sid,itemId:iid,label:`${it.code?it.code+' — ':''}${it.name||'(sin nombre)'} (mejora resuelta)`});
+      });
+    }
   });
   // Orden natural: numérico si el código empieza con número (7421 antes que 7439), alfabético
   // si empieza con letra — así queda ordenado "como corresponde" según cómo arranca cada código.
@@ -5637,7 +5644,7 @@ function marcarNecesitaMejora(secId,itemId){
   if(nota===null||!nota.trim()){ showToast('Cargá una nota para continuar'); return; }
   const mejoraSecId=getSectionIdByTipo('mejora');
   if(!mejoraSecId){ showToast('No encontré la sección de Mejora'); return; }
-  const newItem={...item,mejora_nota:nota.trim(),mejora_resuelta:false,fecha_mejora:Date.now(),fecha_etapa:Date.now()};
+  const newItem={...item,mejora_nota:nota.trim(),mejora_resuelta:false,fecha_mejora:Date.now(),fecha_etapa:Date.now(),mejora_por:quienSoy()};
   const nuevoRef=db.ref(`fabrica_v5/sections/${mejoraSecId}/items`).push(newItem);
   avisoNoe(item,'Revisión final: necesita mejora — "'+nota.trim()+'"',mejoraSecId,nuevoRef.key);
   db.ref(`fabrica_v5/sections/${secId}/items/${itemId}`).remove();
@@ -5820,6 +5827,8 @@ function volverAMejora(secId,itemId){
     mejora_resuelta:false,
     mejora_tipo:null,
     necesita_muestra:null,
+    fecha_mejora:Date.now(),
+    mejora_por:quienSoy(),
     fecha_etapa:Date.now()
   };
   delete newItem.fecha_perfecto;
@@ -11819,8 +11828,7 @@ function quickAdd(secId){
   } else {
     ni={code:val,name:'',done:false,avios:{},fecha_ingreso:ahora,fecha_creado:ahora,fecha_etapa:ahora};
     if(sec.tipo==='muestra_pend'||sec.tipo==='muestra_cort'){ni.ficha=false;ni.lleva_avios=null;}
-    // Peque en Pendiente armar tizada solo carga artículos de Mini Sur (oct 2026).
-    if(currentUser==='peque'&&(sec.title||'').trim()==='Pendiente armar tizada') ni.marca=marcaMinisurNombre();
+    // Nov 2026: Peque ya no carga solo Mini Sur en Pendiente armar tizada; la marca se elige en la tarjeta.
   }
   db.ref(`fabrica_v5/sections/${secId}/items`).push(ni);
   logActivity('Agregó ítem',val);inp.value='';showToast('Ítem agregado');
@@ -11860,7 +11868,7 @@ function confirmRepoAdd(){
   const [refSec,refId]=sel.value.split('::');
   const ref=sectionsData[refSec]?.items?.[refId];
   if(!ref){ showToast('No encontré ese producto'); return; }
-  if(currentUser==='peque'&&!esMinisur(ref)){ showToast('Solo podés agregar reposiciones de Mini Sur'); return; }
+  // Nov 2026: Peque arma las tizas de By Nina también — puede elegir reposiciones de cualquier marca.
   const ahora=Date.now();
   const ni={
     code:ref.code||'',name:ref.name||'',marca:ref.marca||'',tela:ref.tela||'',
@@ -15836,6 +15844,24 @@ function pqPaseAAdela(secId,itemId,clave){
   logActivity('Solicitó modificaciones a Adela',it.code||it.name||'');
   showToast('📤 Solicitado a Adela — queda esperando que entregue la muestra');
 }
+// Nov 2026: mejoras pedidas en Revisión final (Noelia) que Peque tiene que resolver.
+function pqMejoras(){
+  const list=[];
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    if(!sec||sec.tipo!=='mejora') return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||item.mejora_resuelta||item.done) return;
+      const fotos=Object.values(item.mejora_fotos||{}).filter(Boolean);
+      if(!fotos.length&&item.mejora_foto) fotos.push(item.mejora_foto);
+      list.push({secId,itemId,item,fotos,ts:item.fecha_mejora||item.fecha_etapa||0});
+    });
+  });
+  return list.sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
+function pqResolverMejora(secId,itemId){
+  const it=sectionsData[secId]&&sectionsData[secId].items[itemId]; if(!it||it.mejora_resuelta) return;
+  toggleMejoraResuelta(secId,itemId);
+}
 function pqPedidos(){
   const list=[];
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
@@ -15876,7 +15902,7 @@ function pqTareas(){
 }
 function pqBadge(){
   const b=document.getElementById('tab-btn-peque'); if(!b) return;
-  const n=currentUser==='emir'?emTareas().todas.length:currentUser==='ariel'?tsCortesRevision().length+rdParaDividir().length:currentUser==='noelia'?avisosLlegadaPendientes().length:pqPedidos().length;
+  const n=currentUser==='emir'?emTareas().todas.length:currentUser==='ariel'?tsCortesRevision().length+rdParaDividir().length:currentUser==='noelia'?avisosLlegadaPendientes().length:pqPedidos().length+pqMejoras().length;
   b.textContent=n?`📋 Mi día (${n})`:'📋 Mi día';
 }
 function pqRefrescar(){
@@ -16407,7 +16433,9 @@ function renderTableroPeque(){
   // Nov 2026: Pendiente armar tizada, en el orden de prioridad (sale de esa sección, no de "otras").
   const tizId=getSectionIdByTitleExact('Pendiente armar tizada');
   const tizadas=tizId?getSortedItems(sectionsData[tizId]||{}).filter(([,it])=>it&&!it.done).map(([itemId,item],i)=>({secId:tizId,itemId,item,texto:`Prioridad ${i+1}${(()=>{ try{ const f=faltantesNoeliaTizada(item); return f.length?' · Noelia todavía no cargó: '+f.join(', '):''; }catch(err){ return ''; } })()}`,ts:item.fecha_etapa||0})):[];
-  const otras=otras0.filter(x=>x.secId!==tizId);
+  const mejSecs=new Set(Object.entries(sectionsData||{}).filter(([,sc])=>sc&&sc.tipo==='mejora').map(([id])=>id));
+  const otras=otras0.filter(x=>x.secId!==tizId&&!mejSecs.has(x.secId));
+  const mejoras=pqMejoras();
   const sinPedir=avios.filter(x=>/sin pedir/.test(x.texto)).length, sinPrecio=avios.length-sinPedir;
   const grupos=[
     {k:'tizadas',t:'Tizadas por prioridad',sub:'Pendiente armar tizada, en el orden en que van',l:tizadas},
@@ -16415,7 +16443,7 @@ function renderTableroPeque(){
     {k:'moldes',t:'Moldes',sub:'Digitalizar y progresiones de Mini Sur',l:moldes},
     {k:'avios',t:'Avíos',sub:`${sinPedir} sin pedir · ${sinPrecio} sin precio`,l:avios},
     {k:'minisur',t:'Mini Sur',sub:'Cortes y entregas de la marca que están esperando algo',l:minisur},
-    {k:'otras',t:'Otras tareas',sub:'Muestras, tizadas y mejoras a tu cargo',l:otras}
+    {k:'otras',t:'Otras tareas',sub:'Muestras y tizadas a tu cargo',l:otras}
   ];
   const kpi=(n,t,alerta)=>`<div class="pq-k ${alerta&&n?'pq-k-a':''}"><b>${n}</b><span>${t}</span></div>`;
   const filaPedido=p=>`<div class="pq-f pq-click" ${ir(p)}>${foto(p.item)}
@@ -16431,9 +16459,17 @@ function renderTableroPeque(){
   cont.innerHTML=`<div class="pq-wrap">
     <div class="pq-head"><div><div class="pq-h1">${currentUser==='peque'?'Mi día':'Día de Peque'}</div><div class="pq-sub">${currentUser==='peque'?'':'Peque · '}${e(fechaTxt)}</div></div>
       <div style="display:flex;gap:6px;align-items:center">${pqSelectorHtml()}<button class="btn-sm" onclick="pqMover(-1)" aria-label="Día anterior">‹</button><button class="btn-sm" onclick="pqIrHoy()">Hoy</button><button class="btn-sm" onclick="pqMover(1)" aria-label="Día siguiente">›</button></div></div>
-    <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(tizadas.length,'Tizadas')}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
+    <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(mejoras.length,'Mejoras',true)}${kpi(tizadas.length,'Tizadas')}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
     <div class="pq-lab">Pedidos de modificación ${pedidos.length?`<span class="pq-n pq-n-a">${pedidos.length} sin resolver</span>`:''}</div>
     <div class="pq-card">${pedidos.length?pedidos.map(filaPedido).join(''):'<div class="pq-vacio">No hay pedidos sin resolver.</div>'}</div>
+    <div class="pq-lab">Mejoras pedidas ${mejoras.length?`<span class="pq-n pq-n-a">${mejoras.length} sin resolver</span>`:''}</div>
+    <div class="pq-card">${mejoras.length?mejoras.map(m=>{ const por=m.item.mejora_por?(USER_DISPLAY[m.item.mejora_por]||m.item.mejora_por):'';
+      return `<div class="pq-f pq-click" style="align-items:flex-start" onclick="cerrarMisPendientesYIr('${m.secId}','${m.itemId}',false)">${foto(m.item)}
+      <div class="pq-b"><div class="pq-art">${nombreArt(m.item)}</div>
+        ${m.item.mejora_nota?`<div class="pq-sub" style="white-space:pre-line;color:var(--text)">"${e(m.item.mejora_nota)}"</div>`:''}
+        ${m.fotos.length?`<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${m.fotos.slice(0,4).map(u=>`<img src="${e(u)}" loading="lazy" style="width:34px;height:34px;border-radius:6px;object-fit:cover;cursor:zoom-in" onclick="event.stopPropagation();openPhotoModal('${e(u)}')">`).join('')}</div>`:''}
+        <div class="pq-meta"><span class="pq-pill" style="background:var(--warn-bg);color:var(--warn-text)">Mejora${m.item.mejora_tipo?' · '+e(m.item.mejora_tipo):''}</span><span class="pq-sub">${por?e(por)+' · ':''}${e(pqCuando(m.ts))}</span>${m.fotos.length?'':'<span class="pq-pill" style="background:var(--danger-bg);color:var(--danger)">sin foto</span>'}</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0"><button class="btn-sm" style="border-color:var(--green-text);color:var(--green-text)" onclick="event.stopPropagation();pqResolverMejora('${m.secId}','${m.itemId}')">✓ Resuelta</button><button class="btn-sm">Abrir</button></div></div>`; }).join(''):'<div class="pq-vacio">No hay mejoras sin resolver.</div>'}</div>
     ${(()=>{ // Nov 2026: modificaciones ya solicitadas a Adela, esperando que entregue la muestra.
       const esp=[]; Object.entries((sectionsData[SEC_MOLD]||{}).items||{}).forEach(([itemId,item])=>{
         if(!item||item.estado!=='modificaciones'||item.entregada_modelista) return;

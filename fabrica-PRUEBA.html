@@ -14293,7 +14293,18 @@ function tsAplicarConsumo(ctx,rows,info,colPlan){
 // Se marca cada vez que alguien que no es Ariel guarda los rollos de un corte (del stock o fuera de la app).
 // Si vuelve a guardar las mismas filas que Ariel ya aprobó, no se vuelve a abrir.
 let revTelaData={}, revTelaCargado=false;
-db.ref('fabrica_v5/revision_tela').on('value',snap=>{ revTelaData=snap.val()||{}; revTelaCargado=true; revTelaRefrescar(); revTelaMigrarHoy(); });
+// Si lo único que cambió es el control de rollos, no se re-dibuja Revisar tela (se perdería lo que se está escribiendo):
+// solo se actualizan los botones y los contadores.
+let revTelaSinCtrlPrev=null;
+function revTelaSinCtrl(d){ const o={}; Object.entries(d||{}).forEach(([k,v])=>{ if(v&&typeof v==='object'){ const {control_rollos,...r}=v; if(Object.keys(r).length) o[k]=r; } else o[k]=v; }); return JSON.stringify(o); }
+db.ref('fabrica_v5/revision_tela').on('value',snap=>{ revTelaData=snap.val()||{}; revTelaCargado=true;
+  const firma=revTelaSinCtrl(revTelaData);
+  if(revTelaSinCtrlPrev!==null&&firma===revTelaSinCtrlPrev){
+    try{ ctrlRefrescarBotones(); }catch(e){}
+    try{ const cd=document.getElementById('costeo-detail-screen'); if(costeoDetailKey&&cd&&cd.offsetParent) renderCosteoDetail(); }catch(e){}
+    try{ if(document.getElementById('costeo-list')) renderCosteoTab(); }catch(e){}
+    return; }
+  revTelaSinCtrlPrev=firma; revTelaRefrescar(); revTelaMigrarHoy(); });
 function revTelaRefrescar(){
   try{ renderAvisoTela(); }catch(e){}
   try{ if(document.getElementById('costeo-list')) renderCosteoTab(); }catch(e){}
@@ -21547,6 +21558,8 @@ db.ref('fabrica_v5/control_rollos').on('value',snap=>{ ctrlRollosData=snap.val()
   try{ const cd=document.getElementById('costeo-detail-screen'); if(costeoDetailKey&&cd&&cd.offsetParent) renderCosteoDetail(); }catch(err){}
   try{ if(document.getElementById('costeo-list')) renderCosteoTab(); }catch(err){} });
 function ctrlRolloDato(key,ck,e){
+  const rv=(((typeof revTelaData!=='undefined'&&revTelaData)||{})[key]||{}).control_rollos||{};
+  if(rv[ck]) return rv[ck];
   const n=((ctrlRollosData||{})[key]||{})[ck];
   if(n) return n;
   const ee=e||(costeosData||{})[key];
@@ -21589,12 +21602,14 @@ function ctrlToggle(bt){
   if(currentUser!=='ariel') return;
   const key=bt.dataset.ctrlcorte, ck=bt.dataset.ctrlrollo, f=bt.dataset.ctrlfirma||'';
   const d=ctrlRolloDato(key,ck); const ok=d&&!(d.firma&&f&&d.firma!==f);
-  const ruta=`fabrica_v5/control_rollos/${key}/${ck}`;
+  // Se guarda junto a la revisión de tela del corte (fabrica_v5/revision_tela/{corte}/control_rollos).
+  const ruta=`fabrica_v5/revision_tela/${key}/control_rollos/${ck}`;
   const up={};
-  if(ok){ up[ruta]=null; up[`fabrica_v5/costeos/${key}/control_rollos/${ck}`]=(costeosData&&costeosData[key])?null:undefined; }
-  else up[ruta]={por:currentUser,ts:Date.now(),firma:f||null};
-  Object.keys(up).forEach(k=>{ if(up[k]===undefined) delete up[k]; });
-  db.ref().update(up);
+  if(ok){ up[ruta]=null;
+    if(((ctrlRollosData||{})[key]||{})[ck]) up[`fabrica_v5/control_rollos/${key}/${ck}`]=null;
+    if((((costeosData||{})[key]||{}).control_rollos||{})[ck]) up[`fabrica_v5/costeos/${key}/control_rollos/${ck}`]=null; }
+  else { const v={por:currentUser,ts:Date.now()}; if(f) v.firma=f; up[ruta]=v; }
+  db.ref().update(up).catch(err=>showToast('⚠️ No se pudo guardar el control: '+((err&&(err.code||err.message))||err)));
   logActivity(ok?'Desmarcó rollo controlado':'Controló rollo con la ficha',`Corte ${key} · ${ck}`);
 }
 function costeoTelaRevisada(key){

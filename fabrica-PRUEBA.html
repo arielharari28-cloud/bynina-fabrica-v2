@@ -1353,6 +1353,24 @@
   </div>
 </div>
 
+<div class="logi-modal-bg" id="logi-liso-modal">
+  <div class="logi-modal" style="max-height:90vh;overflow-y:auto;max-width:640px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px">Pasar a liso</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Estas unidades salen del estampado y van a <b>Pendiente dividir</b> con otro código. No se le vuelven a facturar al taller (ya se facturan en esta entrega). El resto sigue su recorrido.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <label style="font-size:11px;color:var(--text2);flex:1;min-width:120px">Código liso<input id="logi-liso-code" type="text" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;margin-top:2px" oninput="logiLisoActualizar()"></label>
+      <label style="font-size:11px;color:var(--text2);flex:2;min-width:180px">Nombre<input id="logi-liso-name" type="text" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:13px;margin-top:2px"></label>
+    </div>
+    <button class="btn-sm" style="margin-bottom:8px" onclick="logiLisoUsarControlado()">Usar lo controlado (OK + detalle)</button>
+    <div id="logi-liso-grid-wrap" style="overflow-x:auto"></div>
+    <div id="logi-liso-err" style="font-size:12px;color:var(--danger);margin-top:6px"></div>
+    <div id="logi-liso-resumen" style="font-size:13px;margin-top:8px"></div>
+    <div class="logi-mbtns" style="margin-top:14px">
+      <button class="logi-cancel" onclick="logiCerrarLisoModal()">Cancelar</button>
+      <button class="logi-save" onclick="logiLisoConfirmar()">Confirmar pase a liso</button>
+    </div>
+  </div>
+</div>
 <div class="logi-modal-bg" id="logi-clasif-grid-modal">
   <div class="logi-modal" style="max-height:90vh;overflow-y:auto;max-width:640px">
     <div style="font-weight:700;font-size:14px;margin-bottom:4px">Cargar OK / Detalle / Fallado por grilla</div>
@@ -19384,7 +19402,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
       </div>` : '';
       extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${preciosVentaHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}${webColoresHtml}`;
     } else {
-      const pool = totalOk + totalDetalle;
+      const pool = Math.max(0, totalOk + totalDetalle - logiLisoTotalPasado(it)); // lo que pasó a liso se divide en su propia entrega
       const avell = it.division_avellaneda;
       const dep = it.division_deposito;
       const divisionHtml = currentUser==='ariel' ? `
@@ -19708,6 +19726,7 @@ function logiEliminarItem(id){
     if(!destSecId){ showToast('No encontré la sección de destino del corte — no borro nada'); return; }
     db.ref(`fabrica_v5/sections/${destSecId}/items`).push(it.avance_pendiente.item_snapshot);
   }
+  if(it.liso_de&&it.liso_de.entrega_id&&logiItemsData[it.liso_de.entrega_id]) db.ref(`fabrica_v5/logistica/items/${it.liso_de.entrega_id}/pasado_liso/${id}`).remove(); // vuelven a estar disponibles en la original
   db.ref(`fabrica_v5/logistica/items/${id}`).remove();
   logActivity('Eliminó un movimiento de Logística',`${it.code||''} — Corte ${it.numero_corte||'?'}`);
   showToast('🗑 Movimiento eliminado');
@@ -19900,7 +19919,7 @@ function logiRenderDetail(id){
   // dividir), así Noemí/Nahuel/Emir las completan desde Logística sin pasar por la pestaña Web.
   const medEl=document.getElementById('logi-detail-medidas');
   if(medEl){ const mh=buildMedidasHtml(id,it,true); medEl.innerHTML=mh?`<div class="ld-card">${mh}</div>`:''; }
-  let html = logiPlanchaHtml(id,it);
+  let html = logiPlanchaHtml(id,it) + logiLisoHtml(id,it);
 
   if(cerrado){
     const puedeReabrir=(currentUser==='emir'||currentUser==='ariel'||pqMS);
@@ -20156,6 +20175,121 @@ function logiMandarAPlancha(id){
   logActivity('Mandó a plancha desde Logística',`${it.code||''} — Corte ${it.numero_corte||'?'} · ${taller}${detalle?' ('+detalle+')':''}`);
   showToast(`🧺 Mandada a plancha con ${taller} — ya está en Talleres`);
 }
+// ===== Pasar a liso desde Logística (nov 2026) =====
+// Un corte que iba a estampado puede salir (todo o en parte) como prenda lisa, con otro código
+// (ej. 4693A19 → 4693A). Se eligen las cantidades por color/talle de lo ya controlado (OK + detalle).
+// Crea una entrega aparte con el código liso directo en "Pendiente dividir", marcada no_facturar
+// (al taller se le factura la entrega original, completa). La original guarda lo que pasó a liso
+// para no dividirlo dos veces y sigue su recorrido con el resto. Lo usan Ariel y Noelia.
+function logiPuedePasarLiso(){ return currentUser==='ariel'||currentUser==='noelia'; }
+function logiLisoPasadoPorCombo(it){
+  const m={};
+  Object.values(it&&it.pasado_liso||{}).forEach(p=>{ Object.entries((p&&p.grilla)||{}).forEach(([k,v])=>{ m[k]=(m[k]||0)+(parseInt(v&&v.cantidad)||0); }); });
+  return m;
+}
+function logiLisoTotalPasado(it){ return Object.values(it&&it.pasado_liso||{}).reduce((s,p)=>s+(parseInt(p&&p.cantidad)||0),0); }
+function logiLisoComboKey(color,talle){ return sanitizeStr(`${color||''}__${talle||''}`); }
+function logiLisoHtml(id,it){
+  if(!it||!it.numero_corte||it.origen==='proveedor'||it.liso_de||it.proceso) return '';
+  const pasados=Object.values(it.pasado_liso||{});
+  const info=pasados.length?`<div style="font-size:12px;font-weight:700;color:#1F4A33;background:#E6F0EA;border-radius:8px;padding:6px 8px;margin-bottom:8px;text-align:center">⚪ Pasaron a liso: ${pasados.map(p=>`${parseInt(p.cantidad)||0} u. → ${utEsc(p.code||'')}`).join(' · ')}</div>`:'';
+  if(!logiPuedePasarLiso()) return info;
+  return info+`<div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <div style="font-size:12px"><b>⚪ Pasar a liso</b><div style="color:var(--text2);font-size:11px">Lo que no se estampa va a dividir con otro código</div></div>
+    <button class="btn-sm" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="logiAbrirLisoModal('${id}')">Pasar a liso</button>
+  </div>`;
+}
+let logiLisoItemId=null;
+function logiLisoFilasDisponibles(it){
+  const pas=logiLisoPasadoPorCombo(it);
+  return Object.entries(it.grilla||{}).map(([key,f])=>{
+    const ck=logiLisoComboKey(f.color,f.talle);
+    const ctrl=(parseInt(f.ok)||0)+(parseInt(f.detalle)||0);
+    return {key,f,ck,ctrl,disp:Math.max(0,ctrl-(pas[ck]||0)),ya:pas[ck]||0};
+  });
+}
+function logiAbrirLisoModal(id){
+  if(!logiPuedePasarLiso()){ showToast('Esto lo hacen Ariel o Noelia'); return; }
+  const it=logiItemsData[id]; if(!it) return;
+  const filas=logiLisoFilasDisponibles(it);
+  if(!filas.some(x=>x.disp>0)){ showToast('No hay prendas controladas (OK o detalle) para pasar a liso'); return; }
+  logiLisoItemId=id;
+  const sug=String(it.code||'').replace(/\d+$/,'')||String(it.code||'');
+  document.getElementById('logi-liso-code').value=sug;
+  document.getElementById('logi-liso-name').value=it.name||'';
+  const colores=[...new Set(filas.map(x=>x.f.color||''))].sort((a,b)=>a.localeCompare(b));
+  const talles=[...new Set(filas.map(x=>x.f.talle||''))].sort(compareTalles);
+  const por={}; filas.forEach(x=>{ por[`${x.f.color||''}__${x.f.talle||''}`]=x; });
+  const head=talles.map(t=>`<th>${utEsc(t||'—')}</th>`).join('');
+  const rows=colores.map(c=>`<tr><td style="font-weight:700">${utEsc(c||'(sin color)')}</td>${talles.map(t=>{
+    const x=por[`${c}__${t}`];
+    if(!x) return '<td style="color:var(--text3)">—</td>';
+    return `<td><input type="number" min="0" step="1" max="${x.disp}" value="0" data-rowkey="${x.key}" data-max="${x.disp}" oninput="logiLisoActualizar()" ${x.disp?'':'disabled'} style="width:56px"><div style="font-size:10px;color:var(--text3)">ctrl ${x.ctrl}${x.ya?` · ya ${x.ya}`:''}</div></td>`;
+  }).join('')}</tr>`).join('');
+  document.getElementById('logi-liso-grid-wrap').innerHTML=`<table class="logi-gen-table"><thead><tr><th>Color</th>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+  document.getElementById('logi-liso-err').textContent='';
+  logiLisoActualizar();
+  document.getElementById('logi-liso-modal').classList.add('logi-show');
+}
+function logiCerrarLisoModal(){ document.getElementById('logi-liso-modal').classList.remove('logi-show'); logiLisoItemId=null; }
+function logiLisoUsarControlado(){
+  document.querySelectorAll('#logi-liso-grid-wrap input[data-rowkey]').forEach(i=>{ i.value=i.dataset.max; });
+  logiLisoActualizar();
+}
+function logiLisoLeer(){
+  let total=0,error='';
+  const sel=[];
+  document.querySelectorAll('#logi-liso-grid-wrap input[data-rowkey]').forEach(i=>{
+    const n=Math.max(0,parseInt(i.value)||0), mx=parseInt(i.dataset.max)||0;
+    if(n>mx) error='Una celda supera lo controlado disponible de ese color y talle.';
+    if(n>0){ sel.push({rowKey:i.dataset.rowkey,n:Math.min(n,mx)}); total+=Math.min(n,mx); }
+  });
+  return {total,error,sel};
+}
+function logiLisoActualizar(){
+  const it=logiItemsData[logiLisoItemId]; if(!it) return;
+  const {total,error}=logiLisoLeer();
+  document.getElementById('logi-liso-err').textContent=error;
+  const code=(document.getElementById('logi-liso-code').value||'').trim()||'—';
+  document.getElementById('logi-liso-resumen').innerHTML=`<b>${total}</b> u. pasan a <b>${utEsc(code)}</b> → Pendiente dividir · el resto sigue como <b>${utEsc(it.code||'')}</b>`;
+}
+function logiLisoConfirmar(){
+  const id=logiLisoItemId, it=logiItemsData[id];
+  if(!it||!logiPuedePasarLiso()) return;
+  const code=(document.getElementById('logi-liso-code').value||'').trim();
+  const name=(document.getElementById('logi-liso-name').value||'').trim();
+  const {total,error,sel}=logiLisoLeer();
+  if(!code){ document.getElementById('logi-liso-err').textContent='Poné el código liso.'; return; }
+  if(code.toUpperCase()===String(it.code||'').trim().toUpperCase()){ document.getElementById('logi-liso-err').textContent='El código liso tiene que ser distinto al del corte.'; return; }
+  if(error){ document.getElementById('logi-liso-err').textContent=error; return; }
+  if(!total){ document.getElementById('logi-liso-err').textContent='Elegí al menos una unidad.'; return; }
+  if(!confirm(`¿Pasar ${total} u. del corte ${it.numero_corte} a liso como ${code}? Van a Pendiente dividir y no se le vuelven a facturar al taller.`)) return;
+  const grilla={}, registro={};
+  sel.forEach(({rowKey,n},i)=>{
+    const f=it.grilla[rowKey]||{};
+    const ok=Math.min(n,parseInt(f.ok)||0), det=n-ok; // primero OK, después detalle
+    grilla['f'+i]={color:f.color||'',talle:f.talle||'',esperado:n,contado:n,ok,detalle:det,fallado:0,fallado_tela:0};
+    registro[logiLisoComboKey(f.color,f.talle)]={color:f.color||'',talle:f.talle||'',cantidad:n};
+  });
+  const nuevoRef=db.ref('fabrica_v5/logistica/items').push();
+  const ahora=Date.now();
+  const nuevo={
+    code, name:name||it.name||'', foto:it.foto||'', numero_corte:it.numero_corte||'', taller:it.taller||'',
+    categoria:it.categoria||'', fecha_entregado:it.fecha_entregado||'', fecha_creado:ahora,
+    estado:'pendiente_dividir', fecha_control_cerrado:ahora, control_cerrado_por:currentUser,
+    no_facturar:true, abierta_por:currentUser,
+    liso_de:{entrega_id:id,code:it.code||'',fecha:ahora,por:currentUser},
+    grilla
+  };
+  const upd={};
+  upd[`fabrica_v5/logistica/items/${nuevoRef.key}`]=nuevo;
+  upd[`fabrica_v5/logistica/items/${id}/pasado_liso/${nuevoRef.key}`]={code,cantidad:total,grilla:registro,fecha:ahora,por:currentUser};
+  db.ref().update(upd).then(()=>{
+    logActivity('Pasó a liso desde Logística',`Corte ${it.numero_corte||'?'}: ${total} u. de ${it.code||''} → ${code}`);
+    showToast(`⚪ ${total} u. pasaron a ${code} — están en Pendiente dividir`);
+  });
+  logiCerrarLisoModal();
+}
 // Lo que tiene que volver de plancha: lo controlado de la entrega (OK + Detalle) o, si todavía no
 // se controló, lo contado. Sin datos, null: se usa la grilla del corte.
 function grillaEntregaPlancha(e){
@@ -20230,6 +20364,7 @@ function logiSigueAEstampado(it){
 // próximo paso, o null si esta entrega es la final (→ Pendiente dividir).
 function logiSigueA(it){
   if(!it) return null;
+  if(it.liso_de) return null; // entrega liso: va directo a dividir
   if(it.mandada_plancha) return `Terminación (Plancha · ${it.mandada_plancha.taller||'taller'})`;
   const av=it.avance_pendiente;
   if(av&&!av.avanzado) return av.destino_tipo==='en_estampado_taller'?'Estampado':null;

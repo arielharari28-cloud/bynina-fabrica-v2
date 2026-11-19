@@ -13653,8 +13653,8 @@ function renderTelasStock(){
     const usosDelCorte=r=>Object.entries(r.usos||{}).filter(([k,x])=>x&&(k==='c_'+ck||corteKeyFrom(String(x.corte||''))===ck)).map(([,x])=>x);
     const usados=Object.entries(tsData.rollos).filter(([,r])=>r&&usosDelCorte(r).length);
     html+=`<div class="ts-card"><div class="ts-tela">Rollos usados en el corte ${tsEsc(n)}</div>
-      ${usados.length?`<div class="ts-fila ts-fila-head" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr"><span>Rollo</span><span>Tela · color</span><span>Entró con</span><span>Usó</span><span class="ts-c-total">Queda</span></div>`+usados.map(([rid,r])=>{ const us=usosDelCorte(r), u={usado:us.reduce((a,x)=>a+tsNum(x.usado),0),pendiente:us.some(x=>x.pendiente)}, un=tsUnidadTxt(r.unidad); return `<div class="ts-fila" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr;cursor:default">
-        <b>${tsEsc(r.codigo)}</b><span>${tsEsc(r.tela)} · ${tsEsc(r.color)}</span><span>${tsFmt(tsNum(r.inicial),2)} ${un}</span><span>${tsFmt(tsNum(u.usado),2)} ${un}${u.pendiente?' (pendiente)':''}</span><span class="ts-c-total">${tsFmt(tsRestanteDe(r),2)} ${un}</span></div>`; }).join('')
+      ${usados.length?`<div class="ts-sub" style="margin:2px 0 6px">Tocá un rollo para ver por qué cortes pasó, en orden de fecha de corte.</div><div class="ts-fila ts-fila-head" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr"><span>Rollo</span><span>Tela · color</span><span>Entró con</span><span>Usó</span><span class="ts-c-total">Queda</span></div>`+usados.map(([rid,r])=>{ const us=usosDelCorte(r), u={usado:us.reduce((a,x)=>a+tsNum(x.usado),0),pendiente:us.some(x=>x.pendiente)}, un=tsUnidadTxt(r.unidad), h=tsHistRollo(r,ck), ab=tsHistAbiertos.has(rid); return `<div class="ts-fila" style="grid-template-columns:.7fr 1.4fr .9fr .9fr .9fr;cursor:pointer;${ab?'background:var(--bg2,#faf8f3)':''}" onclick="tsHistToggle('${tsEsc(rid)}')">
+        <b><span style="color:var(--text2);font-size:11px;margin-right:4px">${ab?'▾':'▸'}</span>${tsEsc(r.codigo)}</b><span>${tsEsc(r.tela)} · ${tsEsc(r.color)}${tsHistChips(h,ck)}</span><span>${tsFmt(tsNum(r.inicial),2)} ${un}</span><span>${tsFmt(tsNum(u.usado),2)} ${un}${u.pendiente?' (pendiente)':''}</span><span class="ts-c-total">${tsFmt(tsRestanteDe(r),2)} ${un}</span></div>${ab?tsHistTimeline(r,h,ck):''}`; }).join('')
       :'<div class="ts-sub" style="margin-top:6px">Ningún rollo del stock está anotado en ese corte.</div>'}</div>`;
   }
   if(!telas.length&&!/^\s*(corte\s*)?\d+[a-z]?\s*$/i.test(tsVista.busca)) html+=`<div class="empty-state">${Object.keys(tsData.rollos).length?'Ninguna tela coincide con la búsqueda.':'Todavía no hay tela cargada. '+(tsPuedeCargar()?'Tocá “+ Ingresar remito” cuando llegue la próxima.':'')}</div>`;
@@ -13713,6 +13713,64 @@ function renderTsTela(){
 function tsSetDolar(v){ db.ref('fabrica_v5/telas_stock/config/dolarHoy').set(tsNum(v)||null); }
 
 // ---- detalle de un color: rollo por rollo ----
+// Historial de un rollo (nov 2026): por qué cortes pasó, en orden de fecha de corte, con lo que usó
+// cada uno y lo que fue quedando. Se ve al tocar el rollo en "Rollos usados en el corte N".
+const tsHistAbiertos=new Set();
+function tsHistToggle(rid){ if(tsHistAbiertos.has(rid)) tsHistAbiertos.delete(rid); else tsHistAbiertos.add(rid); renderTelasStock(); }
+function tsHistRollo(r,ckActual){
+  const g={};
+  Object.entries(r.usos||{}).forEach(([k,x])=>{ if(!x) return;
+    let ck=corteKeyFrom(String(x.corte||''));
+    if(!ck){ const m=/^(?:c|colrev)_(.+)$/.exec(k)||/^i_([^_]+)_/.exec(k); ck=m?corteKeyFrom(m[1]):''; }
+    const id=ck||('?'+k);
+    const e=g[id]=g[id]||{ck,corte:String(x.corte||ck||'—'),usado:0,col:0,sinExp:0,pend:false,term:false,fechaUso:0};
+    const n=tsNum(x.usado);
+    if(x.code==='collareta') e.col+=n; else e.usado+=n;
+    e.sinExp+=tsNum(x.sinExplicar); if(x.pendiente) e.pend=true; if(x.terminado) e.term=true;
+    if(x.fecha&&(!e.fechaUso||x.fecha<e.fechaUso)) e.fechaUso=x.fecha;
+  });
+  const lista=Object.values(g).map(e=>({...e,fc:revTelaFechaCorte(e.corte)}));
+  lista.sort((a,b)=>((a.fc||Infinity)-(b.fc||Infinity))||((a.fechaUso||0)-(b.fechaUso||0)));
+  const actual=lista.find(e=>e.ck===ckActual);
+  const otros=lista.filter(e=>e!==actual);
+  // cortes anteriores (por fecha) que siguen sin aprobar: el orden de aprobación puede dar mal
+  const antesPend=actual?otros.filter(e=>e.pend&&e.fc&&actual.fc&&e.fc<actual.fc):[];
+  const sinExp=lista.reduce((a,e)=>a+e.sinExp,0);
+  const totUsado=lista.reduce((a,e)=>a+e.usado+e.col,0);
+  const dev=r.devolucion?tsNum(r.devolucion.cantidad):0;
+  // lo que no está en ningún corte: entró − usado en cortes − devuelto + ajuste − lo que queda
+  const sinRastro=Math.round((tsNum(r.inicial)+tsNum(r.ajuste)-dev-totUsado-tsRestanteDe(r))*100)/100;
+  return {lista,otros,antesPend,sinExp,sinRastro,dev};
+}
+function tsHistChip(txt,tipo){ const c={gr:['var(--green-bg,#e8efe9)','var(--green-text,#166534)'],am:['#FAEEDA','#633806'],rd:['#FCEBEB','#791F1F']}[tipo];
+  return `<span style="display:inline-block;margin:3px 4px 0 0;padding:1px 8px;border-radius:20px;background:${c[0]};color:${c[1]};font-size:11px;font-weight:600">${txt}</span>`; }
+function tsHistChips(h,ck){
+  const lim=0.5;
+  let out='<br>';
+  out+=h.otros.length?tsHistChip('también en '+h.otros.map(e=>'C-'+tsEsc(e.corte)).join(', '),'gr'):tsHistChip('solo en este corte','gr');
+  if(h.antesPend.length) out+=tsHistChip(h.antesPend.map(e=>'C-'+tsEsc(e.corte)).join(', ')+' sin aprobar antes','am');
+  if(h.sinExp>lim) out+=tsHistChip(tsFmt(h.sinExp,2)+' sin explicar','rd');
+  if(h.sinRastro>lim) out+=tsHistChip(tsFmt(h.sinRastro,2)+' sin rastro','rd');
+  return out;
+}
+function tsHistTimeline(r,h,ck){
+  const un=tsUnidadTxt(r.unidad), punto=(cur)=>`<span style="position:absolute;left:-18px;top:9px;width:8px;height:8px;border-radius:50%;${cur?'background:#fff;border:2px solid var(--green-text,#166534);width:6px;height:6px':'background:var(--green-text,#166534)'}"></span>`;
+  let resto=tsNum(r.inicial);
+  let html=`<div style="margin:4px 0 10px 14px;border-left:2px solid var(--green-text,#166534);padding-left:14px;font-size:12.5px;color:var(--text)">
+    <div style="position:relative;padding:5px 0">${punto(false)}<b>${tsFmt(resto,2)} ${un}</b> <span class="ts-sub">entró · ${r.deInventario?'stock inicial':'remito '+tsEsc(r.numeroRemito||'—')} · ${tsFechaCorta(r.fechaIngreso)}</span></div>`;
+  h.lista.forEach(e=>{
+    const u=e.usado+e.col; resto=Math.max(0,Math.round((resto-u)*100)/100);
+    const cur=e.ck===ck;
+    html+=`<div style="position:relative;padding:5px 0">${punto(cur)}<b>Corte ${tsEsc(e.corte)}</b> <span class="ts-sub">· ${e.fc?'cortado '+tsFechaDia(e.fc):'sin fecha de corte'}${cur?' · este corte':''}</span><br>
+      usó <b>${tsFmt(u,2)} ${un}</b>${e.col?` <span class="ts-sub">(${tsFmt(e.col,2)} collareta)</span>`:''} → ${e.term||resto<=0.05?'<b>terminado</b>':'quedó <b>'+tsFmt(resto,2)+' '+un+'</b>'}
+      ${e.sinExp>0.004?` <span class="ts-sub">· ${tsFmt(e.sinExp,2)} sin explicar</span>`:''}
+      ${tsHistChip(e.pend?'pendiente':'aprobado',e.pend?'am':'gr')}</div>`;
+  });
+  if(h.dev) html+=`<div style="position:relative;padding:5px 0">${punto(false)}Devolución al proveedor: <b>${tsFmt(h.dev,2)} ${un}</b></div>`;
+  if(tsNum(r.ajuste)) html+=`<div style="position:relative;padding:5px 0">${punto(false)}Ajuste al pesarlo: <b>${tsNum(r.ajuste)>0?'+':''}${tsFmt(tsNum(r.ajuste),2)} ${un}</b></div>`;
+  html+=`<div style="padding:5px 0 0" class="ts-sub">Queda en stock (solo lo aprobado): <b style="color:var(--text)">${tsFmt(tsRestanteDe(r),2)} ${un}</b>${h.sinRastro>0.004?` · ${tsFmt(h.sinRastro,2)} ${un} que no figuran en ningún corte`:''}</div></div>`;
+  return html;
+}
 function tsVerColor(tela,color){ tsVista={...tsVista,modo:'color',tela,color,filtroEstado:'disponibles'}; renderTelasStock(); window.scrollTo(0,0); }
 function renderTsColor(){
   const cont=document.getElementById('telas-content');

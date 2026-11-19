@@ -14294,6 +14294,7 @@ let revTelaData={}, revTelaCargado=false;
 db.ref('fabrica_v5/revision_tela').on('value',snap=>{ revTelaData=snap.val()||{}; revTelaCargado=true; revTelaRefrescar(); revTelaMigrarHoy(); });
 function revTelaRefrescar(){
   try{ renderAvisoTela(); }catch(e){}
+  try{ if(document.getElementById('costeo-list')) renderCosteoTab(); }catch(e){}
   try{ pqRefrescar(); }catch(e){}
   try{ const t=document.getElementById('tab-telas'); if(t&&!t.classList.contains('hidden')&&tsVista&&tsVista.modo!=='form') renderTelasStock(); }catch(e){}
 }
@@ -14497,6 +14498,16 @@ function tsRevToggle(ck,forzar){
   const ch=document.querySelector(`.ts-rev-chev[data-corte="${ck}"]`); if(ch) ch.textContent=ab?'▲':'▼';
 }
 function tsRevToggleTodas(ab){ document.querySelectorAll('.ts-rev-body').forEach(b=>tsRevToggle(b.dataset.corte,ab)); }
+// En Revisar tela: avisa si ese rollo ya se controló contra la ficha en Costeo (mismo dato).
+function tsRevCtrlChip(corte,stockId){
+  try{
+    const key=corteKeyFrom(String(corte||'')); const e=key&&costeosData[key]; if(!e||!stockId) return '';
+    const ent=Object.entries(e.rollos||{}).find(([,x])=>x&&String(x.stockId||'')===String(stockId)); if(!ent) return '';
+    const c=costeoRolloCtrl(e,ent[0],ent[1]); if(!c) return '';
+    return c.cambio?' <small style="color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:1px 6px">controlado, después cambió</small>'
+      :' <small style="color:var(--green-text,#166534);background:var(--green-bg,#dcfce7);border-radius:6px;padding:1px 6px">✓ controlado en Costeo</small>';
+  }catch(err){ return ''; }
+}
 function renderTsRevision(){
   const cont=document.getElementById('telas-content');
   const lista=tsCortesRevision();
@@ -14549,7 +14560,7 @@ function renderTsRevision(){
               <td style="padding:6px;text-align:right">${tsFmt(usadoOrig,2)} ${u}</td>
               <td style="padding:6px;text-align:right">${tsFmt(q,2)} ${u}</td>${esA?'<td></td><td></td>':''}</tr>`;
             return `<tr class="ts-revfila" ${data} data-antes="${antes}" data-kc="${kc}" data-usado="${usadoOrig}" data-unidad="${u}" data-otras="${otrasFilas}" data-col="${colKg}" data-col0="${colKg}" data-colk="${colF?colF.k:''}" data-capas="${capas||0}" style="border-top:1px solid var(--border)">
-              <td style="padding:6px"><b>${tsEsc(f.r.codigo)}</b> <small style="color:var(--text2)">· ${tsFmt(tsNum(f.r.inicial),2)} ${u}</small>${otros.length?`<br><small style="color:#8a5a00;background:#fdf3dc;border-radius:6px;padding:1px 6px">también en corte ${otros.map(tsEsc).join(', ')}</small>`:''}</td>
+              <td style="padding:6px"><b>${tsEsc(f.r.codigo)}</b> <small style="color:var(--text2)">· ${tsFmt(tsNum(f.r.inicial),2)} ${u}</small>${tsRevCtrlChip(g.corte,f.id)}${otros.length?`<br><small style="color:#8a5a00;background:#fdf3dc;border-radius:6px;padding:1px 6px">también en corte ${otros.map(tsEsc).join(', ')}</small>`:''}</td>
               <td style="padding:6px">${tsEsc(f.r.color||'')}</td>
               <td style="padding:6px;text-align:right">${tsFmt(antes,2)}</td>
               <td style="padding:6px;text-align:right">${esA?`<input class="ts-rev-capas" type="text" inputmode="numeric" value="${capas||''}" placeholder="falta" oninput="tsRevCalc('${ck}')" style="width:48px;${inp}">`:(capas?tsFmt(capas,0):'<span style="color:#9a3412;font-weight:700">falta</span>')}</td>
@@ -18880,7 +18891,10 @@ function logiSetPrecioTaller(itemId,val){
 function setLogiPrecioVenta(itemId,campo,val){
   const n=parseFloat(String(val).replace(',','.'));
   if(isNaN(n)||n<0){ db.ref(`fabrica_v5/logistica/items/${itemId}/${campo}`).remove(); return; }
-  db.ref(`fabrica_v5/logistica/items/${itemId}/${campo}`).set(n);
+  const upPV={[campo]:n};
+  if(PV_DERIVADOS[campo]) upPV[campo+'_auto']=null;
+  if(campo==='precio_lista_local') Object.assign(upPV,pvAutoDesdeLocal(logiItemsData[itemId]||{},n));
+  db.ref(`fabrica_v5/logistica/items/${itemId}`).update(upPV);
   logActivity(`Editó ${campo} (proveedor)`,`${logiItemsData[itemId]?.code||itemId}: $${n}`);
 }
 
@@ -21030,8 +21044,11 @@ function setCosteoLisoCampo(key,code,campo,val){
   const ref=db.ref(`fabrica_v5/costeos/${key}/lisos/${costeoLisoSlug(code)}/${campo}`);
   const n=parseFloat(String(val).replace(',','.'));
   if(String(val).trim()===''||isNaN(n)||n<0){ ref.remove(); return; }
-  ref.set(n);
-  db.ref(`fabrica_v5/costeos/${key}/lisos/${costeoLisoSlug(code)}/code`).set(code);
+  const lisoObj=((e.lisos||{})[costeoLisoSlug(code)])||{};
+  const up={[campo]:n,code};
+  if(PV_DERIVADOS[campo]) up[campo+'_auto']=null;
+  if(campo==='precio_lista_local') Object.assign(up,pvAutoDesdeLocal(lisoObj,n));
+  db.ref(`fabrica_v5/costeos/${key}/lisos/${costeoLisoSlug(code)}`).update(up);
   logActivity(`Editó ${campo} del liso (Costeo)`,`Corte ${e.numero_corte}: ${code} $${n}`);
 }
 function costeoLisoFichaHtml(e,key,lc,canEdit,inp,fila,sec,tag){
@@ -21211,6 +21228,42 @@ function costeoPrecioArt(e,a,campo){
   if(a&&a[campo]!=null&&a[campo]!=='') return numAr2(a[campo]);
   return numAr2(e[campo]);
 }
+// ---- Precio de avío desde la compra del corte (nov 2026) ----
+// Si en Costeo el avío no tiene precio (o está en 0), se usa la ÚLTIMA compra de ESE avío para ESE corte
+// (el ingreso que se carga al recibirlo). Nunca el precio de otro corte. Si no hay compra, queda en 0.
+function costeoNormTxt(t){ return String(t||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' '); }
+function costeoUnitIngreso(g){
+  const p=numAr2(g&&g.precio); if(p>0) return p;
+  const t=numAr2(g&&g.total), c=numAr2(g&&g.cantidad);
+  return t>0&&c>0?t/c:0;
+}
+function costeoCompraAvio(e,av,code){
+  try{
+    const key=corteKeyFrom(String(e.numero_corte||'')); if(!key||!av) return null;
+    const num=String(e.numero_corte||'').replace(/^corte\s*/i,'').trim();
+    const nom=costeoNormTxt(av.nombre); if(!nom) return null;
+    const art=av.articulo||code||'';
+    const cand={};
+    // 1) por el avío del corte en Fábrica (mismo corte, mismo nombre)
+    Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
+      if(!it||corteKeyFrom(String(it.numero_corte||''))!==key) return;
+      if(art&&it.code&&it.code!==art&&(e.articulos||[]).length>1) return;
+      Object.entries(it.avios||{}).forEach(([aid,a])=>{
+        if(!a||costeoNormTxt(a.nombre)!==nom) return;
+        const g=ingresoDeAvio(aid,a); if(g&&g.id) cand[g.id]=g; }); }));
+    // 2) por el detalle del ingreso: "nombre · corte N · código"
+    Object.entries(ingresosFabData||{}).forEach(([id,g])=>{
+      if(!g||cand[id]||!/av[ií]o/i.test(String(g.tipo||''))) return;
+      const partes=String(g.detalle||'').split(' · ').map(costeoNormTxt);
+      if(partes[0]!==nom||!partes.includes('corte '+costeoNormTxt(num))) return;
+      if(art&&partes.length>2&&!partes.includes(costeoNormTxt(art))&&(e.articulos||[]).length>1) return;
+      cand[id]={id,...g}; });
+    const lista=Object.values(cand).filter(g=>costeoUnitIngreso(g)>0).sort((a,b)=>(b.ts||0)-(a.ts||0));
+    if(!lista.length) return null;
+    const g=lista[0];
+    return {unit:costeoUnitIngreso(g),fecha:g.fecha||'',por:g.por||'',remito:g.remito||'',proveedor:g.proveedor||''};
+  }catch(err){ return null; }
+}
 function costeoArtCalc(e,i,mapa){
   const arts=e.articulos||[];
   const a=arts[i]||{};
@@ -21256,8 +21309,10 @@ function costeoArtCalc(e,i,mapa){
     const propio=arts.length===1||(av.articulo&&av.articulo===code);
     const compartido=!propio&&!av.articulo;
     if(!propio&&!compartido) return;
-    const unit=numAr2(av.cantidad)*numAr2(av.precio);
-    avios.push({idx,av,unit,monto:unit*piezas,compartido});
+    const compra=numAr2(av.precio)>0?null:costeoCompraAvio(e,av,code);
+    const precioEf=compra?compra.unit:numAr2(av.precio);
+    const unit=numAr2(av.cantidad)*precioEf;
+    avios.push({idx,av,unit,monto:unit*piezas,compartido,compra,precioEf});
   });
   const costoAvios=avios.reduce((s,x)=>s+x.monto,0);
   // Taller y otros gastos, por prenda.
@@ -21320,7 +21375,10 @@ function renderCosteoTab(){
   }).filter(g=>g.filas.length);
   const nPend=grupos.reduce((s,g)=>s+g.filas.filter(f=>!f.r.hayCosto).length,0);
   const nCosto=grupos.reduce((s,g)=>s+g.filas.filter(f=>f.r.hayCosto).length,0);
-  if(costeoFiltro!=='todos') grupos=grupos.map(g=>({...g,filas:g.filas.filter(f=>costeoFiltro==='costo'?f.r.hayCosto:!f.r.hayCosto)})).filter(g=>g.filas.length);
+  const sinCtrl=g=>{ const r=costeoCtrlResumen(g.key,g.e); return r.total>0&&!r.completo; };
+  const nSinCtrl=grupos.filter(sinCtrl).length;
+  if(costeoFiltro==='sinctrl') grupos=grupos.filter(sinCtrl);
+  else if(costeoFiltro!=='todos') grupos=grupos.map(g=>({...g,filas:g.filas.filter(f=>costeoFiltro==='costo'?f.r.hayCosto:!f.r.hayCosto)})).filter(g=>g.filas.length);
   const numDe=e=>parseInt(String(e.numero_corte||'').match(/\d+/)?.[0]||'0',10);
   grupos.sort((a,b)=>{
     if(costeoOrdenPor==='corte') return numDe(b.e)-numDe(a.e)||String(b.e.numero_corte||'').localeCompare(String(a.e.numero_corte||''));
@@ -21340,7 +21398,7 @@ function renderCosteoTab(){
         <option value="corte" ${costeoOrdenPor==='corte'?'selected':''}>N° de corte</option>
       </select>
     </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chipF('todos','Todos',total)}${chipF('pendiente','Costo pendiente',nPend)}${chipF('costo','Con costo',nCosto)}</div>`;
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chipF('todos','Todos',total)}${chipF('pendiente','Costo pendiente',nPend)}${chipF('costo','Con costo',nCosto)}${chipF('sinctrl','Cortes con rollos sin controlar',nSinCtrl)}</div>`;
   if(!todas.length){ cont.innerHTML=cab+'<div class="empty-state">Todavía no se marcó ningún corte como realizado</div>'; return; }
   const th=(t,x='')=>`<th style="padding:8px;font-size:11px;color:var(--text2);text-align:left;font-weight:600;white-space:nowrap;${x}">${t}</th>`;
   const td=(t,x='')=>`<td style="padding:8px;${x}">${t}</td>`;
@@ -21349,7 +21407,7 @@ function renderCosteoTab(){
     const nArts=(e.articulos||[]).length;
     const kgCorte=filas[0]?filas[0].r.kgCorte:0;
     const grp=`<tr style="background:var(--surface2)"><td colspan="7" style="padding:6px 8px;font-size:11px;color:var(--text2)">
-      <b style="color:var(--text);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b> · ${nArts} artículo${nArts!==1?'s':''}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''}</td></tr>`;
+      <b style="color:var(--text);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b> · ${nArts} artículo${nArts!==1?'s':''}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''} ${costeoCtrlChip(key,e)}</td></tr>`;
     return grp+filas.map(({i,r})=>{
       const est=costeoEtapaArt(e,r);
       const costo=r.hayCosto
@@ -21388,7 +21446,7 @@ function costeoPrecio(e){
 function costeoPrecioHtml(e,key,canEdit,inp){
   const p=costeoPrecio(e), ult=p.ult, u=ult?tsUnidadTxt(ult.unidad):'kg';
   if(!ult){
-    return `<div style="margin-top:6px;font-size:12px;color:var(--text3)">No hay remitos con precio de esta tela en el stock: el precio x kg se carga a mano.</div>`;
+    return `<div style="margin-top:6px;font-size:12px;color:var(--text3)">No hay remitos con precio de esta tela en el stock: el precio x kg se carga a mano arriba.${p.manual&&p.kg<100?` <span style="color:var(--warn-text)">⚠️ Está cargado $ ${String(e.precio_kg).replace('.',',')} por kg: revisá que no sea el peso x m.</span>`:''}</div>`;
   }
   const mc=tsCompraMasCara(e.tela);
   const origen=`Última compra: <b>${tsFechaCorta(ult.fecha)}</b>${ult.numero?` · remito ${costeoEsc(ult.numero)}`:''} · <b>${tsMoneda(ult.moneda,tsNum(ult.precio))} por ${u}</b>`;
@@ -21457,6 +21515,53 @@ function costeoStockSinCorte(stockId,key,up){
   up[`fabrica_v5/telas_stock/rollos/${stockId}/restante`]=rest;
   up[`fabrica_v5/telas_stock/rollos/${stockId}/estado`]=tsEstadoDe(nr,rest);
   up[`fabrica_v5/telas_stock/rollos/${stockId}/tuvoUsos`]=true;
+}
+// ---- Control de rollos contra la ficha de corte (nov 2026) ----
+// fabrica_v5/costeos/{corte}/control_rollos/{stockId | c_<fila>} = {por, ts, firma}
+// La firma guarda cargado|capas|sobrante del momento del control: si después cambia algo, el rollo vuelve a "sin controlar".
+// Los cortes aprobados en Revisar tela cuentan como controlados.
+function costeoRolloCtrlKey(rk,x){ return x&&x.stockId?String(x.stockId).replace(/[.#$\[\]\/]/g,'_'):'c_'+rk; }
+function costeoRolloFirma(x){ const v=y=>(y==null||String(y).trim()==='')?'':String(numAr2(y)); return [v(x.kgmts),v(x.capas),v(x.sobrante)].join('|'); }
+function costeoRolloCtrl(e,rk,x){
+  const c=((e&&e.control_rollos)||{})[costeoRolloCtrlKey(rk,x)]; if(!c) return null;
+  return {...c,cambio:c.firma!==costeoRolloFirma(x)};
+}
+function costeoTelaRevisada(key){
+  const r=(typeof revTelaData!=='undefined'&&revTelaData&&revTelaData[key])||null;
+  return r&&r.aprobadoEn&&!r.pendiente?r:null;
+}
+function costeoCtrlResumen(key,e){
+  const rs=Object.entries((e&&e.rollos)||{}).filter(([,x])=>x&&(x.color||x.kgmts));
+  const ok=rs.filter(([rk,x])=>{ const c=costeoRolloCtrl(e,rk,x); return c&&!c.cambio; }).length;
+  const rev=costeoTelaRevisada(key);
+  return {total:rs.length,ok,rev,completo:!!rev||(rs.length>0&&ok===rs.length)};
+}
+function costeoCtrlChip(key,e){
+  const r=costeoCtrlResumen(key,e); if(!r.total) return '';
+  const st=(bg,col,t)=>`<span style="font-size:10px;padding:1px 8px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${t}</span>`;
+  if(r.rev) return st('var(--green-bg,#dcfce7)','var(--green-text,#166534)','✓ Tela aprobada en revisión');
+  if(r.completo) return st('var(--green-bg,#dcfce7)','var(--green-text,#166534)','✓ Rollos controlados');
+  return st('var(--warn-bg)','var(--warn-text)',`${r.ok} de ${r.total} rollos controlados`);
+}
+function costeoToggleCtrlRollo(key,rk){
+  if(currentUser!=='ariel') return;
+  const e=costeosData[key]; const x=e&&e.rollos&&e.rollos[rk]; if(!x) return;
+  const ruta=`fabrica_v5/costeos/${key}/control_rollos/${costeoRolloCtrlKey(rk,x)}`;
+  const c=costeoRolloCtrl(e,rk,x);
+  const nom=`${x.codigo||'Fuera de la app'} ${x.color||''}`.trim();
+  if(c&&!c.cambio){ db.ref(ruta).remove(); logActivity('Desmarcó rollo controlado (Costeo)',`Corte ${e.numero_corte||key} · ${nom}`); }
+  else { db.ref(ruta).set({por:currentUser,ts:Date.now(),firma:costeoRolloFirma(x)}); logActivity('Controló rollo con la ficha (Costeo)',`Corte ${e.numero_corte||key} · ${nom}`); }
+}
+function costeoCtrlCeldaHtml(key,e,rk,x){
+  const c=costeoRolloCtrl(e,rk,x), ok=c&&!c.cambio;
+  const quien=c?((typeof USER_DISPLAY!=='undefined'&&USER_DISPLAY[c.por])||c.por||''):'';
+  const cuando=c&&c.ts?new Date(c.ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}):'';
+  const base='font-size:11px;padding:2px 9px;border-radius:20px;white-space:nowrap;';
+  const txt=ok?`✓ ${costeoEsc(quien)} ${cuando}`:(c&&c.cambio?'⚠️ cambió · controlar':'Controlar');
+  const est=ok?'background:var(--green-bg,#dcfce7);color:var(--green-text,#166534);border:1px solid transparent':(c&&c.cambio?'background:var(--warn-bg);color:var(--warn-text);border:1px solid transparent':'background:transparent;color:var(--text2);border:1px solid var(--border)');
+  const tit=ok?'Controlado contra la ficha de corte. Tocá para desmarcar.':(c&&c.cambio?'Se controló, pero después cambió lo cargado, las capas o el sobrante.':'Tocá cuando lo compares con la ficha de corte.');
+  if(currentUser!=='ariel') return `<td style="padding:4px 6px"><span style="${base}${est}" title="${tit}">${ok||c?txt:'—'}</span></td>`;
+  return `<td style="padding:4px 6px"><button type="button" style="${base}${est};cursor:pointer;font-family:inherit" title="${tit}" onclick="event.stopPropagation();costeoToggleCtrlRollo('${key}','${rk}')">${txt}</button></td>`;
 }
 function costeoQuitarRollo(key,rk){
   if(currentUser!=='ariel') return;
@@ -21565,7 +21670,7 @@ function renderCosteoDetail(){
   const medD={largo,peso:pesoM};const sinSob=rollos.some(([,x])=>costeoSobRollo(x,medD).modo==='sin');
   const colTot=rollos.reduce((s,[,x])=>s+numAr2(x.colKg),0);
   const rollosHtml=costeoRollosAbierto?(rollos.length?`<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">
-      <tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)"><td style="padding:4px 6px">Rollo</td><td style="padding:4px 6px">Color</td><td style="padding:4px 6px;text-align:right">Cargado</td><td style="padding:4px 6px;text-align:right">Capas</td><td style="padding:4px 6px">Observación</td><td style="padding:4px 6px;text-align:right">Calculado</td>${colTot?'<td style="padding:4px 6px;text-align:right">Collareta</td>':''}<td style="padding:4px 6px;text-align:right">Sobrante</td><td style="padding:4px 6px;text-align:right">A distribuir</td>${currentUser==='ariel'?'<td></td>':''}</tr>
+      <tr style="color:var(--text2);font-size:11px;border-bottom:1px solid var(--border)"><td style="padding:4px 6px">Rollo</td><td style="padding:4px 6px">Color</td><td style="padding:4px 6px;text-align:right">Cargado</td><td style="padding:4px 6px;text-align:right">Capas</td><td style="padding:4px 6px">Observación</td><td style="padding:4px 6px;text-align:right">Calculado</td>${colTot?'<td style="padding:4px 6px;text-align:right">Collareta</td>':''}<td style="padding:4px 6px;text-align:right">Sobrante</td><td style="padding:4px 6px;text-align:right">A distribuir</td><td style="padding:4px 6px">Control</td>${currentUser==='ariel'?'<td></td>':''}</tr>
       ${rollos.map(([rk,x])=>{const sR=costeoSobRollo(x,medD),carg=numAr2(x.kgmts),sob=sR.v,capas=numAr2(x.capas);const calc=largo&&pesoM&&capas?capas*largo*pesoM:null;
         return `<tr style="border-bottom:1px solid var(--border)">${costeoRolloOrigenHtml(x,carg,e.numero_corte)}<td style="padding:4px 6px;font-weight:600">${currentUser==='ariel'?`<span style="cursor:pointer;border-bottom:1px dashed var(--text3)" title="Tocá para corregir el color" onclick="editCosteoColorRollo('${key}','${rk}')">${costeoEsc(x.color||'—')} <span style="font-size:10px;color:var(--text3)">✏️</span></span>`:costeoEsc(x.color||'—')}</td>
         <td style="padding:4px 6px;text-align:right">${canEdit?inp(x.kgmts,`setCosteoKgRollo('${key}','${rk}',this.value)`,70):costeoKg(carg)}</td>
@@ -21573,7 +21678,7 @@ function renderCosteoDetail(){
         <td style="padding:4px 6px;text-align:right;color:var(--text3)">${calc!=null?costeoKg(calc):'—'}</td>
         ${colTot?`<td style="padding:4px 6px;text-align:right;color:var(--text2)">${numAr2(x.colKg)?costeoKg(numAr2(x.colKg)):'—'}</td>`:''}
         <td style="padding:4px 6px;text-align:right">${canEdit?inp(sR.modo==='mano'?x.sobrante:null,`setCosteoSobranteRollo('${key}','${rk}',this.value)`,70,sR.modo==='sin'?'0':String(sob).replace('.',','),sR.modo!=='mano'?'title="'+(sR.modo==='auto'?'Automático: cargado − capas × largo × peso. Escribí para pisarlo.':sR.modo==='pesado'?'Pesado en Rollos utilizados. Escribí para pisarlo.':'Falta capas, largo o peso')+'"':'')+(sR.modo==='auto'?'<div style="font-size:10px;color:var(--text3)">automático</div>':sR.modo==='pesado'?'<div style="font-size:10px;color:var(--text3)">pesado</div>':''):(sR.modo!=='sin'?costeoKg(sob):'—')}</td>
-        <td style="padding:4px 6px;text-align:right;font-weight:700">${carg?costeoKg(Math.max(0,carg-sob)):'—'}</td>${currentUser==='ariel'?`<td style="padding:4px 6px;text-align:right"><button class="btn-sm" title="Sacar este rollo del corte" aria-label="Sacar rollo" onclick="costeoQuitarRollo('${key}','${rk}')">🗑️</button></td>`:''}</tr>`}).join('')}
+        <td style="padding:4px 6px;text-align:right;font-weight:700">${carg?costeoKg(Math.max(0,carg-sob)):'—'}</td>${costeoCtrlCeldaHtml(key,e,rk,x)}${currentUser==='ariel'?`<td style="padding:4px 6px;text-align:right"><button class="btn-sm" title="Sacar este rollo del corte" aria-label="Sacar rollo" onclick="costeoQuitarRollo('${key}','${rk}')">🗑️</button></td>`:''}</tr>`}).join('')}
     </table></div>
     ${costeoAgregarRolloHtml(key,e,medD)}
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px">
@@ -21583,9 +21688,9 @@ function renderCosteoDetail(){
     </div>`:'<div style="font-size:12px;color:var(--text3);margin-top:6px">Sin rollos cargados</div>'+costeoAgregarRolloHtml(key,e,medD)):'';
   const telaHtml=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Tela del corte</b>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Tela del corte</b>${costeoCtrlChip(key,e)}
         ${canEdit?txt(e.tela||'',`setCosteoTela('${key}',this.value)`,'Tela')+txt(e.proveedor||'',`setCosteoProveedor('${key}',this.value)`,'Proveedor'):`<span style="color:var(--text2)">${costeoEsc(e.tela||'Sin especificar')}${e.proveedor?' · '+costeoEsc(e.proveedor):''}</span>`}</div>
-      <div style="display:flex;gap:6px;align-items:center">${(()=>{const p=costeoPrecio(e);return p.ult||p.manual?`Precio x kg <b>${p.kg?costeoPesos(p.kg):'—'}</b>${p.manual?tag('manual','var(--warn-bg)','var(--warn-text)'):tag('última compra')}`:`Precio x kg $ ${canEdit?inp(e.precio_kg,`setCosteoPrecioKg('${key}',this.value)`,90):'<b>—</b>'}`;})()}
+      <div style="display:flex;gap:6px;align-items:center">${(()=>{const p=costeoPrecio(e);return p.ult?`Precio x kg <b>${p.kg?costeoPesos(p.kg):'—'}</b>${p.manual?tag('manual','var(--warn-bg)','var(--warn-text)'):tag('última compra')}`:`Precio x kg $ ${canEdit?inp(e.precio_kg,`setCosteoPrecioKg('${key}',this.value)`,90):'<b>—</b>'}`;})()}
         <button class="btn-sm" onclick="costeoRollosAbierto=!costeoRollosAbierto;renderCosteoDetail()">${costeoRollosAbierto?'Ocultar rollos ▴':'Ver rollos ▾'}</button></div>
     </div>
     ${costeoPrecioHtml(e,key,canEdit,inp)}
@@ -21595,7 +21700,7 @@ function renderCosteoDetail(){
       if(man.length<arts.length) return `<div style="font-size:11px;color:var(--text2);margin-top:4px">Repartiste ${costeoKg(sum)} kg a mano · los ${costeoKg(Math.max(0,r0.kgCorte-sum))} kg restantes se reparten solos por prendas.</div>`;
       return ''; })()}
     ${sinSob&&rollos.length?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Hay rollos sin sobrante: faltan capas, largo de capa o peso x m para calcularlo.</div>':''}
-    ${!e.precio_kg?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Falta el precio x kg: sin él no se puede calcular el costo.</div>':''}
+    ${!costeoPrecio(e).kg?'<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Falta el precio x kg: sin él no se puede calcular el costo.</div>':''}
     ${rollosHtml}
   </div>`;
 
@@ -21624,9 +21729,13 @@ function renderCosteoDetail(){
       const av=x.av;
       const asignar=(arts.length>1&&canEditAvios)?`<select onclick="event.stopPropagation()" onchange="setCosteoAvioArticulo('${key}',${x.idx},this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:1px 4px;margin-left:4px">
           <option value="">compartido</option>${arts.map(o=>`<option value="${costeoEsc(o.code||o.name)}" ${(av.articulo||'')===(o.code||o.name)?'selected':''}>${costeoEsc(o.code||o.name)}</option>`).join('')}</select>`:(x.compartido?tag('compartido'):'');
-      const precioIn=canEditAvios?inp(av.precio,`setCosteoAvioCampo('${key}',${x.idx},'precio',this.value)`,80):costeoPesos(numAr2(av.precio));
+      const c=x.compra;
+      const precioIn=canEditAvios?inp(c?'':av.precio,`setCosteoAvioCampo('${key}',${x.idx},'precio',this.value)`,80,c?String(Math.round(c.unit*100)/100):'0'):costeoPesos(x.precioEf||0);
       const consIn=canEditAvios?inp(av.cantidad,`setCosteoAvioCampo('${key}',${x.idx},'cantidad',this.value)`,60):costeoEsc(av.cantidad||'—');
-      return fila(`${costeoEsc(av.nombre||'Avío')}${asignar}`,`${consIn} x prenda × $ ${precioIn} c/u`,costeoPesos(x.unit)+' /u');
+      const fFecha=c&&c.fecha?String(c.fecha).split('-').reverse().slice(0,2).join('/'):'';
+      const origen=c?tag(`compra del corte${c.por?' · '+costeoEsc((typeof USER_DISPLAY!=='undefined'&&USER_DISPLAY[c.por])||c.por):''}${fFecha?' · '+fFecha:''}${c.remito?' · remito '+costeoEsc(c.remito):''}`,'var(--green-bg,#dcfce7)','var(--green-text,#166534)')
+        :(!numAr2(av.precio)?tag('sin compra cargada · completar a mano','var(--warn-bg)','var(--warn-text)'):'');
+      return fila(`${costeoEsc(av.nombre||'Avío')}${asignar}${origen}`,`${consIn} x prenda × $ ${precioIn} c/u`,costeoPesos(x.unit)+' /u');
     }).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 0">Sin avíos</div>';
     const otrosHtml=r.otros.map(o=>{
       const valor=o.propio?a[o.c.key]:(o.auto?o.unit.toFixed(2):(o.unit||''));
@@ -21637,7 +21746,7 @@ function renderCosteoDetail(){
       const lbl={precio_lista_local:'Lista local',precio_tn_minorista:'TN minorista',precio_tn_mayorista:'TN mayorista'}[p.campo];
       const col=p.margen==null?'var(--text3)':(p.margen<COSTEO_MARGEN_MIN?'var(--warn-text)':'var(--green-text)');
       return `<div style="flex:1;min-width:150px;background:var(--surface2);border-radius:8px;padding:6px 10px">
-        <div style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">${lbl} ${canEdit?'$ '+inp(a[p.campo]!=null&&a[p.campo]!==''?a[p.campo]:(p.p||''),`setCosteoArtCampo('${key}',${i},'${p.campo}',this.value)`,80):(p.p?costeoPesos(p.p):'—')}</div>
+        <div style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">${lbl} ${canEdit?'$ '+inp(a[p.campo]!=null&&a[p.campo]!==''?a[p.campo]:(p.p||''),`setCosteoArtCampo('${key}',${i},'${p.campo}',this.value)`,80):(p.p?costeoPesos(p.p):'—')}${pvTagAuto(a,p.campo)}</div>
         <div style="font-weight:700;color:${col}">${p.margen!=null?Math.round(p.margen)+'% margen':'—'}</div></div>`}).join('')}</div>`;
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px">${cabeza}
       ${fila('Prendas cortadas'+(r.piezasManual?tag('a mano','var(--warn-bg)','var(--warn-text)'):''),piezasIn,'')}
@@ -21690,6 +21799,8 @@ function setCosteoArtCampo(key,idx,campo,val){
   }
   if(v===''||isNaN(n)||n<0) delete art[campo];
   else art[campo]=campo==='piezas'?Math.round(n):(campo==='kg'?v:n);
+  if(PV_DERIVADOS[campo]) delete art[campo+'_auto'];
+  if(campo==='precio_lista_local'&&n>0) Object.assign(art,pvAutoDesdeLocal(art,n,f=>costeoPrecioArt(e,art,f)));
   arts[idx]=art;
   db.ref(`fabrica_v5/costeos/${key}/articulos`).set(arts);
   logActivity(`Editó ${campo} del artículo (Costeo)`,`Corte ${e.numero_corte} — ${art.code||art.name||''}: ${v||'automático'}`);
@@ -21706,11 +21817,27 @@ function setCosteoAvioArticulo(key,avioIdx,code){
   logActivity('Asignó avío a artículo (Costeo)',`Corte ${e.numero_corte} — ${av.nombre||''}: ${code||'compartido'}`);
 }
 
+// ---- Precios de venta automáticos (nov 2026) ----
+// Al cargar la lista local: TN minorista = local × 1,5 y TN mayorista = local − 10%, redondeados a la centena.
+// Solo se completan si están en 0 o si los había puesto la app (campo_auto). Si se pisan a mano, quedan fijos.
+const PV_DERIVADOS={precio_tn_minorista:1.5,precio_tn_mayorista:0.9};
+function pvRedondeo(n){ return Math.round(n/100)*100; }
+function pvAutoDesdeLocal(obj,n,valorEf){
+  const up={}; if(!(n>0)) return up;
+  Object.entries(PV_DERIVADOS).forEach(([f,k])=>{
+    const cur=valorEf?valorEf(f):numAr2(obj&&obj[f]);
+    if(!cur||(obj&&obj[f+'_auto'])){ up[f]=pvRedondeo(n*k); up[f+'_auto']=true; } });
+  return up;
+}
+function pvTagAuto(obj,campo){ return obj&&obj[campo+'_auto']?'<span title="Calculado desde la lista local. Si lo cambiás a mano, queda fijo." style="font-size:10px;padding:0 6px;border-radius:20px;background:var(--accent-bg);color:var(--accent);margin-left:2px">auto</span>':''; }
 function setCosteoPrecioVenta(key,campo,val){
   const e=costeosData[key]||{};
   const n=parseFloat(String(val).replace(',','.'));
   if(isNaN(n)||n<0){ db.ref(`fabrica_v5/costeos/${key}/${campo}`).remove(); return; }
-  db.ref(`fabrica_v5/costeos/${key}/${campo}`).set(n);
+  const up={[campo]:n};
+  if(PV_DERIVADOS[campo]) up[campo+'_auto']=null;
+  if(campo==='precio_lista_local') Object.assign(up,pvAutoDesdeLocal(e,n));
+  db.ref(`fabrica_v5/costeos/${key}`).update(up);
   logActivity(`Editó ${campo} (Costeo)`,`Corte ${e.numero_corte}: $${n}`);
 }
 // Los cortes marcados como realizados ANTES de que existiera Costeo nunca generaron su entrada

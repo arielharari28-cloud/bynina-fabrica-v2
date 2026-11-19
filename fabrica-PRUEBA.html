@@ -14501,11 +14501,23 @@ function tsRevToggleTodas(ab){ document.querySelectorAll('.ts-rev-body').forEach
 // En Revisar tela: avisa si ese rollo ya se controló contra la ficha en Costeo (mismo dato).
 function tsRevCtrlChip(corte,stockId){
   try{
-    const key=corteKeyFrom(String(corte||'')); const e=key&&costeosData[key]; if(!e||!stockId) return '';
-    const ent=Object.entries(e.rollos||{}).find(([,x])=>x&&String(x.stockId||'')===String(stockId)); if(!ent) return '';
-    const c=costeoRolloCtrl(e,ent[0],ent[1]); if(!c) return '';
-    return c.cambio?' <small style="color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:1px 6px">controlado, después cambió</small>'
-      :' <small style="color:var(--green-text,#166534);background:var(--green-bg,#dcfce7);border-radius:6px;padding:1px 6px">✓ controlado en Costeo</small>';
+    const key=corteKeyFrom(String(corte||'')); if(!key||!stockId) return '';
+    const ck=String(stockId).replace(/[.#$\[\]\/]/g,'_');
+    const e=(costeosData||{})[key];
+    const ent=e?Object.entries(e.rollos||{}).find(([,x])=>x&&String(x.stockId||'')===String(stockId)):null;
+    const c=ent?costeoRolloCtrl(e,ent[0],ent[1]):ctrlRolloDato(key,ck);
+    return '<div style="margin-top:4px">'+ctrlBotonHtml(key,ck,c,ent?costeoRolloFirma(ent[1]):'')+'</div>';
+  }catch(err){ return ''; }
+}
+function tsRevCtrlFuera(corte,fr){
+  try{
+    const key=corteKeyFrom(String(corte||'')); if(!key||!fr) return '';
+    const rc=(fr.rutas||[]).find(r=>r.tipo==='costeo');
+    const k=rc?rc.ruta.split('/').pop():fr.rid;
+    const e=(costeosData||{})[key], x=e&&e.rollos&&e.rollos[k];
+    const ck='c_'+k;
+    const c=x?costeoRolloCtrl(e,k,x):ctrlRolloDato(key,ck);
+    return '<div style="margin-top:4px">'+ctrlBotonHtml(key,ck,c,x?costeoRolloFirma(x):'')+'</div>';
   }catch(err){ return ''; }
 }
 function renderTsRevision(){
@@ -14579,7 +14591,7 @@ function renderTsRevision(){
               const term=sobTxt!=null&&tsNum(sobTxt)===0;
               const realIni=(!term&&sobTxt!=null)?String(tsNum(sobTxt)).replace('.',','):'';
               return `<tr class="ts-revfila" data-fuera="1" data-corte="${ck}" data-rollo="${tsEsc(fr.rid)}" data-k="" data-antes="${kg}" data-kc="${kc}" data-usado="${Math.max(0,kg-tsNum(sobTxt)-colKg)}" data-unidad="kg" data-otras="0" data-col="${colKg}" data-col0="${colKg}" data-capas="${capas}" data-capas0="${capas}" style="border-top:1px solid var(--border);background:var(--surface2)">
-              <td style="padding:6px"><b>Fuera de la app</b> <small style="color:var(--text2)">· ${tsFmt(kg,2)} kg</small><br><small style="color:var(--text2)">no pasa por el stock</small></td>
+              <td style="padding:6px"><b>Fuera de la app</b> <small style="color:var(--text2)">· ${tsFmt(kg,2)} kg</small><br><small style="color:var(--text2)">no pasa por el stock</small>${tsRevCtrlFuera(g.corte,fr)}</td>
               <td style="padding:6px">${tsEsc(x.color||'')}</td>
               <td style="padding:6px;text-align:right">${tsFmt(kg,2)}</td>
               <td style="padding:6px;text-align:right">${esA?`<input class="ts-rev-capas" type="text" inputmode="numeric" value="${capas||''}" placeholder="falta" oninput="tsRevCalc('${ck}')" style="width:48px;${inp}">`:(capas?tsFmt(capas,0):'<span style="color:#9a3412;font-weight:700">falta</span>')}</td>
@@ -21523,9 +21535,56 @@ function costeoStockSinCorte(stockId,key,up){
 // Los cortes aprobados en Revisar tela cuentan como controlados.
 function costeoRolloCtrlKey(rk,x){ return x&&x.stockId?String(x.stockId).replace(/[.#$\[\]\/]/g,'_'):'c_'+rk; }
 function costeoRolloFirma(x){ const v=y=>(y==null||String(y).trim()==='')?'':String(numAr2(y)); return [v(x.kgmts),v(x.capas),v(x.sobrante)].join('|'); }
+// Desde nov 2026 el control vive en fabrica_v5/control_rollos/{corte}/{rollo}: lo mismo se tilda en Costeo
+// o en Revisar tela (aunque el corte todavía no esté en Costeo). Se siguen leyendo los viejos de costeos/{corte}/control_rollos.
+let ctrlRollosData={};
+db.ref('fabrica_v5/control_rollos').on('value',snap=>{ ctrlRollosData=snap.val()||{};
+  try{ ctrlRefrescarBotones(); }catch(err){}
+  try{ const cd=document.getElementById('costeo-detail-screen'); if(costeoDetailKey&&cd&&cd.offsetParent) renderCosteoDetail(); }catch(err){}
+  try{ if(document.getElementById('costeo-list')) renderCosteoTab(); }catch(err){} });
+function ctrlRolloDato(key,ck,e){
+  const n=((ctrlRollosData||{})[key]||{})[ck];
+  if(n) return n;
+  const ee=e||(costeosData||{})[key];
+  return ((ee&&ee.control_rollos)||{})[ck]||null;
+}
 function costeoRolloCtrl(e,rk,x){
-  const c=((e&&e.control_rollos)||{})[costeoRolloCtrlKey(rk,x)]; if(!c) return null;
-  return {...c,cambio:c.firma!==costeoRolloFirma(x)};
+  const key=corteKeyFrom(String((e&&e.numero_corte)||''));
+  const c=ctrlRolloDato(key,costeoRolloCtrlKey(rk,x),e); if(!c) return null;
+  return {...c,cambio:!!c.firma&&c.firma!==costeoRolloFirma(x)};
+}
+// Botón de control (mismo look en Costeo y en Revisar tela). Se actualiza en el lugar, sin re-dibujar la pantalla.
+function ctrlBotonInner(c){
+  const ok=c&&!c.cambio;
+  const quien=c?((typeof USER_DISPLAY!=='undefined'&&USER_DISPLAY[c.por])||c.por||''):'';
+  const cuando=c&&c.ts?new Date(c.ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}):'';
+  const txt=ok?`✓ ${costeoEsc(quien)} ${cuando}`:(c&&c.cambio?'⚠️ cambió · controlar':'Controlar');
+  const est=ok?'background:var(--green-bg,#dcfce7);color:var(--green-text,#166534);border:1px solid transparent':(c&&c.cambio?'background:var(--warn-bg);color:var(--warn-text);border:1px solid transparent':'background:transparent;color:var(--text2);border:1px solid var(--border)');
+  return {txt,est:'font-size:11px;padding:2px 9px;border-radius:20px;white-space:nowrap;font-family:inherit;'+est,
+    tit:ok?'Controlado contra la ficha de corte. Tocá para desmarcar.':(c&&c.cambio?'Se controló, pero después cambió lo cargado, las capas o el sobrante.':'Tocá cuando lo compares con la ficha de corte.')};
+}
+function ctrlBotonHtml(key,ck,c,firma){
+  const b=ctrlBotonInner(c);
+  if(currentUser!=='ariel') return (c?`<span style="${b.est}" title="${b.tit}">${b.txt}</span>`:'');
+  return `<button type="button" data-ctrlcorte="${costeoEsc(key)}" data-ctrlrollo="${costeoEsc(ck)}" data-ctrlfirma="${costeoEsc(firma||'')}" style="${b.est};cursor:pointer" title="${b.tit}" onclick="event.stopPropagation();ctrlToggle(this)">${b.txt}</button>`;
+}
+function ctrlRefrescarBotones(){
+  document.querySelectorAll('button[data-ctrlrollo]').forEach(bt=>{
+    const key=bt.dataset.ctrlcorte, ck=bt.dataset.ctrlrollo, f=bt.dataset.ctrlfirma||'';
+    const d=ctrlRolloDato(key,ck); const c=d?{...d,cambio:!!(d.firma&&f&&d.firma!==f)}:null;
+    const b=ctrlBotonInner(c); bt.textContent=b.txt.replace(/&amp;/g,'&'); bt.setAttribute('style',b.est+';cursor:pointer'); bt.title=b.tit; });
+}
+function ctrlToggle(bt){
+  if(currentUser!=='ariel') return;
+  const key=bt.dataset.ctrlcorte, ck=bt.dataset.ctrlrollo, f=bt.dataset.ctrlfirma||'';
+  const d=ctrlRolloDato(key,ck); const ok=d&&!(d.firma&&f&&d.firma!==f);
+  const ruta=`fabrica_v5/control_rollos/${key}/${ck}`;
+  const up={};
+  if(ok){ up[ruta]=null; up[`fabrica_v5/costeos/${key}/control_rollos/${ck}`]=(costeosData&&costeosData[key])?null:undefined; }
+  else up[ruta]={por:currentUser,ts:Date.now(),firma:f||null};
+  Object.keys(up).forEach(k=>{ if(up[k]===undefined) delete up[k]; });
+  db.ref().update(up);
+  logActivity(ok?'Desmarcó rollo controlado':'Controló rollo con la ficha',`Corte ${key} · ${ck}`);
 }
 function costeoTelaRevisada(key){
   const r=(typeof revTelaData!=='undefined'&&revTelaData&&revTelaData[key])||null;
@@ -21554,15 +21613,8 @@ function costeoToggleCtrlRollo(key,rk){
   else { db.ref(ruta).set({por:currentUser,ts:Date.now(),firma:costeoRolloFirma(x)}); logActivity('Controló rollo con la ficha (Costeo)',`Corte ${e.numero_corte||key} · ${nom}`); }
 }
 function costeoCtrlCeldaHtml(key,e,rk,x){
-  const c=costeoRolloCtrl(e,rk,x), ok=c&&!c.cambio;
-  const quien=c?((typeof USER_DISPLAY!=='undefined'&&USER_DISPLAY[c.por])||c.por||''):'';
-  const cuando=c&&c.ts?new Date(c.ts).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}):'';
-  const base='font-size:11px;padding:2px 9px;border-radius:20px;white-space:nowrap;';
-  const txt=ok?`✓ ${costeoEsc(quien)} ${cuando}`:(c&&c.cambio?'⚠️ cambió · controlar':'Controlar');
-  const est=ok?'background:var(--green-bg,#dcfce7);color:var(--green-text,#166534);border:1px solid transparent':(c&&c.cambio?'background:var(--warn-bg);color:var(--warn-text);border:1px solid transparent':'background:transparent;color:var(--text2);border:1px solid var(--border)');
-  const tit=ok?'Controlado contra la ficha de corte. Tocá para desmarcar.':(c&&c.cambio?'Se controló, pero después cambió lo cargado, las capas o el sobrante.':'Tocá cuando lo compares con la ficha de corte.');
-  if(currentUser!=='ariel') return `<td style="padding:4px 6px"><span style="${base}${est}" title="${tit}">${ok||c?txt:'—'}</span></td>`;
-  return `<td style="padding:4px 6px"><button type="button" style="${base}${est};cursor:pointer;font-family:inherit" title="${tit}" onclick="event.stopPropagation();costeoToggleCtrlRollo('${key}','${rk}')">${txt}</button></td>`;
+  const kc=corteKeyFrom(String(e.numero_corte||''))||key;
+  return `<td style="padding:4px 6px">${ctrlBotonHtml(kc,costeoRolloCtrlKey(rk,x),costeoRolloCtrl(e,rk,x),costeoRolloFirma(x))||'—'}</td>`;
 }
 function costeoQuitarRollo(key,rk){
   if(currentUser!=='ariel') return;

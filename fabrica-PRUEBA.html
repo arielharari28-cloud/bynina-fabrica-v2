@@ -16336,6 +16336,7 @@ function renderTableroEmir(cont){
 let fotosFichaData={};
 db.ref('fabrica_v5/fotos_ficha_corte').on('value',s=>{ fotosFichaData=s.val()||{};
   try{ pqRefrescar(); }catch(e){}
+  try{ const cd=document.getElementById('costeo-detail-screen'); if(typeof costeoDetailKey!=='undefined'&&costeoDetailKey&&cd&&cd.offsetParent) renderCosteoDetail(); }catch(e){}
   try{ const t=document.getElementById('tab-telas'); if(tsVista&&tsVista.modo==='revision'&&t&&!t.classList.contains('hidden')) renderTsRevision(); }catch(e){} });
 let comunicadosData={};
 db.ref('fabrica_v5/comunicados').on('value',s=>{ comunicadosData=s.val()||{}; try{ pqRefrescar(); }catch(e){} });
@@ -21638,6 +21639,26 @@ function costeoAgregarRollo(key){
   costeoAddRollo={stockId:'',capas:'',term:false,color:'',kg:''};
   showToast(`✓ ${r.codigo||'Rollo'} agregado al corte`);
 }
+// Foto de la ficha de corte (la que sube Noe) a mano en Costeo: miniatura arriba y panel flotante
+// que queda fijo al costado mientras se recorren los rollos. Tocar la foto la agranda.
+let costeoFichaPanel=false, costeoFichaGrande=false;
+function costeoFichaHtml(e){
+  const url=fotoFichaDeCorte(e&&e.numero_corte);
+  if(!url) return '<span style="font-size:11px;color:var(--text3)">📷 sin foto de ficha</span>';
+  const u=costeoEsc(url);
+  const thumb=`<img src="${u}" alt="Ficha de corte" title="Ver la ficha de corte" onclick="costeoFichaPanel=!costeoFichaPanel;renderCosteoDetail()" style="width:64px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer">`;
+  const w=costeoFichaGrande?'min(720px,60vw)':'min(380px,40vw)';
+  const panel=costeoFichaPanel?`<div style="position:fixed;right:16px;bottom:16px;z-index:900;width:${w};background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px;box-shadow:0 6px 24px rgba(0,0,0,.18)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:6px;font-size:12px">
+        <b>Ficha de corte ${costeoEsc(e.numero_corte||'')}</b>
+        <span style="display:flex;gap:4px">
+          <button class="btn-sm" onclick="costeoFichaGrande=!costeoFichaGrande;renderCosteoDetail()">${costeoFichaGrande?'Achicar':'Agrandar'}</button>
+          <button class="btn-sm" onclick="window.open('${u}','_blank')">Abrir aparte</button>
+          <button class="btn-sm" aria-label="Cerrar" onclick="costeoFichaPanel=false;renderCosteoDetail()">✕</button></span></div>
+      <div style="max-height:75vh;overflow:auto;border-radius:8px"><img src="${u}" alt="Ficha de corte" style="width:100%;display:block;cursor:zoom-in" onclick="costeoFichaGrande=!costeoFichaGrande;renderCosteoDetail()"></div>
+    </div>`:'';
+  return `${thumb}<button class="btn-sm" onclick="costeoFichaPanel=!costeoFichaPanel;renderCosteoDetail()">${costeoFichaPanel?'Ocultar ficha':'📷 Ver ficha'}</button>${panel}`;
+}
 function renderCosteoDetail(){
   const key=costeoDetailKey;
   const e=costeosData[key];
@@ -21688,7 +21709,7 @@ function renderCosteoDetail(){
     </div>`:'<div style="font-size:12px;color:var(--text3);margin-top:6px">Sin rollos cargados</div>'+costeoAgregarRolloHtml(key,e,medD)):'';
   const telaHtml=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:10px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Tela del corte</b>${costeoCtrlChip(key,e)}
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b>Tela del corte</b>${costeoCtrlChip(key,e)}${costeoFichaHtml(e)}
         ${canEdit?txt(e.tela||'',`setCosteoTela('${key}',this.value)`,'Tela')+txt(e.proveedor||'',`setCosteoProveedor('${key}',this.value)`,'Proveedor'):`<span style="color:var(--text2)">${costeoEsc(e.tela||'Sin especificar')}${e.proveedor?' · '+costeoEsc(e.proveedor):''}</span>`}</div>
       <div style="display:flex;gap:6px;align-items:center">${(()=>{const p=costeoPrecio(e);return p.ult?`Precio x kg <b>${p.kg?costeoPesos(p.kg):'—'}</b>${p.manual?tag('manual','var(--warn-bg)','var(--warn-text)'):tag('última compra')}`:`Precio x kg $ ${canEdit?inp(e.precio_kg,`setCosteoPrecioKg('${key}',this.value)`,90):'<b>—</b>'}`;})()}
         <button class="btn-sm" onclick="costeoRollosAbierto=!costeoRollosAbierto;renderCosteoDetail()">${costeoRollosAbierto?'Ocultar rollos ▴':'Ver rollos ▾'}</button></div>

@@ -16363,9 +16363,10 @@ function tdDivididos(){
   return Object.values(vis).map(x=>{
     const ck=corteKeyFrom(String(x.it.numero_corte||'')), e=ck?costeosData[ck]:null;
     const idx=e?(e.articulos||[]).findIndex(a=>a&&String(a.code||'')===String(x.it.code)):-1;
-    const a=idx>=0?e.articulos[idx]:null;
-    const r=a?costeoArtCalc(e,idx,mapa):null;
-    const precio=c=>a?costeoPrecioArt(e,a,c):0;
+    const lc=(idx<0&&e&&x.it.liso_de)?costeoLisoCalc(e,x.it.code,mapa):null;
+    const a=idx>=0?e.articulos[idx]:(lc?costeoArtParaCodigo(e,x.it.code):null);
+    const r=lc?{hayCosto:lc.hayCosto,costoU:lc.costoU}:(a?costeoArtCalc(e,idx,mapa):null);
+    const precio=c=>lc?((lc.precios.find(p=>p.campo===c)||{}).p||0):(a?costeoPrecioArt(e,a,c):0);
     const local=precio('precio_lista_local'), min=precio('precio_tn_minorista'), may=precio('precio_tn_mayorista');
     const falta=[]; if(!r||!r.hayCosto) falta.push('costeo'); if(!local) falta.push('precio local'); if(!min) falta.push('precio TN minorista'); if(!may) falta.push('precio TN mayorista');
     return {...x,ck,costoU:r&&r.hayCosto?r.costoU:0,local,min,may,falta,colores:tdColoresGrilla(x.it.grilla),comunicado:!!(comunicadosData[x.k]&&!comunicadosData[x.k].descartado),descartado:!!(comunicadosData[x.k]&&comunicadosData[x.k].descartado)};
@@ -19067,7 +19068,7 @@ function comercEstadoItem(it){
   const esProveedor=it.origen==='proveedor';
   // Manual, no calculado — lo tilda Ariel a mano cuando da por hecho el costo de este artículo.
   const costoHecho=!!it.costo_confirmado;
-  const artC=costeoEntry?(costeoEntry.articulos||[]).find(a=>(a.code||a.name)===it.code):null;
+  const artC=costeoEntry?costeoArtParaCodigo(costeoEntry,it.code):null;
   const preciosFuente = esProveedor ? it : (costeoEntry?{precio_lista_local:costeoPrecioArt(costeoEntry,artC,'precio_lista_local'),precio_tn_minorista:costeoPrecioArt(costeoEntry,artC,'precio_tn_minorista'),precio_tn_mayorista:costeoPrecioArt(costeoEntry,artC,'precio_tn_mayorista')}:{});
   const preciosCount=['precio_lista_local','precio_tn_minorista','precio_tn_mayorista'].filter(c=>preciosFuente[c]).length;
   const recAvellaneda = it.division_avellaneda!=null ? !!it.recibido_avellaneda : null;
@@ -19265,7 +19266,7 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
     const ck=corteKeyFrom(it.numero_corte);
     const ce=ck?(costeosData[ck]||null):null;
     let costo='—';
-    try{ if(ce&&costeoPrecio(ce).kg){ const tot=costeoTotales(ce); costo='$ '+Math.round(tot.costoPrenda).toLocaleString('es-AR')+' / prenda'; } }catch(e){}
+    try{ if(ce&&costeoPrecio(ce).kg){ const lt=it.liso_de?costeoArticuloTotales(ce,it.code):null; const tot=lt||costeoTotales(ce); costo='$ '+Math.round(tot.costoPrenda).toLocaleString('es-AR')+' / prenda'+(lt?' (liso, sin estampado)':''); } }catch(e){}
     if(it.origen==='proveedor'&&it.precio_costo) costo='$ '+Number(it.precio_costo).toLocaleString('es-AR')+' / prenda';
     const u=totalOk+totalDetalle;
     plata.innerHTML=`<div class="ld-card"><div class="ld-title">Plata</div>
@@ -19330,7 +19331,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
       // Precios de venta y costo por prenda — mismos datos que en la solapa Costeo, y editables
       // directo desde acá (se guardan en la misma entrada de Costeo, la crea si todavía no existe).
       const campoPrecioLogi=(campo,label,val)=>`<span style="display:flex;align-items:center;gap:4px" onclick="event.stopPropagation()">
-        ${label}: <input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:12px" onchange="${artIdxCosteo>=0?`setCosteoArtCampo('${corteKeyCosteo}',${artIdxCosteo},'${campo}',this.value)`:`setCosteoPrecioVenta('${corteKeyCosteo}','${campo}',this.value)`}">
+        ${label}: <input type="number" min="0" step="0.01" value="${val||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;font-size:12px" onchange="${artIdxCosteo>=0?`setCosteoArtCampo('${corteKeyCosteo}',${artIdxCosteo},'${campo}',this.value)`:(it.liso_de?`setCosteoLisoCampo('${corteKeyCosteo}','${utEsc(it.code)}','${campo}',this.value)`:`setCosteoPrecioVenta('${corteKeyCosteo}','${campo}',this.value)`)}">
       </span>`;
       // Para ítems que vienen de un proveedor externo (sin N° de corte, no pasan por Costeo/tela)
       // se guardan estos mismos campos directo en el propio ítem de Logística.
@@ -19348,7 +19349,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
       const articulosCosteo=(costeoEntry&&costeoEntry.articulos)||[];
       const costeoArticuloCalc=articulosCosteo.length?costeoArticuloTotales(costeoEntry,it.code):null;
       const artIdxCosteo=articulosCosteo.findIndex(a=>(a.code||a.name)===it.code);
-      const artCosteo=artIdxCosteo>=0?articulosCosteo[artIdxCosteo]:null;
+      const artCosteo=artIdxCosteo>=0?articulosCosteo[artIdxCosteo]:(it.liso_de&&costeoEntry?costeoArtParaCodigo(costeoEntry,it.code):null);
       const costeoPrendaReal=costeoArticuloCalc?costeoArticuloCalc.costoPrenda:(costeoEntry?costeoTotales(costeoEntry).costoPrenda:0);
       const preciosVentaHtml = puedeVerPlata ? (corteKeyCosteo ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span>💲 Costo: <strong>${costeoPrecio(costeoEntry).kg?'$'+costeoPrendaReal.toLocaleString('es-AR',{maximumFractionDigits:0})+'/prenda':'—'}</strong></span>
@@ -20285,7 +20286,7 @@ function logiLisoConfirmar(){
     code, name:name||it.name||'', foto:it.foto||'', numero_corte:it.numero_corte||'', taller:it.taller||'',
     categoria:it.categoria||'', fecha_entregado:it.fecha_entregado||'', fecha_creado:ahora,
     estado:'pendiente_dividir', fecha_control_cerrado:ahora, control_cerrado_por:currentUser,
-    abierta_por:currentUser,
+    abierta_por:currentUser, liso_movido:true, // las unidades salieron de la original (si se borra, vuelven)
     liso_de:{entrega_id:id,code:it.code||'',fecha:ahora,por:currentUser},
     grilla
   };
@@ -20302,6 +20303,9 @@ function logiLisoConfirmar(){
 function logiLisoDevolver(id,it){
   const oid=it.liso_de&&it.liso_de.entrega_id, orig=oid&&logiItemsData[oid];
   if(!orig){ showToast('No encontré la entrega original — las unidades no vuelven solas'); return; }
+  // Entregas liso de la primera versión (no_facturar, sin liso_movido): nunca se sacaron de la original,
+  // así que al borrarlas solo se limpia el registro — no se devuelve nada (si no, se duplicaría).
+  if(!it.liso_movido){ db.ref(`fabrica_v5/logistica/items/${oid}/pasado_liso/${id}`).remove(); return; }
   const upd={}; const filas=Object.entries(orig.grilla||{});
   Object.values(it.grilla||{}).forEach(g=>{
     const hit=filas.find(([,f])=>(f.color||'')===(g.color||'')&&(f.talle||'')===(g.talle||''));
@@ -20978,10 +20982,84 @@ function costeoTotales(entry){
 // para que Logística muestre el costo de cada prenda según su propio artículo, no mezclado con
 // el de los demás artículos del mismo corte. Devuelve null si el artículo no existe o todavía no
 // tiene piezas propias asignadas (ahí no hay con qué calcular su costo por separado).
+// ===== Liso en Costeo (nov 2026) =====
+// Una entrega "pasada a liso" (liso_de) no es un artículo del corte: no entra en el reparto de kilos.
+// Hereda el costo por prenda del artículo de origen (ej. 4693A19) SIN "Plancha / Estampado", y tiene
+// sus propios precios de venta en costeos/{corte}/lisos/{código}.
+function costeoLisoSlug(code){ return String(code||'').replace(/[.#$\[\]\/\s]/g,'_'); }
+function costeoLisoItems(e,lisoCode){
+  const ck=corteKeyFrom(e&&e.numero_corte); if(!ck) return [];
+  return Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.liso_de&&corteKeyFrom(it.numero_corte)===ck&&(lisoCode==null||String(it.code)===String(lisoCode)));
+}
+function costeoLisosDeArticulo(e,baseCode){
+  const g={};
+  costeoLisoItems(e,null).forEach(([id,it])=>{ if(String(it.liso_de.code)!==String(baseCode)) return; (g[it.code]=g[it.code]||[]).push([id,it]); });
+  return g;
+}
+function costeoLisoCalc(e,lisoCode,mapa){
+  if(!e) return null;
+  const items=costeoLisoItems(e,lisoCode); if(!items.length) return null;
+  const base=items[0][1].liso_de.code;
+  const arts=e.articulos||[];
+  const idx=arts.findIndex(a=>(a.code||a.name)===base);
+  if(idx<0) return null;
+  let r; try{ r=costeoArtCalc(e,idx,mapa); }catch(err){ return null; }
+  const estO=r.otros.find(o=>o.c.key==='plancha_estampado');
+  const est=estO?estO.unit:0;
+  const costoU=r.hayCosto?Math.max(0,r.costoU-est):0;
+  const unidades=items.reduce((s,[,it])=>s+Object.values(it.grilla||{}).reduce((t,f)=>t+(parseInt(f.ok)||0)+(parseInt(f.detalle)||0),0),0);
+  const lp=((e.lisos||{})[costeoLisoSlug(lisoCode)])||{};
+  const precios=['precio_lista_local','precio_tn_minorista','precio_tn_mayorista'].map(campo=>{
+    const v=lp[campo]; const p=(v!=null&&v!=='')?numAr2(v):0;
+    return {campo,p,margen:(p&&costoU)?(p-costoU)/p*100:null};
+  });
+  const fecha=Math.min(...items.map(([,it])=>it.liso_de.fecha||it.fecha_creado||Date.now()));
+  return {code:lisoCode,base,idx,r,est,costoU,hayCosto:r.hayCosto,unidades,precios,lp,items,fecha};
+}
+// Para precios: devuelve el artículo real o, si es un liso, un objeto con sus precios propios.
+function costeoArtParaCodigo(e,code){
+  if(!e) return null;
+  const a=(e.articulos||[]).find(x=>(x.code||x.name)===code);
+  if(a) return a;
+  if(costeoLisoItems(e,code).length) return {code,...(((e.lisos||{})[costeoLisoSlug(code)])||{})};
+  return null;
+}
+function setCosteoLisoCampo(key,code,campo,val){
+  if(!(currentUser==='ariel'||currentUser==='stef')) return;
+  const e=costeosData[key]||{};
+  const ref=db.ref(`fabrica_v5/costeos/${key}/lisos/${costeoLisoSlug(code)}/${campo}`);
+  const n=parseFloat(String(val).replace(',','.'));
+  if(String(val).trim()===''||isNaN(n)||n<0){ ref.remove(); return; }
+  ref.set(n);
+  db.ref(`fabrica_v5/costeos/${key}/lisos/${costeoLisoSlug(code)}/code`).set(code);
+  logActivity(`Editó ${campo} del liso (Costeo)`,`Corte ${e.numero_corte}: ${code} $${n}`);
+}
+function costeoLisoFichaHtml(e,key,lc,canEdit,inp,fila,sec,tag){
+  const lv=lc.items[0];
+  const restoU=lc.costoU;
+  const preciosHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${lc.precios.map(p=>{
+    const lbl={precio_lista_local:'Lista local',precio_tn_minorista:'TN minorista',precio_tn_mayorista:'TN mayorista'}[p.campo];
+    const col=p.margen==null?'var(--text3)':(p.margen<COSTEO_MARGEN_MIN?'var(--warn-text)':'var(--green-text)');
+    return `<div style="flex:1;min-width:150px;background:var(--surface2);border-radius:8px;padding:6px 10px">
+      <div style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px">${lbl} ${canEdit?'$ '+inp(p.p||'',`setCosteoLisoCampo('${key}','${costeoEsc(lc.code)}','${p.campo}',this.value)`,90):(p.p?costeoPesos(p.p):'—')}</div>
+      <div style="font-weight:700;color:${col}">${p.margen!=null?Math.round(p.margen)+'% margen':'—'}</div></div>`;}).join('')}</div>`;
+  return `<div style="background:var(--surface);border:2px solid #2F5D46;border-radius:12px;padding:12px 14px;margin:-4px 0 10px 18px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div style="min-width:0"><div style="font-weight:700;font-size:13px">⚪ Liso ${costeoEsc(lc.code)} ${tag('derivado','#E6F0EA','#1F4A33')}</div>
+        <div style="font-size:12px;color:var(--text2)">${lc.unidades.toLocaleString('es-AR')} u. · sale del ${costeoEsc(lc.base)} · pasado a liso ${costeoFechaCorta(lc.fecha)}</div></div>
+      <div style="text-align:right;white-space:nowrap">${lc.hayCosto?`<div style="font-size:18px;font-weight:700;color:#1F4A33">${costeoPesos(restoU)} /u</div>`:`<div style="font-size:13px;font-weight:700;color:var(--warn-text)">Costo pendiente</div>`}</div></div>
+    ${sec('Costo (del '+costeoEsc(lc.base)+')')}
+    ${fila('Tela, avíos, taller y otros','',lc.hayCosto?costeoPesos(restoU)+' /u':'—')}
+    ${fila('<span style="text-decoration:line-through">Plancha / Estampado</span>','',`<span style="text-decoration:line-through;color:var(--text3)">${costeoPesos(lc.est)} /u</span>`)}
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">No entra en el reparto de kilos: hereda el costo del ${costeoEsc(lc.base)} sin estampado y se recalcula solo.</div>
+    ${preciosHtml}
+    ${costoConfirmadoCheckboxHtml(lv?lv[0]:null,lv?lv[1].costo_confirmado:false)}
+  </div>`;
+}
 function costeoArticuloTotales(entry,articuloCode){
   const articulos=entry.articulos||[];
   const idx=articulos.findIndex(a=>(a.code||a.name)===articuloCode);
-  if(idx<0) return null;
+  if(idx<0){ const lc=costeoLisoCalc(entry,articuloCode); return lc&&lc.hayCosto?{costoArt:lc.r.costoTela/(lc.r.piezas||1)*lc.unidades,costoOtrosArt:0,piezasArt:lc.unidades,costoTotalArt:lc.costoU*lc.unidades,costoPrenda:lc.costoU}:null; }
   let r; try{ r=costeoArtCalc(entry,idx); }catch(err){ console.error('costeoArtCalc',err); return null; }
   if(!r.piezas) return null;
   return{costoArt:r.costoTela,costoOtrosArt:r.costoAvios+r.costoOtros,piezasArt:r.piezas,costoTotalArt:r.total,costoPrenda:r.costoU};
@@ -21521,7 +21599,8 @@ function renderCosteoDetail(){
     ${rollosHtml}
   </div>`;
 
-  // --- Una ficha por artículo ---
+  // --- Una ficha por artículo (y debajo, los lisos que salieron de él) ---
+  const lisosHtml=a=>Object.keys(costeoLisosDeArticulo(e,a.code||a.name)).map(code=>{ const lc=costeoLisoCalc(e,code,mapa); return lc?costeoLisoFichaHtml(e,key,lc,canEdit,inp,fila,sec,tag):''; }).join('');
   const fichas=calcs.map((r,i)=>{
     const a=r.a, abierto=!!costeoArtAbiertos[i];
     const lv=logiItemDeArticuloCosteo(e.numero_corte,a.code);
@@ -21535,7 +21614,7 @@ function renderCosteoDetail(){
     if(!abierto){
       const m=r.precios[0];
       return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:8px">${cabeza}
-        <div style="font-size:12px;color:var(--text2);margin-top:4px">Tela ${costeoKg(r.kg,1)} kg · avíos ${r.avios.length} · taller ${costeoPesos(r.otros.find(o=>o.c.key==='costo_taller')?.unit)}${m.margen!=null?' · margen lista local '+Math.round(m.margen)+'%':''}</div></div>`;
+        <div style="font-size:12px;color:var(--text2);margin-top:4px">Tela ${costeoKg(r.kg,1)} kg · avíos ${r.avios.length} · taller ${costeoPesos(r.otros.find(o=>o.c.key==='costo_taller')?.unit)}${m.margen!=null?' · margen lista local '+Math.round(m.margen)+'%':''}</div></div>`+lisosHtml(a);
     }
     const piezasIn=canEdit?inp(r.piezasManual?a.piezas:'',`setCosteoArtCampo('${key}',${i},'piezas',this.value)`,70,String(r.piezas||0)):`<b>${r.piezas}</b>`;
     const kgIn=canEdit?inp(r.kgManual?a.kg:'',`setCosteoArtCampo('${key}',${i},'kg',this.value)`,70,costeoKg(r.kg,1).replace(/\./g,'').replace(',','.')):`<b>${costeoKg(r.kg,1)}</b>`;
@@ -21567,7 +21646,7 @@ function renderCosteoDetail(){
       ${sec('Taller y otros gastos (por prenda)')}${otrosHtml}
       ${preciosHtml}
       ${costoConfirmadoCheckboxHtml(lv?lv[0]:null,lv?lv[1].costo_confirmado:false)}
-    </div>`;
+    </div>`+lisosHtml(a);
   }).join('')||'<div class="empty-state">Este corte no tiene artículos cargados</div>';
 
   cont.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">

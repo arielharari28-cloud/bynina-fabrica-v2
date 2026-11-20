@@ -19896,13 +19896,13 @@ function logiRenderDetail(id){
 
   const filas = Object.entries(it.grilla||{});
   const cerrado = it.estado==='cerrado';
-  const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel' || pqMS);
+  const canEditarGrilla = !cerrado && (currentUser==='emir' || currentUser==='ariel' || currentUser==='noelia' || pqMS); // nov 2026: Noelia carga talles/colores (ej. prendas de proveedor)
   // El "esperado" viene de las capas/rollos que se cargaron en Orden de corte para ese ítem —
   // si hubo un error de carga (ej: quedó el total del corte entero en vez de la parte de esa
   // estampa), Ariel/Stef lo corrigen acá directo. Emir no edita directo — pide el cambio (con
   // motivo) y Ariel/Stef lo aprueban o rechazan desde la misma fila.
   const canEditarEsperado = !cerrado && (currentUser==='ariel' || currentUser==='stef');
-  const canSolicitarEsperado = !cerrado && (currentUser==='emir' || pqMS);
+  const canSolicitarEsperado = !cerrado && (currentUser==='emir' || currentUser==='noelia' || pqMS);
   // Faltante del taller (nov 2026): lo que el taller avisa que NO va a entregar (faltó tela, se
   // perdieron piezas). Sale del saldo, así el corte no queda colgado en "Entrega parcial". Lo cargan
   // Ariel y Noelia (todo) y Peque (Mini Sur); también con el control cerrado, porque muchas veces
@@ -19917,7 +19917,7 @@ function logiRenderDetail(id){
       ? '<div class="empty">Este corte se cerró sin talles/colores cargados.</div>'
       : (canEditarGrilla
           ? '<div class="empty">Este corte no tiene talle/color cargado. Cargalo con el botón de abajo.</div>'
-          : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Emir o Ariel que lo cargue.</div>'); // (Peque en Mini Sur lo carga ella)
+          : '<div class="empty">Este corte no tiene talle/color cargado todavía. Pedile a Noelia o Ariel que lo cargue.</div>'); // (Peque en Mini Sur lo carga ella)
   } else {
     // Ordenamos por color y después por talle (orden lógico S/M/L/XL, no alfabético).
     filas.sort((a,b)=> (a[1].color||'').localeCompare(b[1].color||'') || compareTalles(a[1].talle,b[1].talle));
@@ -20874,7 +20874,7 @@ function logiClasifGridConfirmar(){
 let logiGridCtx={itemId:null,colores:[],talles:[]};
 
 function logiOpenGridModal(itemId){
-  if(!(currentUser==='emir' || currentUser==='ariel' || logiPequeMS(logiItemsData[itemId]))){ showToast('Solo Emir o Ariel pueden cargar talles/colores (Mini Sur también Peque)'); return; }
+  if(!(currentUser==='emir' || currentUser==='ariel' || currentUser==='noelia' || logiPequeMS(logiItemsData[itemId]))){ showToast('Solo Ariel, Noelia o Emir pueden cargar talles/colores (Mini Sur también Peque)'); return; }
   logiGridCtx={itemId,colores:[],talles:[]};
   document.getElementById('logi-grid-color-input').value='';
   document.getElementById('logi-grid-talle-input').value='';

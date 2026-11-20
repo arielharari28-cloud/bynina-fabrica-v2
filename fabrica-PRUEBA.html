@@ -12732,14 +12732,14 @@ const TAB_VISIBILITY={
 };
 // Oct 2026: Facturación (ahora se hace en la app de egresos) y Productos del mes no se usan más:
 // se ocultan para todos. Los datos quedan guardados (egresos los usa para "Traer cortes anteriores").
-const TABS_OCULTAS=['tab-btn-facturacion','tab-btn-prodmes'];
+const TABS_OCULTAS=['tab-btn-facturacion','tab-btn-prodmes','tab-btn-galeria']; // Galería: sacada en nov 2026
 Object.keys(TAB_VISIBILITY).forEach(u=>{ TAB_VISIBILITY[u]=TAB_VISIBILITY[u].filter(t=>!TABS_OCULTAS.includes(t)); });
 TABS_OCULTAS.forEach(t=>{ const i=TAB_ORDER_DEFAULT.indexOf(t); if(i>=0) TAB_ORDER_DEFAULT.splice(i,1); });
 // ---- Pestañas principales y "Más" (nov 2026) ----
 // TAB_VISIBILITY sigue siendo lo que cada uno PUEDE ver (permisos). TAB_PRINCIPALES es lo que se
 // muestra en la barra; el resto de lo permitido queda en el botón "Más ▾". Quien no figura acá ve todo en la barra.
 const TAB_PRINCIPALES={
-  ariel:['tab-btn-fabrica','tab-btn-costeo','tab-btn-logistica','tab-btn-telas','tab-btn-histart'],
+  ariel:['tab-btn-fabrica','tab-btn-costeo','tab-btn-comerc','tab-btn-logistica','tab-btn-telas','tab-btn-histart'],
   noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-logistica','tab-btn-telas','tab-btn-web'],
   peque:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-costeo','tab-btn-logistica'],
 };
@@ -12753,6 +12753,7 @@ function applyTabBar(alEntrar){
   const cont=document.querySelector('.tabs'); if(!cont) return;
   const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT, pr=tabPrincipales(user), mas=tabMas(user);
   TAB_ORDER_DEFAULT.forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('hidden',!pr.includes(id)); });
+  TABS_OCULTAS.forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.add('hidden'); });
   let mb=document.getElementById('tab-btn-mas');
   if(!mb){ mb=document.createElement('button'); mb.className='tab'; mb.id='tab-btn-mas'; mb.onclick=e=>{ e.stopPropagation(); tabMasToggle(); }; }
   cont.appendChild(mb);

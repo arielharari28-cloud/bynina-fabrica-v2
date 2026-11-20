@@ -6620,8 +6620,8 @@ function utTallerDe(item,secId){
   return (item.taller_corte||'').trim()||'Sin taller';
 }
 function setUtTaller(v){ utTaller=v; renderSections('talleres'); }
-let utOrden='taller';   // por defecto: seguimiento por taller
-try{ utOrden=localStorage.getItem('talleres_ut_orden3')||'taller'; }catch(e){}
+let utOrden='galeria';   // por defecto (nov 2026): por taller con fotos grandes
+try{ utOrden=localStorage.getItem('talleres_ut_orden4')||'galeria'; }catch(e){}
 const utExpandidos=new Set();
 // Cortes que ya tuvieron una entrega (pasaron a Revisión final / Mejora / Producto perfecto) pero
 // todavía tienen prendas en el taller: se muestran en Talleres con lo que falta, hasta que se cuente.
@@ -6790,7 +6790,57 @@ function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='ste
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
 function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }
-function setUtOrden(o){ utOrden=o; try{ localStorage.setItem('talleres_ut_orden3',o); }catch(e){} renderSections('talleres'); }
+function setUtOrden(o){ utOrden=o; try{ localStorage.setItem('talleres_ut_orden4',o); }catch(e){} renderSections('talleres'); }
+// ---- Vista "Por taller · fotos" (nov 2026) ----
+// Un bloque por taller (el que más prendas tiene, primero), con una tarjeta de foto grande por corte:
+// prendas, cuándo entrega y qué le falta. Lo que el taller todavía no retiró va en un renglón aparte.
+function utGaleriaAbrir(secId,itemId){ utExpandidos.add(secId+'/'+itemId); setUtOrden('taller'); setTimeout(()=>{ const el=document.querySelector('.ut-open'); if(el) el.scrollIntoView({block:'center'}); },80); }
+function utGaleriaHtml(vis){
+  const e=utEsc, hoy=new Date(); hoy.setHours(0,0,0,0);
+  const porTaller={};
+  vis.forEach(f=>{ const t=utTallerDe(f.item,f.secId); (porTaller[t]=porTaller[t]||[]).push(f); });
+  const talleres=Object.entries(porTaller).sort((a,b)=>b[1].reduce((s,f)=>s+f.cantidad,0)-a[1].reduce((s,f)=>s+f.cantidad,0));
+  const chip=(t,st)=>`<span style="font-size:11px;padding:2px 8px;border-radius:40px;${st||'background:#fbeef1;color:#9B5C6B'}">${t}</span>`;
+  const card=f=>{
+    const it=f.item, bq=utBloqueTaller(f), falta=[];
+    if(!it.es_complemento&&f.estado!=='parcial'&&!it.precio_taller) falta.push('Falta precio');
+    if(f.avio){ const a=UT_AVIO[f.avio.tipo]; falta.push(a?a.label:'Avío'); }
+    Object.values(it.complementos||{}).forEach(c=>{ if(!c||!c.numero) return; const x=cmpFind(c.numero); if(x&&x.secId===SEC_CMP_ENTREGADO) return; if(!x||x.secId==='s3'||!cmpCortado(x)) falta.push(`${c.numero} sin cortar`); });
+    let ent='', entCol='#416096';
+    if(f.estado==='parcial'){ ent=`Faltan ${f.cantidad}${f.dias!=null?` · hace ${f.dias} días`:''}`; entCol='#9B5C6B'; }
+    else if(bq===2){ ent=it.fecha_estimada_entrega?`Retira ${utDiaFecha(utIsoTs(it.fecha_estimada_entrega))}`:`Todavía no retiró${f.dias!=null?` · ${f.dias} días`:''}`; entCol=f.dias>=7?'#9B5C6B':'#666'; }
+    else { const tal=it.fecha_estimada_entrega_taller||'', auto=entregaAutoTaller(it), fe=tal||auto;
+      if(fe){ const venc=utIsoTs(fe)<hoy.getTime(); ent=`${tal?'Entrega':'Estimada'} ${utDiaFecha(utIsoTs(fe))}${venc?' · atrasada':''}`; entCol=venc?'#9B5C6B':'#416096'; }
+      else { ent='Sin fecha de entrega'; entCol='#9B5C6B'; } }
+    const st=utEstadoInfo(f.estado);
+    const retiro=it.retirado_taller&&it.fecha_retiro_confirmado?` · retiró ${utDiaFecha(it.fecha_retiro_confirmado)}`:'';
+    const nombre=it.es_complemento&&it.complemento_de?`${it.complemento_de.que||'Complemento'} del ${it.complemento_de.numero}`:(it.name||'(sin nombre)');
+    return `<div style="border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff;cursor:pointer" onclick="utGaleriaAbrir('${f.secId}','${f.itemId}')">
+      ${it.foto?`<img src="${e(it.foto)}" loading="lazy" alt="" style="width:100%;height:170px;object-fit:cover;display:block">`:'<div style="height:170px;background:var(--surface2)"></div>'}
+      <div style="padding:9px 11px">
+        <div style="font-weight:700;font-size:14px;line-height:1.25">${e(it.numero_corte||'s/n°')} · ${e(nombre)}</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">${f.cantidad} prendas${retiro}</div>
+        <div style="font-size:13px;font-weight:600;color:${entCol};margin:4px 0">${ent}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${chip(st.label,`background:${st.bg};color:${st.fg}`)}${falta.map(x=>chip(e(x))).join('')}${it.nota?chip('📝 Aclaración','border:1px solid var(--border);color:var(--text2)'):''}</div>
+      </div></div>`;
+  };
+  const grid=l=>`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px">${l.map(card).join('')}</div>`;
+  return talleres.map(([t,l])=>{
+    const retirados=l.filter(f=>utBloqueTaller(f)!==2), noRet=l.filter(f=>utBloqueTaller(f)===2);
+    const prendas=l.reduce((s,f)=>s+f.cantidad,0);
+    const sinFecha=retirados.filter(f=>f.estado!=='parcial'&&!(f.item.fecha_estimada_entrega_taller||entregaAutoTaller(f.item))).length;
+    const sinPrecio=l.filter(f=>!f.item.es_complemento&&f.estado!=='parcial'&&!f.item.precio_taller).length;
+    const proximas=retirados.map(f=>f.item.fecha_estimada_entrega_taller||entregaAutoTaller(f.item)).filter(Boolean).map(utIsoTs).filter(ts=>ts>=hoy.getTime()).sort((a,b)=>a-b);
+    const alertas=[sinFecha?`${sinFecha} sin fecha`:'',sinPrecio?`${sinPrecio} sin precio`:'',noRet.length?`${noRet.length} por retirar`:''].filter(Boolean).join(' · ');
+    return `<div style="border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:14px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="font-family:Poppins,sans-serif;font-weight:700;font-size:18px">${e(t)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${chip(`${l.length} corte${l.length!==1?'s':''} · ${prendas} prendas`,'background:var(--surface2);color:var(--text)')}${proximas.length?chip('Próxima entrega '+utDiaFecha(proximas[0]),'background:#416096;color:#fff'):''}${alertas?chip(alertas,'background:#9B5C6B;color:#fff'):''}</div></div>
+      ${retirados.length?grid(retirados):''}
+      ${noRet.length?`<div style="font-size:12px;font-weight:700;color:var(--text2);margin:${retirados.length?'14px':'0'} 0 8px;text-transform:uppercase;letter-spacing:.4px">🚚 Todavía no retiró · ${noRet.length}</div>${grid(noRet)}`:''}
+    </div>`;
+  }).join('')||'<div class="empty-state">No hay cortes con ese filtro</div>';
+}
 // Muestra / Ficha / Ninox se tildan directo en la fila de Pendiente retiro (antes había que abrir la tarjeta completa).
 function utChecklistRetiroHtml(f){
   const it=f.item;
@@ -7042,14 +7092,14 @@ function renderResumenPipelineTalleres(){
           <option value="">Todos</option>
           ${talleresLista.map(t=>`<option value="${utEsc(t)}" ${t===utTaller?'selected':''}>${utEsc(t)}</option>`).join('')}
         </select></label>
-      <span style="font-size:11px;color:var(--text2);margin-left:6px">Ordenar</span>${ordenBtn('corte','Por N° de corte')}${ordenBtn('etapa','Por etapa')}${ordenBtn('taller','Por taller')}${ordenBtn('dias','Más días primero')}${utOrden==='taller'?(()=>{const ts=[...new Set(vis.map(f=>utTallerDe(f.item,f.secId)))];const todos=ts.length&&ts.every(t=>utTalleresColapsados.has(t));return `<button class="ut-orden" data-l="${utEsc(JSON.stringify(ts))}" onclick="setUtTalleresTodos(${todos?'false':'true'},JSON.parse(this.dataset.l))">${todos?'▼ Abrir todos':'▶ Colapsar todos'}</button>`;})():''}</div>
+      <span style="font-size:11px;color:var(--text2);margin-left:6px">Ver</span>${ordenBtn('galeria','Por taller · fotos')}${ordenBtn('corte','Por N° de corte')}${ordenBtn('etapa','Por etapa')}${ordenBtn('taller','Por taller')}${ordenBtn('dias','Más días primero')}${utOrden==='taller'?(()=>{const ts=[...new Set(vis.map(f=>utTallerDe(f.item,f.secId)))];const todos=ts.length&&ts.every(t=>utTalleresColapsados.has(t));return `<button class="ut-orden" data-l="${utEsc(JSON.stringify(ts))}" onclick="setUtTalleresTodos(${todos?'false':'true'},JSON.parse(this.dataset.l))">${todos?'▼ Abrir todos':'▶ Colapsar todos'}</button>`;})():''}</div>
     </div>
     <div class="ut-cards">${cardsHtml}</div>
     ${buildTiemposTallerHtml()}
-    <div class="ut-table">
+    ${utOrden==='galeria'?utGaleriaHtml(vis):`<div class="ut-table">
       <div class="ut-row ut-v2 ut-head"><div class="c-foto"></div><div class="c-art">Corte · artículo</div><div class="c-prendas">Prendas</div><div class="c-info">Retiro · entrega</div><div class="c-estado">Estado</div></div>
       ${filasHtml||'<div class="empty-state">No hay cortes con ese filtro</div>'}
-    </div>
+    </div>`}
   </div>`;
 }
 // Al tocar una fila del resumen, lleva la vista hasta la tarjeta real de ese corte. Como las

@@ -39,6 +39,7 @@
   .notif-badge{position:absolute;top:2px;right:2px;min-width:16px;height:16px;border-radius:8px;background:var(--danger);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px}
 
   .main{max-width:1100px;margin:0 auto;padding:16px}
+  @media (min-width:1300px){ .main{max-width:1500px;zoom:1.15} }
   .tabs{display:flex;gap:4px;margin-bottom:16px;background:var(--surface2);border-radius:var(--radius);padding:3px}
   .tab{flex:1;padding:7px;border-radius:8px;border:none;background:transparent;font-size:12px;font-weight:500;color:var(--text2);cursor:pointer}
   .tab.active{background:var(--surface);color:var(--text);box-shadow:var(--shadow);font-weight:600}
@@ -1138,6 +1139,7 @@
     </div>
     <div id="tab-logistica" class="hidden">
       <div id="logi-board-screen">
+        <div id="logi-transferencias"></div>
         <div id="logi-acciones" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <button class="btn-sm logi-btn-ingreso" id="logi-btn-nueva-entrega" onclick="logiAbrirNuevaEntregaCorte()">📦 Nueva entrega (desde taller)</button>
           <button class="btn-sm logi-btn-ingreso" onclick="logiOpenProveedorModal()">➕ Agregar prenda de proveedor</button>
@@ -3172,6 +3174,7 @@ function onSearchInput(board,value){
 
 // Determina quién es responsable de la próxima acción sobre un ítem
 function getResponsable(sec,item,secId){
+  if(item&&item.pausado) return null; // corte en pausa: la decisión está frenada a propósito, no cuenta como pendiente
   const tipo=sec.tipo||'';
   if(tipo==='mejora') return item.mejora_resuelta?null:'Peque';
   if(tipo==='muestra_prep'){
@@ -3520,6 +3523,34 @@ function toggleColaCollapsed(){
   colaCollapsed = !colaCollapsed;
   try{ localStorage.setItem('fabrica_cola_collapsed_v1', colaCollapsed?'1':'0'); }catch(e){}
   renderSections('fabrica');
+}
+// ---- Cortes en pausa (nov 2026) ----
+// Un corte de la cola se puede pausar: sale de "pendientes de aprobación", no cuenta como pendiente
+// de Ariel ni como atrasado, y queda en un grupo plegado "En pausa" hasta reactivarlo o cancelarlo.
+let pausaCollapsed = true;
+function togglePausaCollapsed(){ pausaCollapsed=!pausaCollapsed; renderSections('fabrica'); }
+function itemsDelMismoCorte(secId,itemId){
+  const it=sectionsData[secId]?.items?.[itemId]; if(!it) return [];
+  const ck=corteKeyFrom(String(it.numero_corte||''));
+  if(!ck) return [[itemId,it]];
+  return Object.entries(sectionsData[secId].items||{}).filter(([,x])=>x&&corteKeyFrom(String(x.numero_corte||''))===ck);
+}
+function pausarCorte(secId,itemId,pausar){
+  const lista=itemsDelMismoCorte(secId,itemId); if(!lista.length) return;
+  const up={};
+  lista.forEach(([id])=>{ const b=`fabrica_v5/sections/${secId}/items/${id}`; up[b+'/pausado']=pausar?true:null; up[b+'/pausado_fecha']=pausar?Date.now():null; up[b+'/pausado_por']=pausar?currentUser:null; up[b+'/fecha_etapa']=Date.now(); });
+  db.ref().update(up);
+  const num=lista[0][1].numero_corte||lista[0][1].code||'';
+  logActivity(pausar?'Pausó corte':'Reactivó corte',`Corte ${num}`);
+  showToast(pausar?`⏸ Corte ${num} en pausa`:`▶ Corte ${num} vuelve a la cola`);
+}
+function cancelarCortePausado(secId,itemId){
+  const lista=itemsDelMismoCorte(secId,itemId); if(!lista.length) return;
+  const num=lista[0][1].numero_corte||lista[0][1].code||'';
+  if(!confirm(`¿Cancelar el corte ${num}? Se saca de la cola (${lista.length} artículo${lista.length>1?'s':''}). Si te equivocás, lo recuperás desde ↩️ Deshacer.`)) return;
+  lista.forEach(([id])=>deleteItemUndoable(secId,id));
+  logActivity('Canceló corte en pausa',`Corte ${num}`);
+  showToast(`✕ Corte ${num} cancelado`);
 }
 function isSecCollapsed(secId){ return !!localCollapsed[secId]; }
 function saveLocalCollapsed(){
@@ -7784,7 +7815,7 @@ function fechaObjetivoInputHtml(secId,itemId,item,sec,conAviso){
   return `<label class="cmp-chip" title="${tit}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:4px;background:${bg};color:${col};max-width:none;font-weight:600">📌<input type="date" value="${iso}" onclick="event.stopPropagation()" onchange="setFechaObjetivoCorteIso('${secId}','${itemId}',this.value)" style="border:0;background:transparent;color:inherit;font:inherit;font-size:11px;padding:0;width:118px"></label>`;
 }
 // Cola agrupada por N° de corte (una fila por corte; al abrirla se ven sus artículos).
-function buildColaPorCorteHtml(secId,items,sec){
+function buildColaPorCorteHtml(secId,items,sec,enPausa){
   const grupos=[],idx={};
   items.forEach(([itemId,it])=>{ const ck=corteKeyFrom(String(it.numero_corte||''))||('_'+itemId); if(!(ck in idx)){ idx[ck]=grupos.length; grupos.push({ck,items:[]}); } grupos[idx[ck]].items.push([itemId,it]); });
   const puede=puedeFechaObjetivoCorte();
@@ -7798,11 +7829,19 @@ function buildColaPorCorteHtml(secId,items,sec){
     return `<div class="cmp-row ${abierto?'cmp-open':''}" onclick="toggleCompactItem('${secId}','cola:${g.ck}')">
       <div style="display:flex;gap:3px;flex-shrink:0">${fotos}</div>
       <div class="cmp-txt"><b>${fit.numero_corte?'Corte N° '+fit.numero_corte:(fit.code||'')+' '+(fit.name||'')}</b><small>${g.items.length>1?g.items.length+' artículos · ':''}${nombres}</small></div>
-      ${puede?fechaObjetivoInputHtml(secId,ref[0],ref[1],sec,false)+`<button class="btn-sm" style="flex-shrink:0;background:var(--accent);color:#fff;border-color:var(--accent)" onclick="event.stopPropagation();confirmarCorteCompleto('${secId}','${ref[0]}')">✅ Confirmar</button>`
-        :(fit.fecha_objetivo_corte?`<span class="cmp-chip">📌 ${fit.fecha_objetivo_corte}</span>`:'')}
+      ${enPausa?(puede?`<span class="cmp-chip">⏸ desde ${fmtFecha(fit.pausado_fecha||Date.now())}</span><button class="btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();pausarCorte('${secId}','${fid}',false)">▶ Reactivar</button><button class="btn-sm" style="flex-shrink:0;color:var(--danger-text,#b91c1c)" onclick="event.stopPropagation();cancelarCortePausado('${secId}','${fid}')">✕ Cancelar</button>`:`<span class="cmp-chip">⏸ en pausa</span>`):''}
+      ${enPausa?'':(puede?`<button class="btn-sm" title="Pausar: la decisión de este corte queda frenada" style="flex-shrink:0" onclick="event.stopPropagation();pausarCorte('${secId}','${fid}',true)">⏸</button>`:'')}
+      ${enPausa?'':(puede?fechaObjetivoInputHtml(secId,ref[0],ref[1],sec,false)+`<button class="btn-sm" style="flex-shrink:0;background:var(--accent);color:#fff;border-color:var(--accent)" onclick="event.stopPropagation();confirmarCorteCompleto('${secId}','${ref[0]}')">✅ Confirmar</button>`
+        :(fit.fecha_objetivo_corte?`<span class="cmp-chip">📌 ${fit.fecha_objetivo_corte}</span>`:''))}
       <span style="color:var(--text2);font-size:12px;flex-shrink:0">${abierto?'▲':'▼'}</span>
     </div>${abierto?`<div style="padding-left:14px;border-left:3px solid var(--warn-bg)">${buildCompactRowsHtml(secId,g.items,sec)}</div>`:''}`;
   }).join('');
+}
+function pausaGrupoHtml(secId,items,sec){
+  if(!items.length) return '';
+  const n=contarCortes(items);
+  return `<div style="font-size:12px;font-weight:700;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--text2)" onclick="togglePausaCollapsed()"><span style="display:inline-block;transform:rotate(${pausaCollapsed?'-90deg':'0deg'})">▾</span> ⏸ En pausa — decisiones frenadas (${n} corte${n!==1?'s':''} · ${items.length} artículo${items.length!==1?'s':''})</div>`
+    +(pausaCollapsed?'':buildColaPorCorteHtml(secId,items,sec,true));
 }
 function contarCortes(items){ return new Set(items.map(([id,it])=>corteKeyFrom(String(it.numero_corte||''))||('_'+id))).size; }
 
@@ -8104,7 +8143,8 @@ function renderSections(board){
         return header+buildItem(secId,itemId,item,sec,idx,sortedItems.length);
       }).join('');
     } else if(secId==='s3'){
-      const enCola=ordenarColaPorNumero(items.filter(([,item])=>item.sin_confirmar));
+      const enCola=ordenarColaPorNumero(items.filter(([,item])=>item.sin_confirmar&&!item.pausado));
+      const enPausaT=ordenarColaPorNumero(items.filter(([,item])=>item.sin_confirmar&&item.pausado));
       const confirmados=ordenarS3PorFecha(items.filter(([,item])=>!item.sin_confirmar),sec);
       const colaHtml=enCola.length
         ? `<div class="group-header" style="font-size:12px;font-weight:700;color:var(--warn-text);margin:4px 0 6px;padding-bottom:4px;border-bottom:1px dashed var(--border);cursor:pointer;display:flex;align-items:center;gap:6px" onclick="toggleColaCollapsed()">
@@ -8117,7 +8157,7 @@ function renderSections(board){
         ? (enCola.length?`<div class="group-header" style="font-size:12px;font-weight:700;color:var(--text2);margin:14px 0 6px;padding-bottom:4px;border-bottom:1px dashed var(--border)">✂️ Cortes próximos a sacar (${contarCortes(confirmados)} cortes)</div>`:'')
           + buildS3PorDiaHtml(secId,confirmados,sec,'tarjetas')
         : '';
-      itemsHtml=colaHtml+confHtml;
+      itemsHtml=colaHtml+pausaGrupoHtml(secId,enPausaT,sec)+confHtml;
     } else if(secId==='sFIN'&&board==='talleres'){
       // En Talleres el resumen y los filtros viven arriba (Resumen general): acá solo las tarjetas.
       itemsHtml=items.length?items.map(([itemId,item],idx)=>buildItem(secId,itemId,item,sec,idx,items.length)).join(''):`<div class="empty-state">No hay cortes en confección/plancha/estampado</div>`;
@@ -8136,13 +8176,15 @@ function renderSections(board){
         itemsHtml=buildFiltroCorteBarHtml(items)+buildCompactRowsHtml(secId,itemsF,sec);
       } else if(secId==='s3'){
         // Igual que en tarjetas: la cola (pendientes de aprobación) arriba y plegable, después los confirmados.
-        const enColaC=ordenarColaPorNumero(items.filter(([,it])=>it.sin_confirmar));
+        const enColaC=ordenarColaPorNumero(items.filter(([,it])=>it.sin_confirmar&&!it.pausado));
+        const enPausaC=ordenarColaPorNumero(items.filter(([,it])=>it.sin_confirmar&&it.pausado));
         const confC=ordenarS3PorFecha(items.filter(([,it])=>!it.sin_confirmar),sec);
         const hdr=(txt,extra)=>`<div style="font-size:12px;font-weight:700;padding:8px 10px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;${extra||''}">${txt}</div>`;
         itemsHtml=(enColaC.length
             ? hdr(`<span style="display:inline-block;transform:rotate(${colaCollapsed?'-90deg':'0deg'})">▾</span> 🕓 En cola — pendientes de aprobación de Ari (${contarCortes(enColaC)} corte${contarCortes(enColaC)!==1?'s':''} · ${enColaC.length} artículo${enColaC.length!==1?'s':''})`,'color:var(--warn-text);cursor:pointer" onclick="toggleColaCollapsed()')
               +(colaCollapsed?'':buildColaPorCorteHtml(secId,enColaC,sec))
             : '')
+          +pausaGrupoHtml(secId,enPausaC,sec)
           +(confC.length?(enColaC.length?hdr(`✂️ Próximos a sacar (${contarCortes(confC)} corte${contarCortes(confC)!==1?'s':''} · ${confC.length} artículo${confC.length!==1?'s':''})`,'color:var(--text2)'):'')+buildS3PorDiaHtml(secId,confC,sec,'compacta'):'');
       } else {
         itemsHtml=buildCompactRowsHtml(secId,items,sec);
@@ -12745,6 +12787,8 @@ const TAB_PRINCIPALES={
 };
 // Ari Morón solo opera el corte: ve Fábrica con lo que tiene que cortar y sus órdenes de corte.
 TAB_VISIBILITY.arimoron=['tab-btn-fabrica'];
+// Emir (nov 2026): pidió quedarse solo con Logística — la tiza la imprime Noelia y ella habla con los talleres.
+TAB_VISIBILITY.emir=['tab-btn-logistica'];
 const ARIMORON_SECCIONES=['s3','muestra_pendiente'];
 function tabPrincipales(user){ const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT; const pr=TAB_PRINCIPALES[user]; return pr?pr.filter(t=>allowed.includes(t)):allowed; }
 function tabMas(user){ const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT, pr=tabPrincipales(user); return TAB_ORDER_DEFAULT.filter(t=>allowed.includes(t)&&!pr.includes(t)); }
@@ -12770,12 +12814,12 @@ function tabMasToggle(){
   if(pop){ pop.remove(); return; }
   const mb=document.getElementById('tab-btn-mas'); if(!mb) return;
   pop=document.createElement('div'); pop.id='tab-mas-pop';
-  pop.style.cssText='position:absolute;z-index:500;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px;min-width:200px';
+  pop.style.cssText='position:fixed;z-index:500;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px;min-width:200px';
   pop.innerHTML=tabMas(quienSoy()).map(id=>`<button data-tabmas="${id}" style="display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;border-radius:8px;font-size:13px;cursor:pointer">${TAB_LABELS[id]||id}</button>`).join('');
   document.body.appendChild(pop);
   const r=mb.getBoundingClientRect();
-  pop.style.top=(r.bottom+window.scrollY+4)+'px';
-  pop.style.left=Math.max(8,Math.min(r.left+window.scrollX,window.innerWidth-pop.offsetWidth-8))+'px';
+  pop.style.top=(r.bottom+4)+'px';
+  pop.style.left=Math.max(8,Math.min(r.left,window.innerWidth-pop.offsetWidth-8))+'px';
   pop.querySelectorAll('[data-tabmas]').forEach(b=>b.onclick=()=>{ pop.remove(); const t=document.getElementById(b.dataset.tabmas); if(t&&t.onclick) t.onclick.call(t); applyTabBar(); });
   setTimeout(()=>document.addEventListener('click',function cerrar(ev){ if(!pop.contains(ev.target)){ pop.remove(); document.removeEventListener('click',cerrar); } }),0);
 }
@@ -17778,6 +17822,7 @@ function logiAplicarColapso(){
 // Logística ya no tiene tablero de columnas: todo se ve en la lista por fecha (con filtros
 // por etapa). Esta función se sigue llamando desde varios lados, así que ahora pinta la lista.
 function logiRenderBoard(){
+  try{ logiRenderTransferencias(); }catch(e){ console.error('transferencias',e); }
   listaEntRender('logistica');
   logiRenderStatsPorPersona();
 }
@@ -19563,18 +19608,11 @@ function logiExtraCerradoHtml(id,it,cerrado){
       </div>` : '';
       extraCerradoHtml = `<div style="margin-top:4px">${webBadge} ${costoBadge}</div>${plataHtml}${preciosVentaHtml}${dividioInfo}${recepcionHtml}${costeoNinoxHtml}${webColoresHtml}`;
     } else {
-      const pool = totalOk + totalDetalle;
-      const avell = it.division_avellaneda;
-      const dep = it.division_deposito;
-      const divisionHtml = currentUser==='ariel' ? `
-        <div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px">
-          <span>📦 Total a dividir: <strong>${pool}</strong> u.</span>
-          <span>Avellaneda: <input type="number" min="0" max="${pool}" value="${avell??''}" placeholder="0" style="width:60px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetDivision('${id}','avellaneda',this.value,${pool})"></span>
-          <span>Depósito: <input type="number" min="0" max="${pool}" value="${dep??''}" placeholder="0" style="width:60px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetDivision('${id}','deposito',this.value,${pool})"></span>
-        </div>` : (avell!=null||dep!=null ? `<div class="logi-fecha" style="margin-top:4px">📦 Avellaneda: <strong>${avell||0}</strong> · Depósito: <strong>${dep||0}</strong></div>` : '');
-      const dividirBtn = currentUser==='ariel'
-        ? `<button class="btn-sm" onclick="event.stopPropagation();logiMarcarDividido('${id}')" style="margin-top:6px;border-color:#5b21b6;color:#5b21b6">🔀 Marcar dividido → Finalizado</button>`
-        : `<div class="logi-fecha" style="margin-top:4px">⏳ Esperando que Ariel marque dividido</div>`;
+      // División por talle y color (nov 2026): Ariel carga qué va a Avellaneda en cada talle/color, el resto
+      // queda en depósito. Al confirmar, Emir ve la transferencia en Logística y al marcarla hecha en Ninox
+      // el corte pasa a Finalizado.
+      const divisionHtml = logiDivisionHtml(id,it);
+      const dividirBtn = '';
       extraCerradoHtml = `${plataHtml}${divisionHtml}${dividirBtn}`;
     }
   }
@@ -20659,6 +20697,115 @@ function logiSetDivision(itemId,campo,valor,pool){
   db.ref(`fabrica_v5/logistica/items/${itemId}/division_${otroCampo}`).set(otroValor);
   logActivity('Cargó división local/depósito',`Ítem ${itemId}: Avellaneda ${campo==='avellaneda'?n:otroValor} · Depósito ${campo==='deposito'?n:otroValor}`);
   logiRenderBoard();
+}
+// ---- División por talle y color + transferencia en Ninox (nov 2026) ----
+function logiDivKey(color,talle){ return (webColorSlug(color)||'sin_color')+'|'+String(talle||'u').trim().replace(/[.#$\[\]\/\s]/g,'_'); }
+function logiDivCeldas(it){
+  // Lo que hay para dividir por color y talle: OK + detalle si ya se controló; si no, lo contado.
+  const m={}, colores=[], talles=[];
+  Object.values(it.grilla||{}).forEach(f=>{
+    if(!f) return;
+    const c=f.color||'Sin color', t=f.talle||'U';
+    const u=((parseInt(f.ok)||0)+(parseInt(f.detalle)||0))||parseInt(f.contado)||0;
+    if(!colores.includes(c)) colores.push(c);
+    if(!talles.includes(t)) talles.push(t);
+    const k=logiDivKey(c,t); m[k]=(m[k]||0)+u;
+  });
+  return {m,colores,talles};
+}
+function logiDivTotales(it){
+  const {m}=logiDivCeldas(it), d=it.division_detalle||{};
+  let pool=0, av=0; Object.entries(m).forEach(([k,u])=>{ pool+=u; av+=Math.min(u,parseInt(d[k])||0); });
+  return {pool,av,dep:pool-av};
+}
+function logiDivSetCelda(itemId,key,valor,max){
+  const n=Math.max(0,Math.min(max,parseInt(valor)||0));
+  db.ref(`fabrica_v5/logistica/items/${itemId}/division_detalle/${key}`).set(n||null).then(()=>{
+    const it=logiItemsData[itemId]; if(!it) return;
+    const t=logiDivTotales(it);
+    db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_avellaneda:t.av,division_deposito:t.dep});
+  });
+}
+function logiDivCopiarPrimera(itemId){
+  const it=logiItemsData[itemId]; if(!it) return;
+  const {m,colores,talles}=logiDivCeldas(it), d=it.division_detalle||{}, up={};
+  if(!colores.length) return;
+  talles.forEach(t=>{ const base=parseInt(d[logiDivKey(colores[0],t)])||0; colores.slice(1).forEach(c=>{ const k=logiDivKey(c,t); if(m[k]!=null) up[`fabrica_v5/logistica/items/${itemId}/division_detalle/${k}`]=Math.min(m[k],base)||null; }); });
+  db.ref().update(up).then(()=>{ const t=logiDivTotales(logiItemsData[itemId]||{}); db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_avellaneda:t.av,division_deposito:t.dep}); });
+}
+function logiDivConfirmar(itemId){
+  const it=logiItemsData[itemId]; if(!it) return;
+  const t=logiDivTotales(it);
+  if(!t.av){
+    if(!confirm(`Va todo a depósito (${t.pool} u.), no hace falta transferencia. ¿Pasar a Finalizado?`)) return;
+    db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_avellaneda:0,division_deposito:t.pool,division_confirmada:true,division_confirmada_fecha:Date.now()});
+    logiCerrarDividido(itemId,'sin transferencia');
+    return;
+  }
+  if(!confirm(`Avellaneda ${t.av} u. · Depósito ${t.dep} u. ¿Confirmás? Emir va a ver la transferencia para hacerla en Ninox.`)) return;
+  db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_avellaneda:t.av,division_deposito:t.dep,division_confirmada:true,division_confirmada_fecha:Date.now(),division_confirmada_por:currentUser});
+  logActivity('Confirmó división por talle y color',`${it.code||itemId}: Avellaneda ${t.av} · Depósito ${t.dep}`);
+  showToast('✅ División confirmada — queda para Emir');
+}
+function logiDivReabrir(itemId){
+  db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_confirmada:null,division_confirmada_fecha:null,division_confirmada_por:null});
+}
+function logiCerrarDividido(itemId,como){
+  const up={}, b=`fabrica_v5/logistica/items/${itemId}`;
+  up[b+'/dividido']=true; up[b+'/estado']='cerrado'; up[b+'/fecha_cerrado']=Date.now(); up[b+'/cerrado_por']=currentUser;
+  if(como==='ninox'){ up[b+'/transferencia_ninox']=true; up[b+'/transferencia_ninox_por']=currentUser; up[b+'/transferencia_ninox_fecha']=Date.now(); }
+  db.ref().update(up);
+  logActivity(como==='ninox'?'Hizo la transferencia en Ninox — pasa a Finalizado':'Marcó dividido — pasa a Finalizado',logiItemsData[itemId]?.code||itemId);
+  showToast('✅ Pasó a Finalizados');
+}
+function logiTransferenciaHecha(itemId){
+  if(!['emir','ariel'].includes(quienSoy())){ showToast('La transferencia la marca Emir'); return; }
+  if(!confirm('¿Ya hiciste la transferencia en Ninox? El corte pasa a Finalizado.')) return;
+  logiCerrarDividido(itemId,'ninox');
+}
+function logiDivDetalleTexto(it){
+  const {colores,talles}=logiDivCeldas(it), d=it.division_detalle||{};
+  return colores.map(c=>{ const partes=talles.map(t=>{ const n=parseInt(d[logiDivKey(c,t)])||0; return n?`${t} ${n}`:''; }).filter(Boolean); return partes.length?`${c}: ${partes.join(' · ')}`:''; }).filter(Boolean);
+}
+function logiDivisionHtml(id,it){
+  const {m,colores,talles}=logiDivCeldas(it), d=it.division_detalle||{}, t=logiDivTotales(it), e=utEsc;
+  if(it.division_confirmada){
+    return `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:6px">📦 Avellaneda <strong>${t.av}</strong> · Depósito <strong>${t.dep}</strong>
+      <div style="font-size:11px;color:var(--text2);margin-top:2px">${logiDivDetalleTexto(it).map(e).join('<br>')}</div>
+      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">${['emir','ariel'].includes(quienSoy())?`<button class="btn-sm" style="background:#416096;color:#fff;border-color:#416096" onclick="logiTransferenciaHecha('${id}')">✓ Hecha en Ninox</button>`:'<span>⏳ Esperando la transferencia de Emir en Ninox</span>'}${currentUser==='ariel'?`<button class="btn-sm" onclick="logiDivReabrir('${id}')">✏️ Corregir</button>`:''}</div></div>`;
+  }
+  if(currentUser!=='ariel') return `<div class="logi-fecha" style="margin-top:4px">⏳ Esperando que Ariel cargue la división</div>`;
+  if(!colores.length) return `<div class="logi-fecha" style="margin-top:4px">Sin grilla para dividir</div>`;
+  const th=x=>`<th style="padding:3px 4px;font-size:11px;color:var(--text2);text-align:center;font-weight:600">${e(x)}</th>`;
+  const filas=colores.map(c=>{
+    let tot=0;
+    const celdas=talles.map(tl=>{ const k=logiDivKey(c,tl), max=m[k]; if(max==null) return '<td></td>'; const v=parseInt(d[k])||0; tot+=Math.min(v,max);
+      return `<td style="text-align:center;padding:2px"><input type="number" min="0" max="${max}" value="${v||''}" placeholder="0" title="Hay ${max}" style="width:48px;border:1px solid ${v?'#416096':'var(--border)'};border-radius:6px;padding:3px;font-size:12px;text-align:center" onchange="logiDivSetCelda('${id}','${k}',this.value,${max})"><div style="font-size:10px;color:var(--text3)">de ${max}</div></td>`; }).join('');
+    return `<tr style="border-top:1px solid var(--border)"><td style="padding:4px 6px 4px 0;font-size:12px;white-space:nowrap">${e(c)}</td>${celdas}<td style="text-align:right;font-weight:600;font-size:12px;padding-left:6px">${tot}</td></tr>`;
+  }).join('');
+  return `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:6px;display:block">
+    <div style="margin-bottom:4px">📦 Cargá lo que va a <b>Avellaneda</b> · el resto queda en depósito</div>
+    <div style="overflow-x:auto"><table style="border-collapse:collapse"><tr><th></th>${talles.map(th).join('')}<th style="font-size:11px;color:var(--text2);text-align:right;padding-left:6px">Avell.</th></tr>${filas}</table></div>
+    <div style="margin:6px 0;font-size:12px">Avellaneda <b style="color:#416096">${t.av}</b> · Depósito <b>${t.dep}</b> · Total ${t.pool}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${colores.length>1?`<button class="btn-sm" onclick="logiDivCopiarPrimera('${id}')">Copiar 1ª fila a todas</button>`:''}<button class="btn-sm" style="background:#416096;color:#fff;border-color:#416096" onclick="logiDivConfirmar('${id}')">Confirmar división</button></div></div>`;
+}
+function logiRenderTransferencias(){
+  const el=document.getElementById('logi-transferencias'); if(!el) return;
+  const yo=quienSoy();
+  if(!['emir','ariel'].includes(yo)){ el.innerHTML=''; return; }
+  const lista=Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='pendiente_dividir'&&it.division_confirmada&&!it.dividido)
+    .sort((a,b)=>(a[1].division_confirmada_fecha||0)-(b[1].division_confirmada_fecha||0));
+  if(!lista.length){ el.innerHTML=''; return; }
+  const e=utEsc, hoy=new Date(); hoy.setHours(0,0,0,0);
+  el.innerHTML=`<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;background:#fff">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">🔁 Transferencias a hacer en Ninox (${lista.length}) <span style="font-weight:400;color:var(--text2)">· Depósito → Avellaneda</span></div>
+    ${lista.map(([id,it])=>{ const t=logiDivTotales(it), dias=Math.floor((hoy-new Date(it.division_confirmada_fecha||Date.now()).setHours(0,0,0,0))/864e5)*-1;
+      const d=Math.max(0,Math.round((Date.now()-(it.division_confirmada_fecha||Date.now()))/864e5));
+      return `<div style="border-top:1px solid var(--border);padding:8px 0;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap">
+        <div><b>${e(it.code||'')} ${e(it.name||'')}</b>${it.numero_corte?` · C${e(it.numero_corte)}`:''} <span style="font-size:11px;padding:1px 8px;border-radius:40px;${d>=2?'background:#9B5C6B;color:#fff':'border:1px solid #416096;color:#416096'}">${d===0?'hoy':d===1?'ayer':'hace '+d+' días'}</span>
+          <div style="font-size:12px;color:var(--text2);margin:2px 0">Avellaneda: <b style="color:#111">${t.av}</b></div>
+          <div style="font-size:12px;line-height:1.6">${logiDivDetalleTexto(it).map(e).join('<br>')}</div></div>
+        <button class="btn-sm" style="background:#416096;color:#fff;border-color:#416096" onclick="logiTransferenciaHecha('${id}')">✓ Hecha en Ninox</button></div>`; }).join('')}</div>`;
 }
 function logiMarcarDividido(itemId){
   if(currentUser!=='ariel'){ showToast('Solo Ariel puede marcar como dividido'); return; }

@@ -7267,8 +7267,8 @@ function buildPasosPanelCorteHtml(item){
   const now=Date.now();
   const grupo=grupoCorteOf(item)||{};
   const pasos=[
-    { label:'Confirmar corte', resp:'Ariel', start:item.fecha_etapa, end:item.fecha_paso_confirmado },
-    { label:'Cargar orden de corte', resp:'Ariel', start:item.fecha_paso_confirmado, end:grupo.fecha_paso_orden },
+    { label:'Confirmar corte', resp:'Ariel', start:item.fecha_etapa, end:item.sin_confirmar?null:item.fecha_paso_confirmado }, // si volvió a la cola, no está confirmado
+    { label:'Cargar orden de corte', resp:'Ariel', start:item.sin_confirmar?null:item.fecha_paso_confirmado, end:grupo.fecha_paso_orden },
     { label:'Imprimir tiza', resp:'Noelia', start:grupo.fecha_paso_orden, end:grupo.fecha_paso_tiza },
     { label:'Encimado', resp:'Cortador', start:grupo.fecha_paso_tiza, end:grupo.fecha_paso_encimado },
     { label:'Marcar cortado', resp:'Cortador', start:grupo.fecha_paso_encimado, end:null }
@@ -15421,8 +15421,66 @@ function colAplicarStock(item,usos){
     upd[`rollos/${id}/usos/${ctx}`]=uso; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest); if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]='entero'; });
   if(Object.keys(upd).length) db.ref('fabrica_v5/telas_stock').update(upd);
 }
+// ---- Ficha de corte resumida (nov 2026) ----
+// En "Cortes próximos a sacar" cada artículo se muestra limpio: qué es, en qué paso está y UN botón
+// con lo que hay que hacer ahora. Todo lo demás (datos editables, recorrido, notas) está en "Ver ficha completa".
+const fichaCompletaAbierta=new Set();
+function fichaToggleCompleta(itemId,abrir){ if(abrir) fichaCompletaAbierta.add(itemId); else fichaCompletaAbierta.delete(itemId); renderSections('fabrica'); }
+function fichaMenuToggle(btn){ const m=btn.nextElementSibling; if(m) m.style.display=m.style.display==='block'?'none':'block'; }
+function fichaCorteResumenHtml(secId,itemId,item,sec){
+  const e=utEsc, g=grupoCorteOf(item)||{}, yo=quienSoy();
+  const otros=otrosDelMismoCorte(secId,itemId,item)||[];
+  const dias=item.fecha_etapa?diasEntre(item.fecha_etapa):null;
+  const pesoEf=getPesoMetroEfectivo(item), largoEf=getLargoCapaEfectivo(item);
+  const falta=[!item.ficha_link&&'ficha',!item.curva&&'curva',!item.ancho&&'ancho',!pesoEf&&'peso x m',!largoEf&&'largo de capa'].filter(Boolean);
+  const pasos=[
+    {l:'Confirmar',r:'Ariel',ok:!item.sin_confirmar},
+    {l:'Orden de corte',r:'Ariel',ok:ordenCargadaGrupo(item)},
+    {l:'Tiza',r:'Noelia',ok:!!g.tiza_impresa},
+    {l:'Encimado',r:'Cortador',ok:encimadoTerminadoGrupo(item)},
+    {l:'Cortado',r:'Cortador',ok:false}];
+  const actual=item.pausado?-1:pasos.findIndex(p=>!p.ok);
+  const btnP=(txt,fn,sec2)=>`<button class="btn-sm" style="border-radius:40px;padding:6px 14px;${sec2?'border:1px solid #416096;color:#416096;background:#fff':'background:#416096;color:#fff;border:1px solid #416096;font-weight:600'}" onclick="event.stopPropagation();${fn}">${txt}</button>`;
+  let quien='', que='', acciones='';
+  const puedeAriel=puedeFechaObjetivoCorte(), puedeCorte=puedeCargarCorte(item);
+  if(item.pausado){ quien='En pausa'; que=`Frenado desde ${fmtFecha(item.pausado_fecha||Date.now())}`; if(puedeAriel) acciones=btnP('▶ Reactivar',`pausarCorte('${secId}','${itemId}',false)`)+btnP('✕ Cancelar',`cancelarCortePausado('${secId}','${itemId}')`,true); }
+  else if(actual===0){ quien='Ariel'; que='Confirmar el corte y ponerle fecha'; if(puedeAriel) acciones=fechaObjetivoInputHtml(secId,itemId,item,sec,false)+btnP('Confirmar',`confirmarCorteCompleto('${secId}','${itemId}')`)+btnP('⏸ Pausar',`pausarCorte('${secId}','${itemId}',true)`,true); }
+  else if(actual===1){ quien='Ariel'; que='Cargar la orden de corte'; if(yo==='ariel') acciones=btnP('📋 Cargar orden',`openOrdenCorteModal('${secId}','${itemId}')`); }
+  else if(actual===2){ quien='Noelia'; que='Imprimir la tiza'; if(['ariel','noelia'].includes(yo)||puedeCorte) acciones=btnP('🖨️ Tiza impresa',`setTizaImpresa('${secId}','${itemId}',true)`); }
+  else if(actual===3){ quien='Cortador'; que='Cargar rollos y encimar'; if(puedeCorte) acciones=btnP('+ Rollos',`openRollosModal('${secId}','${itemId}')`,true)+btnP('🧷 Encimado terminado',`setEncimadoTerminado('${secId}','${itemId}',true)`); }
+  else { quien='Cortador'; que='Marcar cortado'; if(puedeCorte) acciones=btnP('✂️ Marcar cortado',`marcarCorteRealizado('${secId}','${itemId}')`); }
+  const chip=(t,st)=>`<span style="font-size:11px;padding:2px 9px;border-radius:40px;${st||'border:1px solid var(--border);color:var(--text2)'}">${t}</span>`;
+  const datos=[item.marca,item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor,item.categoria,item.temporada].filter(x=>x&&String(x).trim()).map(e).join(' · ');
+  const barra=pasos.map((p,i)=>{ const hecho=p.ok, act=i===actual;
+    return `<div style="flex:1;text-align:center;min-width:0"><div style="height:4px;border-radius:4px;background:${hecho?'#416096':act?'#9B5C6B':'#e5e5e5'}"></div><div style="margin-top:5px;font-size:11px;${act?'color:#9B5C6B;font-weight:700':hecho?'color:#416096':'color:#999'}">${p.l}</div><div style="font-size:10px;color:#aaa">${p.r}</div></div>`; }).join('<div style="width:6px"></div>');
+  const menu=[['✏️ Editar',`openEditModal('${secId}','${itemId}')`],['📝 Nota',`editNotaCorte('${secId}','${itemId}')`],['▶ Siguiente paso',`siguientePaso('${secId}','${itemId}')`],['🗑 Eliminar',`deleteItem('${secId}','${itemId}')`]]
+    .map(([t,f])=>`<button style="display:block;width:100%;text-align:left;border:none;background:none;padding:7px 12px;font-size:12px;cursor:pointer" onclick="event.stopPropagation();${f}">${t}</button>`).join('');
+  return `<div class="item" data-item="${itemId}" style="display:block;border:1px solid var(--border);border-radius:14px;padding:14px;margin:8px 0;background:#fff" onclick="event.stopPropagation()">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      ${item.foto?`<img src="${item.foto}" loading="lazy" style="width:64px;height:64px;object-fit:cover;border-radius:10px;flex-shrink:0">`:'<div style="width:64px;height:64px;border-radius:10px;background:var(--surface2);flex-shrink:0"></div>'}
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
+          <div style="font-weight:700;font-size:14px">${e(item.code||'')} ${e(item.name||'')}</div>
+          <div style="display:flex;gap:6px">${dias!=null?chip(dias===0?'hoy':`hace ${dias} día${dias!==1?'s':''}`,dias>=7?'background:#9B5C6B;color:#fff':'background:var(--surface2);color:var(--text2)'):''}${item.pausado?chip('⏸ En pausa','background:#8FADC5;color:#fff'):item.sin_confirmar?chip('En cola','background:#8FADC5;color:#fff'):''}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text2);margin-top:2px">Corte N° ${e(item.numero_corte||'—')}${datos?' · '+datos:''}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${falta.length?chip('Ficha: falta '+falta.join(', '),'background:#fbeef1;color:#9B5C6B'):chip('Ficha completa ✓')}${otros.length?chip(`Corte compartido con ${otros.length} más`):''}${item.nota?chip('📝 '+e(String(item.nota).slice(0,40))):''}</div>
+      </div></div>
+    <div style="display:flex;margin:14px 0 4px">${barra}</div>
+    <div style="background:#f4f6fa;border-radius:12px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div><div style="font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Próximo paso · ${e(quien)}</div><div style="font-weight:600;font-size:13px;margin-top:2px">${e(que)}</div></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${acciones}
+        <span style="position:relative"><button class="btn-sm" style="border-radius:40px;padding:6px 12px" onclick="event.stopPropagation();fichaMenuToggle(this)">⋯</button><div style="display:none;position:absolute;right:0;top:110%;z-index:50;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.1);min-width:170px;padding:4px">${menu}</div></span></div>
+    </div>
+    <div style="margin-top:10px"><button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',true)">▸ Ver ficha completa (datos, recorrido, complementos)</button></div>
+  </div>`;
+}
 function buildItem(secId,itemId,item,sec,idx,total){
-  const html=buildItemBase(secId,itemId,item,sec,idx,total);
+  if(secId==='s3'&&item&&item.numero_corte&&!fichaCompletaAbierta.has(itemId)){
+    try{ return fichaCorteResumenHtml(secId,itemId,item,sec); }catch(err){ console.error('ficha resumida',err); }
+  }
+  const volver=(secId==='s3'&&fichaCompletaAbierta.has(itemId))?`<div style="margin:4px 0 -4px"><button class="btn-sm" style="border:none;background:none;color:#416096;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',false)">▾ Volver a la ficha resumida</button></div>`:'';
+  const html=volver+buildItemBase(secId,itemId,item,sec,idx,total);
   let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
   try{ extra+=colStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
   return html+extra;

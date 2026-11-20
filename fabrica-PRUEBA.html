@@ -6724,7 +6724,7 @@ function utGaleriaHtml(vis){
 function utChecklistRetiroHtml(f){
   const it=f.item;
   if(f.estado!=='retiro'||it.es_complemento) return null;
-  const puede=['ariel','stef','peque','emir'].includes(currentUser);
+  const puede=utPuedeEditarTaller()||['ariel','stef','peque','emir','noelia'].includes(currentUser)||quienSoy()==='noelia';
   const ck=(campo,txt)=>{ const ok=!!it[campo];
     return `<button class="ut-ck${ok?' ok':''}" ${puede?`onclick="event.stopPropagation();toggleChecklistTaller('${f.secId}','${f.itemId}','${campo}')"`:'onclick="event.stopPropagation()" disabled'} title="${ok?'Hecho':'Falta'} — ${txt}">${ok?'✓':'○'} ${txt}</button>`; };
   const html=`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">${ck('taller_muestra_entregada','Muestra')}${ck('taller_ficha_entregada','Ficha')}${ck('taller_ninox_salida','Ninox')}</div>`;
@@ -6947,6 +6947,7 @@ function renderResumenPipelineTalleres(){
     // Lo que se carga adentro de la tarjeta (antes estaba en columnas de la fila).
     const avioCard=f.avio?(()=>{const a=UT_AVIO[f.avio.tipo];const pend=f.avio.pend||[];return `<span class="ut-pill" style="background:${a.bg};color:${a.fg};border-color:${a.dot}">⚠ ${a.label}${pend.length?' · '+pend.length:''}</span>`+utAvioDetalleHtml(pend,f.secId,f.itemId);})():'';
     const queFalta=[
+      (chkR&&!chkR.completo)?`<div class="tc-kv2"><span>Antes de que retire: tildá lo que ya le diste</span><span onclick="event.stopPropagation()" style="display:flex;gap:6px;flex-wrap:wrap">${chkR.html.replace('flex-direction:column;gap:3px','flex-direction:row;gap:6px')}</span></div>`:'',
       avioCard?`<div>${avioCard}</div>`:'',
       precioHtml?`<div class="tc-kv2"><span>Precio del taller</span><span onclick="event.stopPropagation()">${precioHtml}</span></div>`:'',
       (['confeccion','terminacion','plancha'].includes(f.estado)&&!it.es_complemento)?`<div class="tc-kv2"><span>Fecha de entrega</span><span onclick="event.stopPropagation()">${entregaHtml}</span></div>`:''

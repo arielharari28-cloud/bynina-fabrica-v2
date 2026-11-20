@@ -9744,7 +9744,7 @@ function buildFlujoPreCorte(secId,itemId,item,canCortar){
   const canMarcarTiza=['ariel','noelia','emir'].includes(quienSoy())||puedeCargarCorte(item);
   const tizaRow = !tizaImpresa
     ? `<div class="cortada-row" style="background:var(--warn-bg)">
-        <span class="c-label" style="font-weight:600;color:var(--warn-text)">🖨️ Pendiente imprimir tiza <span style="font-weight:400;font-size:10px">(Emir)</span></span>
+        <span class="c-label" style="font-weight:600;color:var(--warn-text)">🖨️ Pendiente imprimir tiza <span style="font-weight:400;font-size:10px">(Noelia)</span></span>
         ${canMarcarTiza?`<button class="btn-advance" onclick="setTizaImpresa('${secId}','${itemId}',true)">🖨️ Tiza impresa</button>`:''}
       </div>`
     : `<div class="cortada-row">

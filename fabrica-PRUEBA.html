@@ -16506,6 +16506,11 @@ function renderTableroNoelia(cont){
   const revision=mios.filter(x=>x.grupo==='Revisión final');
   const otrosMios=mios.filter(x=>!fichas.includes(x)&&!alta.includes(x)&&!revision.includes(x));
   const pedidos=pqPedidos().filter(p=>/noelia/i.test(String(p.por||'')));
+  // Web (nov 2026): artículos finalizados en los últimos 60 días con colores sin subir o medidas incompletas.
+  const d60=Date.now()-60*864e5;
+  const web=Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='cerrado'&&!it.sigue_a_estampado&&!logiEsMinisur(it)&&(it.fecha_cerrado||0)>=d60).map(([id,it])=>{ let st={}; try{ st=comercEstadoItem(it); }catch(err){}
+      const f=[st.webOk===false?`colores ${st.coloresSubidos||0}/${st.coloresTotal}`:'',st.medidasOk===false?'medidas':''].filter(Boolean); return {id,it,f}; })
+    .filter(x=>x.f.length).sort((a,b)=>(a.it.fecha_cerrado||0)-(b.it.fecha_cerrado||0));
   const equipo=pendFilasTodas().filter(f=>f.resp!=='Noelia').sort((a,b)=>(b.atrasado-a.atrasado)||((b.dias||0)-(b.umbral||0))-((a.dias||0)-(a.umbral||0)));
   const porResp={}; equipo.forEach(f=>(porResp[f.resp]=porResp[f.resp]||[]).push(f));
   const fechaTxt=new Date(dia+'T12:00:00').toLocaleDateString('es-AR',{weekday:'long',day:'2-digit',month:'2-digit'});
@@ -16519,6 +16524,7 @@ function renderTableroNoelia(cont){
     ${bloque('Fichas para controlar · corrigió Peque',fichas.length,fichas.length?fichas.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto||''),'<button class="btn-sm">Controlar</button>',ir(x))).join(''):vacio('Nada para controlar.'))}
     ${bloque('Alta de artículos y nuevos desarrollos',alta.length,alta.length?alta.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'(sin nombre)')}`,`${e(x.grupo)} · ${e(x.texto||'')}`,'<button class="btn-sm">Completar</button>',ir(x))).join(''):vacio('Nada pendiente.'))}
     ${bloque('Revisión final y mejora',revision.length,revision.length?revision.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto||''),'<button class="btn-sm">Revisar</button>',ir(x))).join(''):vacio('Nada para revisar.'))}
+    ${bloque('Web: colores y medidas',web.length,web.length?web.map(x=>fila(foto(x.it),`${x.it.code?e(x.it.code)+' · ':''}${e(x.it.name||'')}${x.it.numero_corte?' · C'+e(tdNumCorte(x.it.numero_corte)):''}`,`falta: ${e(x.f.join(' y '))} · finalizado ${e(fmtFecha(x.it.fecha_cerrado))}`,'<button class="btn-sm">Completar</button>',`comercAbrirDetalle('${x.id}')`)).join(''):vacio('Todo subido a la web.'),false,false)}
     ${otrosMios.length?bloque('Otras tareas mías',otrosMios.length,otrosMios.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,`${e(x.grupo||'')} · ${e(x.texto||'')}`,'',ir(x))).join('')):''}
     ${bloque('Mis pedidos a Peque',pedidos.length,pedidos.length?pedidos.map(p=>{ const d=p.ts?diasHabilesEntre(p.ts):0;
       return fila(foto(p.item),`${p.item.code?e(p.item.code)+' · ':''}${e(p.item.name||'')}`,`${e(p.tipo)}${p.texto?': '+e(p.texto):''} · ${e(pqCuando(p.ts))}`,d>=2?pillR(`${d} días sin resolver`):'',`cerrarMisPendientesYIr('${p.secId}','${p.itemId}',false)`); }).join(''):vacio('Peque no tiene pedidos tuyos sin resolver.'))}

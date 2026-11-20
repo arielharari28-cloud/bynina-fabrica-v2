@@ -986,7 +986,7 @@
     <button class="user-btn" id="btn-stef"><div class="user-avatar" style="background:#9d174d">S</div><div><div class="uname">Stefany</div><div class="urole">Diseño — acceso total</div></div></button>
     <button class="user-btn" id="btn-peque"><div class="user-avatar" style="background:#5b21b6">P</div><div><div class="uname">Peque</div><div class="urole">Fábrica — acciones registradas</div></div></button>
     <button class="user-btn" id="btn-emir"><div class="user-avatar" style="background:#b45309">E</div><div><div class="uname">Emir</div><div class="urole">Depósito — recepción de avíos</div></div></button>
-    <button class="user-btn" id="btn-arimoron"><div class="user-avatar" style="background:#0e7490">AM</div><div><div class="uname">Ari Morón</div><div class="urole">Cortador — Fábrica y Pendientes</div></div></button>
+    <button class="user-btn" id="btn-arimoron"><div class="user-avatar" style="background:#0e7490">AM</div><div><div class="uname">Ari Morón</div><div class="urole">Cortador — Cortes a sacar</div></div></button>
     <button class="user-btn" id="btn-nahuel"><div class="user-avatar" style="background:#1d4ed8">N</div><div><div class="uname">Nahuel</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-noemi"><div class="user-avatar" style="background:#be185d">N</div><div><div class="uname">Noemí</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
     <button class="user-btn" id="btn-alejandro"><div class="user-avatar" style="background:#4338ca">AL</div><div><div class="uname">Alejandro</div><div class="urole">Logística — conteo y control de calidad</div></div></button>
@@ -3560,6 +3560,7 @@ function showToast(msg){
 // LOGIN
 document.getElementById('btn-ariel').onclick=()=>attemptLogin('ariel');
 document.getElementById('btn-stef').onclick=()=>attemptLogin('stef');
+document.getElementById('btn-stef').style.display='none'; // Stef dejó la empresa (nov 2026)
 document.getElementById('btn-peque').onclick=()=>attemptLogin('peque');
 document.getElementById('btn-emir').onclick=()=>attemptLogin('emir');
 document.getElementById('btn-arimoron').onclick=()=>attemptLogin('arimoron');
@@ -3568,6 +3569,7 @@ document.getElementById('btn-noemi').onclick=()=>attemptLogin('noemi');
 document.getElementById('btn-alejandro').onclick=()=>attemptLogin('alejandro');
 document.getElementById('btn-noelia').onclick=()=>attemptLogin('noelia');
 document.getElementById('btn-meli').onclick=()=>attemptLogin('meli');
+document.getElementById('btn-meli').style.display='none'; // Meli trabaja en egresos (nov 2026)
 document.getElementById('user-chip').onclick=doLogout;
 
 function doLogin(user){
@@ -3611,13 +3613,14 @@ function doLogin(user){
   }
   applyTabVisibility(user);
   applyTabOrder();
-  if(['peque','emir','ariel','noelia'].includes(user)){
-    if(user==='ariel') pqVerPersona='ariel';
+  if(user==='ariel') pqVerPersona='ariel';
+  if(['peque','emir','ariel','noelia'].includes(user)&&tabPrincipales(user).includes('tab-btn-peque')){
     const bp=document.getElementById('tab-btn-peque');
     bp.textContent='📋 Mi día';
     bp.parentElement.prepend(bp);
     bp.click();
   }
+  setTimeout(()=>applyTabBar(true),0);
   startListening();
   // Los backfills de más abajo dependen de currentUser, pero el listener de fabrica_v5/sections
   // arranca antes del login (cuando currentUser todavía es null) — por eso nunca llegaban a
@@ -8010,6 +8013,7 @@ function renderSections(board){
   // se ven en la lista unificada de arriba (renderResumenPipelineTalleres). Acá quedan solo
   // Revisión final / Mejora / Producto perfecto.
   if(board==='talleres') entries=entries.filter(([secId,sec])=>esSeccionTalleres(secId,sec)&&!TALLERES_TAB_SECS.includes(secId));
+  if(board==='fabrica'&&quienSoy()==='arimoron') entries=entries.filter(([secId])=>ARIMORON_SECCIONES.includes(secId));
   // (sep 2026) Los cortes que esperan salir a taller (s4/s5/sLT) y los pendientes de retiro (sFIN
   // sin retirar) ya no se muestran en Fábrica: están en la lista unificada de Talleres, así cada
   // corte vive en un solo lugar. Fábrica queda con las colas de trabajo (tizada, próximos a sacar).
@@ -12731,6 +12735,58 @@ const TAB_VISIBILITY={
 const TABS_OCULTAS=['tab-btn-facturacion','tab-btn-prodmes'];
 Object.keys(TAB_VISIBILITY).forEach(u=>{ TAB_VISIBILITY[u]=TAB_VISIBILITY[u].filter(t=>!TABS_OCULTAS.includes(t)); });
 TABS_OCULTAS.forEach(t=>{ const i=TAB_ORDER_DEFAULT.indexOf(t); if(i>=0) TAB_ORDER_DEFAULT.splice(i,1); });
+// ---- Pestañas principales y "Más" (nov 2026) ----
+// TAB_VISIBILITY sigue siendo lo que cada uno PUEDE ver (permisos). TAB_PRINCIPALES es lo que se
+// muestra en la barra; el resto de lo permitido queda en el botón "Más ▾". Quien no figura acá ve todo en la barra.
+const TAB_PRINCIPALES={
+  ariel:['tab-btn-fabrica','tab-btn-costeo','tab-btn-logistica','tab-btn-telas','tab-btn-histart'],
+  noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-logistica','tab-btn-telas','tab-btn-web'],
+  peque:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-costeo','tab-btn-logistica'],
+};
+// Ari Morón solo opera el corte: ve Fábrica con lo que tiene que cortar y sus órdenes de corte.
+TAB_VISIBILITY.arimoron=['tab-btn-fabrica'];
+const ARIMORON_SECCIONES=['s3','muestra_pendiente'];
+function tabPrincipales(user){ const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT; const pr=TAB_PRINCIPALES[user]; return pr?pr.filter(t=>allowed.includes(t)):allowed; }
+function tabMas(user){ const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT, pr=tabPrincipales(user); return TAB_ORDER_DEFAULT.filter(t=>allowed.includes(t)&&!pr.includes(t)); }
+function applyTabBar(alEntrar){
+  const user=quienSoy(); if(!user) return;
+  const cont=document.querySelector('.tabs'); if(!cont) return;
+  const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT, pr=tabPrincipales(user), mas=tabMas(user);
+  TAB_ORDER_DEFAULT.forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('hidden',!pr.includes(id)); });
+  let mb=document.getElementById('tab-btn-mas');
+  if(!mb){ mb=document.createElement('button'); mb.className='tab'; mb.id='tab-btn-mas'; mb.onclick=e=>{ e.stopPropagation(); tabMasToggle(); }; }
+  cont.appendChild(mb);
+  mb.classList.toggle('hidden',!mas.length);
+  const act=mas.find(id=>{ const b=document.getElementById(id); return b&&b.classList.contains('active'); });
+  mb.textContent=act?`Más · ${(TAB_LABELS[act]||'').replace(/^[^\wÁÉÍÓÚÑáéíóúñ]+\s*/,'')} ▾`:'Más ▾';
+  mb.classList.toggle('active',!!act);
+  // Si la pestaña activa quedó escondida en "Más" sin que nadie la eligiera (ej. Diseño por defecto), se activa la primera principal.
+  const visibleActiva=pr.some(id=>{ const b=document.getElementById(id); return b&&b.classList.contains('active'); });
+  if(!visibleActiva&&(!act||alEntrar===true)&&pr.length){ const b=document.getElementById(pr[0]); if(b) b.click(); }
+}
+function tabMasToggle(){
+  let pop=document.getElementById('tab-mas-pop');
+  if(pop){ pop.remove(); return; }
+  const mb=document.getElementById('tab-btn-mas'); if(!mb) return;
+  pop=document.createElement('div'); pop.id='tab-mas-pop';
+  pop.style.cssText='position:absolute;z-index:500;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:6px;min-width:200px';
+  pop.innerHTML=tabMas(quienSoy()).map(id=>`<button data-tabmas="${id}" style="display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:none;border-radius:8px;font-size:13px;cursor:pointer">${TAB_LABELS[id]||id}</button>`).join('');
+  document.body.appendChild(pop);
+  const r=mb.getBoundingClientRect();
+  pop.style.top=(r.bottom+window.scrollY+4)+'px';
+  pop.style.left=Math.max(8,Math.min(r.left+window.scrollX,window.innerWidth-pop.offsetWidth-8))+'px';
+  pop.querySelectorAll('[data-tabmas]').forEach(b=>b.onclick=()=>{ pop.remove(); const t=document.getElementById(b.dataset.tabmas); if(t&&t.onclick) t.onclick.call(t); applyTabBar(); });
+  setTimeout(()=>document.addEventListener('click',function cerrar(ev){ if(!pop.contains(ev.target)){ pop.remove(); document.removeEventListener('click',cerrar); } }),0);
+}
+// Contador de uso: cuántas veces abre cada uno cada pestaña, por día (fabrica_v5/uso/{usuario}/{pestaña}/{fecha}).
+// Sirve para decidir con datos qué se puede sacar.
+document.addEventListener('click',ev=>{
+  const b=ev.target.closest&&ev.target.closest('.tabs .tab, [data-tabmas]'); if(!b) return;
+  const id=b.dataset.tabmas||b.id; if(!id||id==='tab-btn-mas') return;
+  const u=quienSoy(); if(!u) return;
+  try{ db.ref(`fabrica_v5/uso/${u}/${id.replace('tab-btn-','')}/${isoFechaLocal(Date.now())}`).set(firebase.database.ServerValue.increment(1)); }catch(e){}
+},true);
+document.addEventListener('click',ev=>{ if(ev.target.closest&&ev.target.closest('.tabs .tab:not(#tab-btn-mas)')) setTimeout(applyTabBar,0); });
 function applyTabVisibility(user){
   const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT;
   TAB_ORDER_DEFAULT.forEach(id=>{
@@ -12772,6 +12828,7 @@ function applyTabOrder(){
     const btn=document.getElementById(id);
     if(btn) cont.appendChild(btn);
   });
+  applyTabBar();
 }
 function resetTabOrder(){
   try{ localStorage.removeItem('fabrica_tab_order_v1'); }catch(e){}

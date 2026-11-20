@@ -3208,12 +3208,12 @@ function getResponsable(sec,item,secId){
   if(tipo==='muestra_lista') return 'Peque';
   if(tipo==='muestra_en_taller') return 'Peque';
   if(tipo==='revision_final') return 'Noelia'; // oct 2026: la revisión final la hace Noelia
-  if(tipo==='en_estampado_taller') return item.estampado_taller_entregado?null:'Emir';
+  if(tipo==='en_estampado_taller') return item.estampado_taller_entregado?null:'Noelia'; // nov 2026: con los talleres habla Noelia
   if(tipo==='en_terminacion'){
     const pend=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
     if(!pend.length) return null;
     const talleres=[...new Set(pend.map(p=>p.taller).filter(Boolean))];
-    return talleres.length===1?talleres[0]:'Emir';
+    return talleres.length===1?talleres[0]:'Noelia';
   }
   if(tipo==='producto_perfecto'||tipo==='muestra_cancelada') return null;
 
@@ -7269,7 +7269,7 @@ function buildPasosPanelCorteHtml(item){
   const pasos=[
     { label:'Confirmar corte', resp:'Ariel', start:item.fecha_etapa, end:item.fecha_paso_confirmado },
     { label:'Cargar orden de corte', resp:'Ariel', start:item.fecha_paso_confirmado, end:grupo.fecha_paso_orden },
-    { label:'Imprimir tiza', resp:'Emir', start:grupo.fecha_paso_orden, end:grupo.fecha_paso_tiza },
+    { label:'Imprimir tiza', resp:'Noelia', start:grupo.fecha_paso_orden, end:grupo.fecha_paso_tiza },
     { label:'Encimado', resp:'Cortador', start:grupo.fecha_paso_tiza, end:grupo.fecha_paso_encimado },
     { label:'Marcar cortado', resp:'Cortador', start:grupo.fecha_paso_encimado, end:null }
   ];
@@ -17330,7 +17330,7 @@ function logiCrearEntregaDesdeCorte(secId,itemId){
     categoria:item.categoria||'',
     grilla:grillaObj
   };
-  if(item.precio_taller) logisticaItem.precio_taller=item.precio_taller; // ya lo cargó Emir en Fábrica — no llega en blanco
+  if(item.precio_taller) logisticaItem.precio_taller=item.precio_taller; // ya lo cargó Noelia en Fábrica — no llega en blanco
   db.ref('fabrica_v5/logistica/items').push(logisticaItem).then(()=>{
     logActivity('Abrió una entrega del taller en Logística',`Corte ${item.numero_corte}: ${item.code}`);
     if(esPrimeraEntrega){
@@ -17434,7 +17434,7 @@ const listaEntState={
   facturacion:{filtro:'sinfac',taller:'',buscar:'',verTodas:false}
 };
 // Precio y facturación: los ven Ariel, Emir y Meli (Stef no). Facturar: Ariel y Meli.
-function listaEntVePlata(){ return ['ariel','emir','meli','peque'].includes(currentUser); } // Peque solo ve filas de Mini Sur
+function listaEntVePlata(){ return ['ariel','noelia','peque'].includes(currentUser); } // Precio de taller: desde nov 2026 lo carga Noelia. Peque solo ve filas de Mini Sur
 function listaEntPuedeFacturar(){ return ['ariel','meli'].includes(currentUser); }
 const LISTA_ENT_ETAPAS_PEND=['pendientes','conteo','control','dividir','proceso','precio'];
 function listaEntDestino(it){ return (it.origen==='proveedor'?it.proveedor:it.taller)||it.taller||it.proveedor||'Sin taller'; }
@@ -17487,7 +17487,7 @@ function listaEntEditarPrecio(ctx,id){
   if(!it) return;
   if(it.facturado_cta_cte){ showToast('Ya está facturado: el precio no se puede cambiar desde acá'); return; }
   const actual=it.precio_taller||0;
-  const directo = currentUser==='ariel' || !actual;
+  const directo = currentUser==='ariel' || currentUser==='noelia' || !actual; // Noelia es la dueña del precio de taller (nov 2026)
   const v=prompt(directo ? `Precio del taller por prenda${actual?` (hoy $${actual.toLocaleString('es-AR')})`:''}:` : `¿A cuánto pedís cambiar el precio? (hoy $${actual.toLocaleString('es-AR')})`, actual||'');
   if(v===null) return;
   const n=parseFloat(String(v).replace(/\./g,'').replace(',','.'));
@@ -17617,7 +17617,7 @@ function listaEntHtml(ctx){
       const editable=!it.facturado_cta_cte&&!it.no_facturar;
       const lbl = precio ? `Precio <b>$${precio.toLocaleString('es-AR')}</b>` : 'Sin precio';
       nums+= editable
-        ? `<span class="le-precio-edit" onclick="event.stopPropagation();listaEntEditarPrecio('${ctx}','${id}')" title="${(currentUser==='ariel'||!precio)?'Editar precio':'Pedir cambio de precio'}">${lbl} ✎</span>`
+        ? `<span class="le-precio-edit" onclick="event.stopPropagation();listaEntEditarPrecio('${ctx}','${id}')" title="${(currentUser==='ariel'||currentUser==='noelia'||!precio)?'Editar precio':'Pedir cambio de precio'}">${lbl} ✎</span>`
         : `<span ${precio?'':'style="color:var(--text3)"'}>${lbl}</span>`;
     }
     const cmpsBase=cmpPorBase(it.numero_corte).filter(c=>!c.code||!it.code||c.code===it.code);
@@ -19072,6 +19072,7 @@ function facturacionExportarExcel(){
 
 
 function logiSetPrecioTaller(itemId,val){
+  if(!['ariel','noelia','peque'].includes(currentUser)){ showToast('El precio de taller lo carga Noelia'); return; }
   const n=parseFloat(val);
   if(isNaN(n)||n<0){ db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).remove(); return; }
   db.ref(`fabrica_v5/logistica/items/${itemId}/precio_taller`).set(n);
@@ -19467,7 +19468,7 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   pend.innerHTML=`<div class="ld-card ld-pend"><div class="ld-pend-t">Pendientes de este corte</div><div class="ld-pend-row">${botones.join('')}</div></div>`;
   // Plata: Ariel y Meli; Peque en Mini Sur también (precio ya cargado: pide permiso)
   const pqPlata=logiPequeMS(it);
-  if(currentUser==='ariel'||currentUser==='meli'||pqPlata){
+  if(currentUser==='ariel'||currentUser==='noelia'||pqPlata){
     const ck=corteKeyFrom(it.numero_corte);
     const ce=ck?(costeosData[ck]||null):null;
     let costo='—';
@@ -19512,7 +19513,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
     // Precio de taller: además de Ariel/Stef, Emir también lo carga (él es quien lo pacta con
     // el taller) — pero los precios de venta/costo de más abajo (preciosVentaHtml) siguen siendo
     // solo para Ariel/Stef, así que usan puedeVerPlata sin tocar.
-    const puedeVerPrecioTaller=(currentUser==='ariel'||currentUser==='stef'||currentUser==='emir');
+    const puedeVerPrecioTaller=(currentUser==='ariel'||currentUser==='noelia'); // nov 2026: el precio de taller lo carga Noelia
     const plataHtml = puedeVerPrecioTaller ? `
       <div class="logi-fecha" onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:6px;margin-top:4px">
         💵 Precio taller: $<input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:70px;border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:12px" onchange="logiSetPrecioTaller('${id}',this.value)">

@@ -15477,13 +15477,32 @@ function colAplicarStock(item,usos){
 const fichaCompletaAbierta=new Set();
 function fichaToggleCompleta(itemId,abrir){ if(abrir) fichaCompletaAbierta.add(itemId); else fichaCompletaAbierta.delete(itemId); renderSections('fabrica'); }
 function fichaMenuToggle(btn){ const m=btn.nextElementSibling; if(m) m.style.display=m.style.display==='block'?'none':'block'; }
+const FICHA_SECS=['s3','s4','s5','s6','sLT','sFIN'];
+function fichaUsaNueva(secId,item){
+  if(!item||!item.numero_corte||fichaVistaViejaSet.has(item&&item._id)) return false;
+  const sec=sectionsData[secId]||{};
+  return FICHA_SECS.includes(secId)||(sec.title||'').trim()==='Pendiente armar tizada';
+}
+function fichaEtapaMacro(secId,item,sec){
+  if((sec.title||'').trim()==='Pendiente armar tizada') return 0;
+  if(secId==='s3') return 1;
+  if(secId==='s4'||secId==='s5') return 2;
+  if(secId==='sLT') return 3;
+  if(secId==='sFIN') return item.retirado_taller?4:3;
+  if(secId==='s6') return 4;
+  return 5;
+}
 function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
   const e=utEsc, g=grupoCorteOf(item)||{}, yo=quienSoy();
   const otros=otrosDelMismoCorte(secId,itemId,item)||[];
   const dias=item.fecha_etapa?diasEntre(item.fecha_etapa):null;
   const pesoEf=getPesoMetroEfectivo(item), largoEf=getLargoCapaEfectivo(item);
   const falta=[!item.ficha_link&&'ficha',!item.curva&&'curva',!item.ancho&&'ancho',!pesoEf&&'peso x m',!largoEf&&'largo de capa'].filter(Boolean);
-  const pasos=[
+  const esS3=secId==='s3';
+  const avs=Object.entries(item.avios||{}).filter(([,a])=>a&&a.nombre);
+  const avPend=avs.filter(([,a])=>!a.recibido);
+  const etapaMacro=fichaEtapaMacro(secId,item,sec);
+  const pasos=!esS3?['Tizada','Corte','Avíos','Sale a taller','En taller','Entregado'].map((l,i)=>({l,r:'',ok:i<etapaMacro})):[
     {l:'Confirmar',r:'Ariel',ok:!item.sin_confirmar},
     {l:'Orden de corte',r:'Ariel',ok:ordenCargadaGrupo(item)},
     {l:'Tiza',r:'Noelia',ok:!!g.tiza_impresa},
@@ -15493,7 +15512,26 @@ function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
   const btnP=(txt,fn,sec2)=>`<button class="btn-sm" style="border-radius:40px;padding:6px 14px;${sec2?'border:1px solid #416096;color:#416096;background:#fff':'background:#416096;color:#fff;border:1px solid #416096;font-weight:600'}" onclick="event.stopPropagation();${fn}">${txt}</button>`;
   let quien='', que='', acciones='';
   const puedeAriel=puedeFechaObjetivoCorte(), puedeCorte=puedeCargarCorte(item);
-  if(item.pausado){ quien='En pausa'; que=`Frenado desde ${fmtFecha(item.pausado_fecha||Date.now())}`; if(puedeAriel) acciones=btnP('▶ Reactivar',`pausarCorte('${secId}','${itemId}',false)`)+btnP('✕ Cancelar',`cancelarCortePausado('${secId}','${itemId}')`,true); }
+  if(!esS3){
+    quien=getResponsable(sec,item,secId)||'—'; que=getProximaAccion(sec,item,secId)||'Sin pendientes';
+    const tizada=(sec.title||'').trim()==='Pendiente armar tizada';
+    if(tizada){ const f=faltantesNoeliaTizada(item); acciones=f.length?btnP('Completar datos',`fichaToggleCompleta('${itemId}',true)`):btnP('▶ Pasar a cortes',`siguientePaso('${secId}','${itemId}')`); }
+    else if(['s4','s5','s6'].includes(secId)&&avPend.length){
+      const [aid,a]=avPend[0];
+      acciones=!a.fecha_pedido?btnP(`Pedido hoy: ${e(a.nombre)}`,`marcarAvioPedidoHoy('${secId}','${itemId}','${aid}')`):btnP(`Recibido: ${e(a.nombre)}`,`marcarRecibido('${secId}','${itemId}','${aid}')`);
+      if(avPend.length>1) acciones+=btnP(`Ver los ${avPend.length} avíos`,`fichaToggleCompleta('${itemId}',true)`,true);
+    }
+    else if(secId==='sLT'){
+      if(!item.taller_corte&&utPuedeEditarTaller()) acciones=`<span onclick="event.stopPropagation()">${buildTallerCorteHtml(secId,itemId,item)}</span>`;
+      else if(utPuedeEditarTaller()) acciones=btnP('→ Pendiente retiro',`sacarATaller('${secId}','${itemId}',{auto:true})`);
+    }
+    else if(secId==='sFIN'&&!item.retirado_taller){
+      const ck=[['taller_muestra_entregada','Muestra'],['taller_ficha_entregada','Ficha'],['taller_ninox_salida','Ninox']];
+      if(utPuedeEditarTaller()) acciones=ck.map(([c,l])=>`<button class="btn-sm" style="border-radius:40px;padding:5px 10px;${item[c]?'background:#eaf3de;color:#27500a;border-color:#27500a':''}" onclick="event.stopPropagation();toggleChecklistTaller('${secId}','${itemId}','${c}')">${item[c]?'✓ ':''}${l}</button>`).join('')+(ck.every(([c])=>item[c])?btnP(`✓ ${e(item.taller_corte||'El taller')} lo retiró`,`confirmarRetiroTaller('${secId}','${itemId}')`):'');
+    }
+    else if((secId==='sFIN'||secId==='s6')&&puedeCargarEntregaTaller(item)) acciones=btnP('📦 Marcar entrega del taller',`marcarEntregadoCorte('${secId}','${itemId}')`);
+  }
+  else if(item.pausado){ quien='En pausa'; que=`Frenado desde ${fmtFecha(item.pausado_fecha||Date.now())}`; if(puedeAriel) acciones=btnP('▶ Reactivar',`pausarCorte('${secId}','${itemId}',false)`)+btnP('✕ Cancelar',`cancelarCortePausado('${secId}','${itemId}')`,true); }
   else if(actual===0){ quien='Ariel'; que='Confirmar el corte y ponerle fecha'; if(puedeAriel) acciones=fechaObjetivoInputHtml(secId,itemId,item,sec,false)+btnP('Confirmar',`confirmarCorteCompleto('${secId}','${itemId}')`)+btnP('⏸ Pausar',`pausarCorte('${secId}','${itemId}',true)`,true); }
   else if(actual===1){ quien='Ariel'; que='Cargar la orden de corte'; if(yo==='ariel') acciones=btnP('📋 Cargar orden',`openOrdenCorteModal('${secId}','${itemId}')`); }
   else if(actual===2){ quien='Noelia'; que='Imprimir la tiza'; if(['ariel','noelia'].includes(yo)||puedeCorte) acciones=btnP('🖨️ Tiza impresa',`setTizaImpresa('${secId}','${itemId}',true)`); }
@@ -15503,7 +15541,7 @@ function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
   const chip=(t,st)=>`<span style="font-size:11px;padding:2px 9px;border-radius:40px;${st||'border:1px solid var(--border);color:var(--text2)'}">${t}</span>`;
   const datos=[item.marca,item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor,item.categoria,item.temporada].filter(x=>x&&String(x).trim()).map(e).join(' · ');
   const barra=pasos.map((p,i)=>{ const hecho=p.ok, act=i===actual;
-    return `<div style="flex:1;text-align:center;min-width:0"><div style="height:4px;border-radius:4px;background:${hecho?'#416096':act?'#9B5C6B':'#e5e5e5'}"></div><div style="margin-top:5px;font-size:13px;${act?'color:#9B5C6B;font-weight:700':hecho?'color:#416096':'color:#999'}">${p.l}</div><div style="font-size:11px;color:#999">${p.r}</div></div>`; }).join('<div style="width:6px"></div>');
+    return `<div style="flex:1;text-align:center;min-width:0"><div style="height:4px;border-radius:4px;background:${hecho?'#416096':act?'#9B5C6B':'#e5e5e5'}"></div><div style="margin-top:5px;font-size:13px;${act?'color:#9B5C6B;font-weight:700':hecho?'color:#416096':'color:#999'}">${p.l}</div>${p.r?`<div style="font-size:11px;color:#999">${p.r}</div>`:''}</div>`; }).join('<div style="width:6px"></div>');
   const menu=[['✏️ Editar',`openEditModal('${secId}','${itemId}')`],['📝 Nota',`editNotaCorte('${secId}','${itemId}')`],['▶ Siguiente paso',`siguientePaso('${secId}','${itemId}')`],['🗑 Eliminar',`deleteItem('${secId}','${itemId}')`]]
     .map(([t,f])=>`<button style="display:block;width:100%;text-align:left;border:none;background:none;padding:7px 12px;font-size:12px;cursor:pointer" onclick="event.stopPropagation();${f}">${t}</button>`).join('');
   return `<div class="item" data-item="${itemId}" style="display:block;border:1px solid var(--border);border-radius:14px;padding:14px;margin:8px 0;background:#fff" onclick="event.stopPropagation()">
@@ -15515,7 +15553,7 @@ function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
           <div style="display:flex;gap:6px">${dias!=null?chip(dias===0?'hoy':`hace ${dias} día${dias!==1?'s':''}`,dias>=7?'background:#9B5C6B;color:#fff':'background:var(--surface2);color:var(--text2)'):''}${item.pausado?chip('⏸ En pausa','background:#8FADC5;color:#fff'):item.sin_confirmar?chip('En cola','background:#8FADC5;color:#fff'):''}</div>
         </div>
         <div style="font-size:12px;color:var(--text2);margin-top:2px">Corte N° ${e(item.numero_corte||'—')}${datos?' · '+datos:''}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${falta.length?chip('Ficha: falta '+falta.join(', '),'background:#fbeef1;color:#9B5C6B'):chip('Ficha completa ✓')}${otros.length?chip(`Corte compartido con ${otros.length} más`):''}${item.nota?chip('📝 '+e(String(item.nota).slice(0,40))):''}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${falta.length?chip('Ficha: falta '+falta.join(', '),'background:#fbeef1;color:#9B5C6B'):chip('Ficha completa ✓')}${otros.length?chip(`Corte compartido con ${otros.length} más`):''}${!esS3&&item.taller_corte?chip('🧵 '+e(item.taller_corte)):''}${avPend.length?chip(`Avíos pendientes: ${avPend.length}`,'background:#fbeef1;color:#9B5C6B'):''}${item.nota?chip('📝 '+e(String(item.nota).slice(0,40))):''}</div>
       </div></div>
     <div style="display:flex;margin:14px 0 4px">${barra}</div>
     <div style="background:#f4f6fa;border-radius:12px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -15560,7 +15598,21 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
     +((pesoEf&&largoEf)?fila('Peso de capa',(numAr(pesoEf)*numAr(largoEf)).toFixed(3)):'');
   // 3. Corte: orden, rollos, encimado (bloque compartido por todo el N° de corte)
   const corteRes=[ordenCargadaGrupo(item)?'Orden ✓':'Sin orden',g.tiza_impresa?'Tiza ✓':'',encimadoTerminadoGrupo(item)?'Encimado ✓':''].filter(Boolean).join(' · ');
-  let corteCuerpo=''; try{ corteCuerpo=buildFlujoPreCorte(secId,itemId,item,canCortar); }catch(err){ corteCuerpo='<div style="font-size:12px;color:var(--text3)">Abrí la vista anterior para cargar la orden y los rollos.</div>'; }
+  let corteCuerpo='';
+  if(secId==='s3'){ try{ corteCuerpo=buildFlujoPreCorte(secId,itemId,item,canCortar); }catch(err){ corteCuerpo='<div style="font-size:12px;color:var(--text3)">Abrí la vista anterior para cargar la orden y los rollos.</div>'; } }
+  else { try{ corteCuerpo=buildRollosHtml(item,secId,itemId,puedeCargarCorte(item))+buildRealesHtml(item,secId,itemId); }catch(err){} }
+  // Avíos
+  const avs=Object.entries(item.avios||{}).filter(([,a])=>a&&a.nombre), avPend=avs.filter(([,a])=>!a.recibido);
+  const puedeAv=['ariel','peque','noelia'].includes(quienSoy());
+  const avCuerpo=avs.map(([aid,a])=>fila(e(a.nombre)+(a.proveedor?` <small style="color:var(--text3)">· ${e(a.proveedor)}</small>`:''),
+    a.recibido?'<span style="color:#27500a">Recibido ✓</span>':a.fecha_pedido?`<span style="color:#c08a2b">Pedido ${e(a.fecha_pedido)}</span>`:'<span style="color:#9B5C6B">Sin pedir</span>',
+    puedeAv?(a.recibido?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();desmarcarRecibido('${secId}','${itemId}','${aid}')">↩</button>`:a.fecha_pedido?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();marcarRecibido('${secId}','${itemId}','${aid}')">Recibido</button>`:`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();marcarAvioPedidoHoy('${secId}','${itemId}','${aid}')">Pedido hoy</button>`):'')).join('');
+  // Taller
+  const enTallerSecs=['sLT','sFIN','s6','s4','s5'];
+  const tallerCuerpo=enTallerSecs.includes(secId)?`<div onclick="event.stopPropagation()">${utPuedeEditarTaller()?buildTallerCorteHtml(secId,itemId,item):fila('Taller',e(item.taller_corte||'—'))}</div>`
+    +fila('Precio de taller',item.precio_taller?'$ '+Number(item.precio_taller).toLocaleString('es-AR'):'<span style="color:#9B5C6B">Sin cargar</span>')
+    +(item.retirado_taller?fila('Retiró',item.fecha_retiro_confirmado?fmtFecha(item.fecha_retiro_confirmado):'✓'):'')
+    +fila('Entrega del taller',item.fecha_estimada_entrega_taller?e(item.fecha_estimada_entrega_taller.split('-').reverse().join('/')):'<span style="color:#9B5C6B">Sin fecha</span>'):'';
   // 4. Recorrido
   let recCuerpo=''; try{ recCuerpo=buildRecorridoHtml(secId,itemId,item); }catch(err){}
   const pasosR=Object.values(item.recorrido||item.pasos_recorrido||{}).length;
@@ -15572,7 +15624,9 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
   return `<div style="margin-top:12px">
     ${bloque('datos','Datos del artículo',datosRes,datosCuerpo,false)}
     ${bloque('ficha','Ficha técnica',falta.length?`<span style="color:#9B5C6B">Falta ${falta.join(', ')}</span>`:'Completa ✓',fichaCuerpo,falta.length>0)}
-    ${bloque('corte','Corte: orden, rollos y encimado',corteRes,corteCuerpo,!item.sin_confirmar)}
+    ${secId==='s3'||corteCuerpo?bloque('corte',secId==='s3'?'Corte: orden, rollos y encimado':'Corte: rollos y prendas',secId==='s3'?corteRes:'',corteCuerpo,secId==='s3'&&!item.sin_confirmar):''}
+    ${avs.length?bloque('avios','Avíos',avPend.length?`<span style="color:#9B5C6B">${avPend.length} pendiente${avPend.length!==1?'s':''}</span>`:'Todos recibidos ✓',avCuerpo,avPend.length>0&&['s4','s5','s6'].includes(secId)):''}
+    ${tallerCuerpo?bloque('taller','Taller',e(item.taller_corte||'Sin taller'),tallerCuerpo,secId==='sLT'||secId==='sFIN'):''}
     ${recCuerpo?bloque('rec','Recorrido','',recCuerpo,false):''}
     ${extra?bloque('cmp','Complementos y colores','',extra,false):''}
     ${bloque('notas','Notas',item.nota?e(String(item.nota).slice(0,50)):'—',notas||'',false)}
@@ -15580,10 +15634,13 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
   </div>`;
 }
 function buildItem(secId,itemId,item,sec,idx,total){
-  if(secId==='s3'&&item&&item.numero_corte&&!fichaVistaViejaSet.has(itemId)){
+  const secX=sectionsData[secId]||{};
+  if(item&&item.numero_corte&&!fichaVistaViejaSet.has(itemId)&&(FICHA_SECS.includes(secId)||(secX.title||'').trim()==='Pendiente armar tizada')){
+    // Dentro de la tarjeta de Talleres (que ya tiene encabezado y acciones) van directo los bloques ordenados.
+    if(window.__sinRecorrido){ try{ return `<div onclick="event.stopPropagation()">${fichaCorteSeccionesHtml(secId,itemId,item,sec)}<div style="text-align:right"><button class="btn-sm" style="border:none;background:none;color:var(--text3);font-size:11px" onclick="event.stopPropagation();fichaVistaVieja('${itemId}')">Vista anterior</button></div></div>`; }catch(err){ console.error('ficha en taller',err); } }
     try{ return fichaCorteResumenHtml(secId,itemId,item,sec,fichaCompletaAbierta.has(itemId)); }catch(err){ console.error('ficha de corte',err); }
   }
-  const volver=(secId==='s3'&&fichaVistaViejaSet.has(itemId))?`<div style="margin:4px 0 -4px"><button class="btn-sm" style="border:none;background:none;color:#416096;font-size:12px" onclick="event.stopPropagation();fichaVistaViejaSet.delete('${itemId}');renderSections('fabrica')">▾ Volver a la ficha nueva</button></div>`:'';
+  const volver=(fichaVistaViejaSet.has(itemId))?`<div style="margin:4px 0 -4px"><button class="btn-sm" style="border:none;background:none;color:#416096;font-size:12px" onclick="event.stopPropagation();fichaVistaViejaSet.delete('${itemId}');renderSections('fabrica')">▾ Volver a la ficha nueva</button></div>`:'';
   const html=volver+buildItemBase(secId,itemId,item,sec,idx,total);
   let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
   try{ extra+=colStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }

@@ -1065,8 +1065,6 @@
       <button class="tab" id="tab-btn-pendientes">Pendientes</button>
       <button class="tab hidden" id="tab-btn-resumen">📋 Resumen del día</button>
       <button class="tab hidden" id="tab-btn-peque">📋 Mi día</button>
-      <button class="tab" id="tab-btn-galeria">Galería</button>
-      <button class="tab hidden" id="tab-btn-prodmes">⭐ Productos del mes</button>
       <button class="tab hidden" id="tab-btn-telas">🧵 Telas</button>
       <button class="tab" id="tab-btn-actividad">Actividad</button>
       <button class="tab" id="tab-btn-estampas">🎨 Estampas</button>
@@ -1119,13 +1117,8 @@
     </div>
     <div id="tab-resumen" class="hidden"><div id="resumen-content"><div class="loading">Cargando...</div></div></div>
     <div id="tab-peque" class="hidden"><div id="peque-content"><div class="loading">Cargando...</div></div></div>
-    <div id="tab-galeria" class="hidden">
-      <div class="galeria-hint">📌 Arrastrá las fotos para acomodarlas como quieras — el orden queda guardado.</div>
-      <div id="galeria-content"><div class="loading">Cargando...</div></div>
-    </div>
     <div id="tab-telas" class="hidden"><div id="telas-content"><div class="loading">Cargando...</div></div></div>
     <div id="tab-histart" class="hidden"><div id="histart-content"></div></div>
-    <div id="tab-prodmes" class="hidden"><div id="prodmes-content"><div class="loading">Cargando...</div></div></div>
     <div id="tab-actividad" class="hidden"><div id="actividad-list"><div class="loading">Cargando...</div></div></div>
     <div id="tab-estampas" class="hidden">
       <div class="est-stats-bar" id="estampas-stats"></div>
@@ -3985,8 +3978,6 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     renderSections('diseno');renderSections('fabrica');renderStats();renderAlertBanner();
     if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
     if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
-    if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
-    if(!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
     publishPendientesResumen();
     renderMisPendientesBadge();
     renderAvisosNoe();
@@ -4037,12 +4028,7 @@ db.ref('fabrica_v5/sections').on('value',snap=>{
     else db.ref('fabrica_v5/temporadas').set(temporadasList);
     renderSections('fabrica');
   });
-  db.ref('fabrica_v5/galeria_orden').on('value',snap=>{
-    const v=snap.val()||{};
-    galeriaOrden={diseno:Array.isArray(v.diseno)?v.diseno:[],fabrica:Array.isArray(v.fabrica)?v.fabrica:[]};
-    if(!document.getElementById('tab-galeria').classList.contains('hidden')) renderGaleria();
-    if(!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
-  });
+  // (nov 2026) Galería se sacó de la app.
   db.ref('fabrica_v5/marcas').on('value',snap=>{
     const v=snap.val();
     if(v){ marcasList=Array.isArray(v)?v.filter(Boolean):Object.values(v); }
@@ -7577,19 +7563,6 @@ function estampadoBadgeHtml(item,secId,itemId){
   return `<button class="btn-sm estampado-btn" onclick="irAEstampado('${secId}','${itemId}')">🎨 Marcar para estampado DTF</button>`;
 }
 
-function checkListaParaTaller(secId,itemId,ficha,llevaAvios,avios){
-  if(!ficha) return;
-  if(llevaAvios===false){
-    setTimeout(()=>moverALista(secId,itemId),500);
-    return;
-  }
-  if(llevaAvios===true){
-    const avList=Object.values(avios||{});
-    if(avList.length>0 && avList.every(a=>a.recibido)){
-      setTimeout(()=>moverALista(secId,itemId),500);
-    }
-  }
-}
 
 function renderAlertBanner(){
   const el=document.getElementById('alert-banner');
@@ -8272,156 +8245,6 @@ function moveSectionOrder(secId,dir){
   db.ref().update(updates);
 }
 
-function buildItem(secId,itemId,item,sec){
-  const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-  const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
-  // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
-  // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
-  const canMarcarCortadaMuestra=canEdit||currentUser==='emir';
-  const tipo=sec.tipo||'';
-
-  // --- MUESTRA PENDIENTE CORTE ---
-  if(tipo==='muestra_pend'){
-    const moveOpts=buildMoveOpts(secId);
-    return `<div class="item">
-      <div class="item-body">
-        <div class="item-code">${item.code}</div>
-        ${item.name?`<div class="item-name">${item.name}</div>`:''}
-        <div class="item-actions">
-          ${canMarcarCortadaMuestra?`<button class="btn-advance" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
-          ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
-          ${moveOpts}
-          ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // --- MUESTRA CORTADA ---
-  if(tipo==='muestra_cort'){
-    const ficha=item.ficha||false;
-    const llevaAvios=item.lleva_avios;
-    const avios=Object.entries(item.avios||{});
-    const moveOpts=buildMoveOpts(secId);
-
-    let aviosPanel='';
-    if(llevaAvios===true){
-      if(avios.length===0){
-        aviosPanel=`<div class="avio-item" style="color:var(--text3);font-size:12px;font-style:italic">
-          Sin avíos cargados — 
-          ${canEdit?`<button class="btn-sm" style="margin-left:4px" onclick="openEditModal('${secId}','${itemId}')">+ Cargar</button>`:''}
-        </div>`;
-      } else {
-        aviosPanel=avios.map(([avioId,avio])=>{
-          const rec=avio.recibido;
-          const hasDate=!!avio.fecha_pedido;
-          const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
-          const badge=rec
-            ?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Entregado</span>`
-            :hasDate
-              ?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
-              :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-          const btns=canCheck?`
-            ${(!rec&&!hasDate)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}
-            ${(!rec&&hasDate)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}
-            ${!rec?(puedeRecibirAvio()?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`:''):
-              `<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`}`:'' ;
-          return `<div class="avio-item">
-            <div class="avio-dot" style="background:${dot}"></div>
-            <span class="avio-name">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
-            ${badge}${btns}
-          </div>`;
-        }).join('');
-        if(canEdit) aviosPanel+=`<div class="avio-item"><button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar avíos</button></div>`;
-      }
-    }
-
-    const panel=`<div class="cortada-panel">
-      <div class="cortada-row">
-        <div class="c-check ${ficha?'checked':''}" onclick="${canCheck?`toggleFicha('${secId}','${itemId}')`:''}">
-          ${ficha?'✓':''}
-        </div>
-        <span class="c-label ${ficha?'done':''}">Ficha Producto lista</span>
-      </div>
-      <div class="cortada-row">
-        <span class="c-label" style="font-weight:500">¿Lleva avíos?</span>
-        <div class="radio-group">
-          ${canCheck?`
-            <button class="radio-btn ${llevaAvios===true?'selected':''}" onclick="setLlevaAvios('${secId}','${itemId}',true)">Sí</button>
-            <button class="radio-btn ${llevaAvios===false?'selected':''}" onclick="setLlevaAvios('${secId}','${itemId}',false)">No</button>
-          `:`<span style="font-size:12px;color:var(--text2)">${llevaAvios===true?'Sí':llevaAvios===false?'No':'Sin definir'}</span>`}
-        </div>
-      </div>
-      ${llevaAvios===true?`<div class="avios-sub">${aviosPanel}</div>`:''}
-    </div>`;
-
-    return `<div class="item">
-      <div class="item-body">
-        <div class="item-code">${item.code}</div>
-        ${item.name?`<div class="item-name">${item.name}</div>`:''}
-        ${panel}
-        <div class="item-actions">
-          ${moveOpts}
-          ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // --- MUESTRA LISTA ---
-  if(tipo==='muestra_lista'){
-    const moveOpts=buildMoveOpts(secId);
-    return `<div class="item">
-      <div class="item-body">
-        <div class="item-code">${item.code}</div>
-        ${item.name?`<div class="item-name">${item.name}</div>`:''}
-        <div class="listo-badge">🎉 Lista para sacar a taller</div>
-        <div class="item-actions">
-          ${moveOpts}
-          ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // --- SECCIONES NORMALES (cortes) ---
-  const avios=Object.entries(item.avios||{});
-  let aviosHtml='';
-  if(avios.length){
-    aviosHtml='<div class="avios-normal">'+avios.map(([avioId,avio])=>{
-      const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
-      const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
-      const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
-        :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
-        :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-      const btns=(currentUser==='emir'||(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque')?
-        ((!rec&&!hasDate?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:'')+(!rec&&hasDate?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:'')+(!rec?(puedeRecibirAvio()?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`:'')
-          :(puedeRecibirAvio()?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''))):'';
-      return `<div class="avio-row-n">
-        <div class="avio-dot" style="background:${dot}"></div>
-        <span style="font-size:11px;color:var(--text2)">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
-        ${badge}${btns}
-      </div>`;
-    }).join('')+'</div>';
-  }
-
-  const canToggle=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-  const moveOpts=buildMoveOpts(secId);
-  return `<div class="item ${item.done?'done':''}" id="item-${secId}-${itemId}">
-    <div class="item-check ${item.done?'checked':''}" style="cursor:${canToggle?'pointer':'default'}" onclick="${canToggle?`toggleItem('${secId}','${itemId}')`:''}">${item.done?'✓':''}</div>
-    <div class="item-body">
-      <div class="item-code">${item.code}</div>
-      ${item.name?`<div class="item-name">${item.name}</div>`:''}
-      ${item.sub?`<div style="font-size:11px;color:var(--text3);font-style:italic;margin-top:1px">${item.sub}</div>`:''}
-      ${aviosHtml}
-      <div class="item-actions">
-        ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
-        ${moveOpts}
-        ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-      </div>
-    </div>
-  </div>`;
-}
 
 function buildMoveOpts(secId){
   if(currentUser!=='ariel') return '';
@@ -11698,10 +11521,6 @@ function editNumeroCortePrompt(secId,itemId){
 }
 
 // Convierte "0,4" o "0.4" (coma o punto decimal, como escriba cada uno) a número JS válido.
-function numAr(v){
-  if(v==null||v==='') return 0;
-  return parseFloat(String(v).trim().replace(',','.'))||0;
-}
 
 function editAnchoPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
@@ -12796,13 +12615,13 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes','tab-btn-histart'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-peque':'📋 Mi día','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes','tab-btn-histart':'📜 Historial artículo'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes','tab-btn-histart'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-peque':'📋 Mi día','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes','tab-btn-histart':'📜 Historial artículo'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes','tab-btn-histart'],
-  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes','tab-btn-histart'],
+  stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
   // Peque ahora tiene Costeo para poder cargar/corregir Proveedor y Precio de los avíos ahí —
   // el resto de los campos de Costeo (kg, precio x kg, otros gastos, precios de venta) le
   // quedan de solo lectura igual que a cualquiera que no sea Ariel/Stef (ver canEdit en
@@ -12817,14 +12636,14 @@ const TAB_VISIBILITY={
   // Noelia ve todas las pestañas (pediste "que vea todo") — la restricción real de que solo
   // pueda EDITAR en Diseño (y Web, que ya es abierto para cualquiera que lo vea) está resuelta
   // en renderSections(), no acá. Esto solo controla qué pestañas aparecen en el menú.
-  noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
+  noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-costeo','tab-btn-rendimiento','tab-btn-cortes'],
   // Meli (administración): solo la pestaña de Facturación, nada más — ni siquiera ve el resto
   // de Logística, para no exponerle datos operativos que no necesita.
   meli:['tab-btn-logistica','tab-btn-facturacion'],
 };
 // Oct 2026: Facturación (ahora se hace en la app de egresos) y Productos del mes no se usan más:
 // se ocultan para todos. Los datos quedan guardados (egresos los usa para "Traer cortes anteriores").
-const TABS_OCULTAS=['tab-btn-facturacion','tab-btn-prodmes','tab-btn-galeria']; // Galería: sacada en nov 2026
+const TABS_OCULTAS=['tab-btn-facturacion'];
 Object.keys(TAB_VISIBILITY).forEach(u=>{ TAB_VISIBILITY[u]=TAB_VISIBILITY[u].filter(t=>!TABS_OCULTAS.includes(t)); });
 TABS_OCULTAS.forEach(t=>{ const i=TAB_ORDER_DEFAULT.indexOf(t); if(i>=0) TAB_ORDER_DEFAULT.splice(i,1); });
 // ---- Pestañas principales y "Más" (nov 2026) ----
@@ -12832,11 +12651,12 @@ TABS_OCULTAS.forEach(t=>{ const i=TAB_ORDER_DEFAULT.indexOf(t); if(i>=0) TAB_ORD
 // muestra en la barra; el resto de lo permitido queda en el botón "Más ▾". Quien no figura acá ve todo en la barra.
 const TAB_PRINCIPALES={
   ariel:['tab-btn-fabrica','tab-btn-talleres','tab-btn-costeo','tab-btn-comerc','tab-btn-logistica','tab-btn-telas','tab-btn-histart'],
-  noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-logistica','tab-btn-telas','tab-btn-web'],
+  noelia:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-logistica','tab-btn-histart','tab-btn-telas','tab-btn-web'],
   peque:['tab-btn-peque','tab-btn-diseno','tab-btn-fabrica','tab-btn-costeo','tab-btn-logistica'],
 };
 // Ari Morón solo opera el corte: ve Fábrica con lo que tiene que cortar y sus órdenes de corte.
 TAB_VISIBILITY.arimoron=['tab-btn-fabrica'];
+if(!TAB_VISIBILITY.noelia.includes('tab-btn-histart')) TAB_VISIBILITY.noelia.push('tab-btn-histart');
 // Emir (nov 2026): pidió quedarse solo con Logística — la tiza la imprime Noelia y ella habla con los talleres.
 TAB_VISIBILITY.emir=['tab-btn-logistica'];
 const ARIMORON_SECCIONES=['s3','muestra_pendiente'];
@@ -12896,7 +12716,6 @@ function applyTabVisibility(user){
     ocultarTabsMenosActiva(contentId);
     document.getElementById(firstBtnId).classList.add('active');
     if(contentId==='tab-pendientes') renderPendientes();
-    else if(contentId==='tab-galeria') renderGaleria();
     else if(contentId==='tab-actividad') renderActividad();
     else if(contentId==='tab-estampas') renderEstampadosTab();
     else if(contentId==='tab-logistica') logiInit();
@@ -13322,354 +13141,24 @@ function colorForPersonName(name){
 }
 // Galería: todas las fotos de la colección activa, separadas por tablero (Diseño / Fábrica),
 // que se pueden arrastrar libremente para reordenar. El orden queda guardado en Firebase.
-function renderGaleria(){
-  const cont=document.getElementById('galeria-content');
-  // Juntar TODOS los items de los dos tableros, para armar las opciones de los filtros.
-  // Se dejan afuera las etapas que ya están "cerradas": Productos Perfectos, Muestras Canceladas
-  // y Revisión Final (esos cortes ya fueron entregados por el taller).
-  const todos=[];
-  Object.entries(sectionsData).forEach(([secId,sec])=>{
-    if(sec.tipo==='producto_perfecto'||sec.tipo==='muestra_cancelada'||sec.tipo==='revision_final'||secId===SEC_CMP_ENTREGADO) return;
-    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
-      const board=getBoard(sec);
-      const etapa=board==='diseno'?'Diseño':(secId==='sFIN'?'En taller':'Fábrica');
-      const marca=item.marca||marcasList[0]||'By Nina'; // igual que en el resto de la app: sin marca cargada = la primera de la lista
-      todos.push({secId,itemId,item,secTitle:sec.title,board,etapa,marca});
-    });
-  });
-  // La marca usa la lista maestra (marcasList), no solo lo que aparece en los items —
-  // así "By Nina" siempre está aunque sea el valor implícito y nadie lo haya tildado a mano.
-  const marcas=marcasList||[];
-  const telas=[...new Set(todos.map(it=>it.item.tela).filter(Boolean))].sort();
-  const categorias=[...new Set(todos.map(it=>it.item.categoria).filter(Boolean))].sort();
-  const opt=(list,val)=>list.map(v=>`<option value="${v}" ${val===v?'selected':''}>${v}</option>`).join('');
-  const filtroBar=`<div class="filtro-corte-bar" style="margin-bottom:14px">
-    <select class="filtro-corte-select" onchange="filtroGaleriaTablero=this.value;renderGaleria()">
-      <option value="" ${!filtroGaleriaTablero?'selected':''}>Tablero: ambos</option>
-      <option value="diseno" ${filtroGaleriaTablero==='diseno'?'selected':''}>Solo Diseño</option>
-      <option value="fabrica" ${filtroGaleriaTablero==='fabrica'?'selected':''}>Solo Fábrica</option>
-    </select>
-    <select class="filtro-corte-select" onchange="filtroGaleriaMarca=this.value;renderGaleria()">
-      <option value="">Marca: todas</option>${opt(marcas,filtroGaleriaMarca)}
-    </select>
-    <select class="filtro-corte-select" onchange="filtroGaleriaTela=this.value;renderGaleria()">
-      <option value="">Tela: todas</option>${opt(telas,filtroGaleriaTela)}
-    </select>
-    <select class="filtro-corte-select" onchange="filtroGaleriaCategoria=this.value;renderGaleria()">
-      <option value="">Categoría: todas</option>${opt(categorias,filtroGaleriaCategoria)}
-    </select>
-    <select class="filtro-corte-select" onchange="ordenGaleriaPor=this.value;renderGaleria()">
-      <option value="" ${!ordenGaleriaPor?'selected':''}>Orden: manual (arrastrar)</option>
-      <option value="codigo" ${ordenGaleriaPor==='codigo'?'selected':''}>Código</option>
-      <option value="marca" ${ordenGaleriaPor==='marca'?'selected':''}>Marca</option>
-      <option value="tela" ${ordenGaleriaPor==='tela'?'selected':''}>Tela</option>
-      <option value="categoria" ${ordenGaleriaPor==='categoria'?'selected':''}>Categoría</option>
-    </select>
-    ${(filtroGaleriaTablero||filtroGaleriaMarca||filtroGaleriaTela||filtroGaleriaCategoria||ordenGaleriaPor)?`<button class="btn-sm" onclick="filtroGaleriaTablero='';filtroGaleriaMarca='';filtroGaleriaTela='';filtroGaleriaCategoria='';ordenGaleriaPor='';renderGaleria()">✕ Limpiar</button>`:''}
-  </div>`;
-  const filtrados=todos.filter(it=>
-    (!filtroGaleriaMarca||it.marca===filtroGaleriaMarca) &&
-    (!filtroGaleriaTela||it.item.tela===filtroGaleriaTela) &&
-    (!filtroGaleriaCategoria||it.item.categoria===filtroGaleriaCategoria)
-  );
-  let html=filtroBar;
-  (filtroGaleriaTablero?[filtroGaleriaTablero]:['diseno','fabrica']).forEach(board=>{
-    const items=filtrados.filter(it=>it.board===board);
-    const keyOf=it=>`${it.secId}::${it.itemId}`;
-    if(ordenGaleriaPor){
-      const campo=ordenGaleriaPor==='codigo'?'code':ordenGaleriaPor==='marca'?'marca':ordenGaleriaPor;
-      items.sort((a,b)=>{
-        const va=ordenGaleriaPor==='marca'?a.marca:(a.item[campo]||'');
-        const vb=ordenGaleriaPor==='marca'?b.marca:(b.item[campo]||'');
-        return String(va||'zzz').localeCompare(String(vb||'zzz'));
-      });
-    } else {
-      const orden=galeriaOrden[board]||[];
-      items.sort((a,b)=>{
-        const ia=orden.indexOf(keyOf(a)), ib=orden.indexOf(keyOf(b));
-        if(ia===-1&&ib===-1) return 0;
-        if(ia===-1) return 1;
-        if(ib===-1) return -1;
-        return ia-ib;
-      });
-    }
-    const tiles=items.map(it=>`
-      <div class="galeria-tile" ${ordenGaleriaPor?'':`draggable="true" ondragstart="onGaleriaDragStart(event)" ondragend="onGaleriaDragEnd(event)" ondragover="onGaleriaDragOver(event)" ondrop="onGaleriaDrop(event)"`} data-key="${keyOf(it)}" data-board="${board}">
-        ${it.item.foto?`<img src="${it.item.foto}" onclick="openPhotoModal('${it.item.foto}')">`:`<div class="galeria-tile-sinfoto">📷</div>`}
-        <div class="galeria-tile-info">
-          <span class="galeria-tile-code">${it.item.code||it.item.name||'(sin código)'}</span>
-          <span class="galeria-tile-etapa etapa-${it.etapa==='Diseño'?'diseno':it.etapa==='En taller'?'finalizados':'fabrica'}">${it.etapa}</span>
-          <span class="galeria-tile-sec">${it.secTitle}</span>
-        </div>
-      </div>`).join('');
-    html+=`<div class="galeria-board">
-      <div class="galeria-board-title">${board==='diseno'?'🎨 Diseño':'🏭 Fábrica'} <span class="sec-count">${items.length}</span></div>
-      <div class="galeria-grid">${tiles||'<div class="empty-state">No hay fotos que coincidan acá</div>'}</div>
-    </div>`;
-  });
-  cont.innerHTML=html;
-}
 // ============ PRODUCTOS DEL MES ============
 // Mini tableros mensuales (ej. "Básicos del mes", "Más vendidos") armados con artículos de
 // Productos Perfectos. Cada producto se guarda como "foto" del momento (código, nombre, tela,
 // marca, foto) para que el archivo de meses viejos no cambie aunque el artículo después se mueva.
 // Datos: fabrica_v5/productos_mes/{YYYY-MM}/{boardId} = {title, creadoEn, items:{codeKey:{...}}}
 let pmData = {}, pmMes = null, pmSumarBoard = null, pmSel = new Set(), pmBusca = '', pmFMarca = '', pmFTela = '', pmFOrigen = '';
-db.ref('fabrica_v5/productos_mes').on('value', snap => {
-  pmData = snap.val() || {};
-  if (!document.getElementById('tab-prodmes').classList.contains('hidden')) renderProdMes();
-});
-function pmEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function pmMesActual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
-function pmMesLabel(m){ const [y,mm]=m.split('-'); const n=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']; return n[+mm-1]+' '+y; }
-function pmShift(m,delta){ let [y,mm]=m.split('-').map(Number); mm+=delta; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return y+'-'+String(mm).padStart(2,'0'); }
-function pmPuedeEditar(){ return currentUser==='ariel'||currentUser==='stef'; }
-function pmEditable(m){ return pmPuedeEditar() && m>=pmMesActual(); }   // los meses pasados quedan archivados (solo lectura)
-function pmKey(code){ return String(code||'').trim().replace(/[.#$\[\]\/]/g,'_') || 'sin_codigo'; }
+// (nov 2026) Productos del mes se sacó de la app; los datos quedan en Firebase.
 // Artículos terminados (Productos Perfectos), uno por código: si un código está en varios cortes,
 // queda el más reciente que tenga foto.
-function pmCatalogo(){
-  const porCodigo = {};
-  Object.values(sectionsData||{}).forEach(sec=>{
-    if(!sec||sec.tipo!=='producto_perfecto') return;
-    Object.values(sec.items||{}).forEach(it=>{
-      if(!it) return;
-      const code=(it.code||'').trim(); const key=pmKey(code||it.name);
-      const ts=it.fechaIngreso||it.updatedAt||it.createdAt||0;
-      const prev=porCodigo[key];
-      const mejor=!prev || (!!it.foto && !prev.foto) || ((!!it.foto===!!prev.foto) && ts>prev._ts);
-      if(mejor) porCodigo[key]={key,code,name:it.name||'',tela:it.tela||'',marca:it.marca||(marcasList&&marcasList[0])||'By Nina',foto:it.foto||'',categoria:it.categoria||'',_ts:ts};
-    });
-  });
-  Object.values(porCodigo).forEach(p=>{ p.origen='fabrica'; });
-  // Prendas compradas a proveedores: entran por Logística con origen 'proveedor'.
-  // Clave con prefijo para que nunca choquen con un código de fábrica.
-  Object.values(logiItemsData||{}).forEach(it=>{
-    if(!it||it.origen!=='proveedor') return;
-    const code=(it.code||'').trim(); const key='prov_'+pmKey(code||it.name);
-    const ts=it.fecha_creado||0; const prev=porCodigo[key];
-    const mejor=!prev || (!!it.foto && !prev.foto) || ((!!it.foto===!!prev.foto) && ts>prev._ts);
-    if(mejor) porCodigo[key]={key,code,name:it.name||'',tela:it.tela||'',marca:it.marca||(marcasList&&marcasList[0])||'By Nina',foto:it.foto||'',categoria:'',origen:'proveedor',proveedor:it.proveedor||'',_ts:ts};
-  });
-  return Object.values(porCodigo).sort((a,b)=>String(a.code||a.name).localeCompare(String(b.code||b.name),'es',{numeric:true}));
-}
-function pmTile(p, extra){
-  return `<div class="pm-tile ${extra&&extra.cls||''}" ${extra&&extra.attrs||''}>
-    ${p.foto?`<img src="${pmEsc(p.foto)}" loading="lazy" ${extra&&extra.noZoom?'':`onclick="event.stopPropagation();openPhotoModal('${pmEsc(p.foto)}')"`}>`:`<div class="pm-sinfoto">📷</div>`}
-    ${extra&&extra.badge||''}
-    <div class="pm-info">
-      <span class="pm-code">${pmEsc(p.code||'(sin código)')}</span>
-      <span class="pm-name">${pmEsc(p.name)}</span>
-      <span class="pm-tela">${p.origen==='proveedor'?pmEsc(p.proveedor?('Prov. '+p.proveedor):'Proveedor')+(p.tela?' · '+pmEsc(p.tela):''):pmEsc(p.tela)}</span>
-      <span class="pm-chips"><span class="pm-marca ${String(p.marca).toLowerCase().includes('mini')?'mini':''}">${pmEsc(p.marca)}</span>${p.origen==='proveedor'?'<span class="pm-marca prov">Proveedor</span>':''}</span>
-    </div>
-    ${extra&&extra.after||''}
-  </div>`;
-}
 // ---- En producción (para reposiciones) ----
 // Cortes del tablero Fábrica que todavía no terminaron (excluye Diseño/muestras, Productos
 // Perfectos y canceladas). Revisión final se incluye: está por pasar a ventas.
-function pmNormCode(c){ return String(c||'').trim().toUpperCase(); }
-function pmEnProduccion(){
-  const porCode={};
-  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
-    if(!sec||sec.tipo==='producto_perfecto'||sec.tipo==='muestra_cancelada') return;
-    if(getBoard(sec)==='diseno') return;
-    Object.entries(sec.items||{}).forEach(([itemId,it])=>{
-      if(!it||!it.code) return;
-      let cant=0; try{ cant=cortesTabCantidad(it)||0; }catch(e){}
-      (porCode[pmNormCode(it.code)] ||= []).push({secId,itemId,it,etapa:sec.title||'',cant});
-    });
-  });
-  return porCode;
-}
 // Foto actual de cada código: la más recientemente cambiada en la app (fotoAt). Para fotos
 // viejas sin fecha, gana la etapa más avanzada del producto terminado (Mejora > Revisión final >
 // Productos Perfectos). Si no hay ninguna, queda la foto guardada al sumarlo.
-function pmIndiceFotos(){
-  const prio={mejora:3,revision_final:2,producto_perfecto:1};
-  const fab={}, prov={};
-  const mejor=(idx,code,foto,score)=>{ const k=pmNormCode(code); if(!k||!foto) return; if(!idx[k]||pmCmp(score,idx[k].score)>0) idx[k]={foto,score}; };
-  Object.values(sectionsData||{}).forEach(sec=>{
-    if(!sec||!prio[sec.tipo]) return;   // solo prenda terminada: un corte en taller puede tener foto de muestra o de tela
-    Object.values(sec.items||{}).forEach(it=>{ if(it) mejor(fab,it.code,it.foto,[it.fotoAt||0,prio[sec.tipo],it.fechaIngreso||0]); });
-  });
-  Object.values(logiItemsData||{}).forEach(it=>{ if(it&&it.origen==='proveedor') mejor(prov,it.code,it.foto,[it.fotoAt||0,0,it.fecha_creado||0]); });
-  return {fab,prov};
-}
-function pmCmp(a,b){ for(let i=0;i<a.length;i++){ if(a[i]!==b[i]) return a[i]-b[i]; } return 0; }
-function pmFotoViva(p,idx){ const e=(p.origen==='proveedor'?idx.prov:idx.fab)[pmNormCode(p.code)]; return e?e.foto:p.foto; }
-function pmProduccionHtml(items, prod){
-  const conProd=[], sinProd=[];
-  items.forEach(([k,p])=>{
-    if(p.origen==='proveedor') return;          // las de proveedor se reponen comprando, no fabricando
-    const enCurso=prod[pmNormCode(p.code)]||[];
-    if(enCurso.length) enCurso.forEach(e=>conProd.push({p,e})); else sinProd.push(p);
-  });
-  const tiles=conProd.map(({p,e})=>`<div class="pm-tile pm-prod" onclick="irAItem('${e.secId}','${e.itemId}')" title="Ir al corte">
-      ${(e.it.foto||p.foto)?`<img src="${pmEsc(e.it.foto||p.foto)}" loading="lazy">`:'<div class="pm-sinfoto">📷</div>'}
-      <div class="pm-info">
-        <span class="pm-code">${pmEsc(e.it.code)}</span>
-        <span class="pm-etapa">${pmEsc(e.etapa)}</span>
-        <span class="pm-tela">${e.it.numero_corte?'Corte '+pmEsc(e.it.numero_corte):'Sin n° de corte'}${e.cant?' · '+e.cant+' u.':''}</span>
-      </div>
-    </div>`).join('');
-  return `<div class="pm-prod-wrap">
-      <div class="pm-prod-title">🏭 En producción <span class="sec-count">${conProd.length}</span></div>
-      ${tiles?`<div class="pm-grid">${tiles}</div>`:'<div class="pm-prod-empty">Ninguno de estos productos tiene un corte en curso.</div>'}
-      ${sinProd.length?`<div class="pm-sinrepo"><strong>Sin reposición en curso (${sinProd.length}):</strong> ${sinProd.map(p=>`<span class="pm-sinrepo-chip">${pmEsc(p.code||p.name)}</span>`).join('')}</div>`:''}
-    </div>`;
-}
-function renderProdMes(){
-  const cont=document.getElementById('prodmes-content');
-  if(!cont) return;
-  if(!pmMes) pmMes=pmMesActual();
-  if(pmSumarBoard){ renderPmSumar(); return; }
-  const edit=pmEditable(pmMes);
-  const boards=Object.entries(pmData[pmMes]||{}).sort((a,b)=>(a[1].creadoEn||0)-(b[1].creadoEn||0));
-  let html=`<div class="pm-mesbar">
-      <button class="pm-arrow" aria-label="Mes anterior" onclick="pmMes=pmShift(pmMes,-1);renderProdMes()">‹</button>
-      <div class="pm-mes">${pmMesLabel(pmMes)}${pmMes<pmMesActual()?' <span class="pm-arch">archivado</span>':''}</div>
-      <button class="pm-arrow" aria-label="Mes siguiente" onclick="pmMes=pmShift(pmMes,1);renderProdMes()">›</button>
-    </div>`;
-  if(!boards.length) html+=`<div class="empty-state">No hay tableros en ${pmMesLabel(pmMes)}.</div>`;
-  const prod=boards.length?pmEnProduccion():{};
-  const fotos=boards.length?pmIndiceFotos():{fab:{},prov:{}};
-  boards.forEach(([bid,b])=>{
-    const items=Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0));
-    const tiles=items.map(([k,p],i)=>pmTile({...p,foto:pmFotoViva(p,fotos)},{
-      attrs: edit?`draggable="true" data-bid="${bid}" data-k="${pmEsc(k)}" ondragstart="pmDragStart(event)" ondragend="pmDragEnd(event)" ondragover="pmDragOver(event)" ondrop="pmDrop(event)"`:'',
-      after: edit?`<button class="pm-quitar" aria-label="Quitar" onclick="pmQuitar('${bid}','${k}')">×</button>
-        <div class="pm-mover"><button aria-label="Mover antes" ${i===0?'disabled':''} onclick="pmMover('${bid}','${k}',-1)">‹</button><button aria-label="Mover después" ${i===items.length-1?'disabled':''} onclick="pmMover('${bid}','${k}',1)">›</button></div>`:''})).join('');
-    html+=`<div class="pm-board">
-      <div class="pm-board-head">
-        <div class="pm-board-title">${pmEsc(b.title)} <span class="sec-count">${items.length}</span></div>
-        ${edit?`<div class="pm-board-actions">
-          <button class="pm-btn-out" onclick="pmAbrirSumar('${bid}')">+ Sumar</button>
-          <button class="pm-btn-icon" aria-label="Renombrar" title="Renombrar" onclick="pmRenombrar('${bid}')">✎</button>
-          <button class="pm-btn-icon" aria-label="Borrar tablero" title="Borrar tablero" onclick="pmBorrar('${bid}')">🗑</button>
-        </div>`:''}
-      </div>
-      <div class="pm-grid">${tiles||'<div class="empty-state">Todavía sin productos.</div>'}</div>
-      ${items.length?pmProduccionHtml(items,prod):''}
-    </div>`;
-  });
-  if(edit){
-    html+=`<button class="pm-nuevo" onclick="pmNuevo()">+ Nuevo tablero</button>`;
-    const prev=pmShift(pmMes,-1);
-    if(!boards.length && Object.keys(pmData[prev]||{}).length) html+=`<button class="pm-nuevo pm-copiar" onclick="pmCopiar('${prev}')">Copiar tableros de ${pmMesLabel(prev)}</button>`;
-  }
-  const meses=Object.keys(pmData).filter(m=>m<pmMesActual()&&m!==pmMes).sort().reverse();
-  if(meses.length){
-    html+=`<div class="pm-hist-title">Meses anteriores</div>`+meses.map(m=>`<button class="pm-hist" onclick="pmMes='${m}';renderProdMes();window.scrollTo(0,0)"><span>${pmMesLabel(m)}</span><span class="pm-hist-n">${Object.keys(pmData[m]||{}).length} tableros ›</span></button>`).join('');
-  }
-  cont.innerHTML=html;
-}
-function pmNuevo(){
-  const t=prompt('Nombre del tablero (ej: Básicos del mes, Más vendidos)');
-  if(!t||!t.trim()) return;
-  db.ref(`fabrica_v5/productos_mes/${pmMes}`).push({title:t.trim(),creadoEn:Date.now(),creadoPor:currentUser});
-}
-function pmRenombrar(bid){
-  const b=(pmData[pmMes]||{})[bid]; if(!b) return;
-  const t=prompt('Nuevo nombre',b.title); if(!t||!t.trim()) return;
-  db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/title`).set(t.trim());
-}
-function pmBorrar(bid){
-  const b=(pmData[pmMes]||{})[bid]; if(!b) return;
-  if(!confirm(`¿Borrar el tablero "${b.title}"? Los artículos no se tocan.`)) return;
-  db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}`).remove();
-}
 // ---- Orden manual ----
-function pmOrdenActual(bid){
-  const b=(pmData[pmMes]||{})[bid]||{};
-  return Object.entries(b.items||{}).sort((x,y)=>(x[1].orden||0)-(y[1].orden||0)).map(([k])=>k);
-}
-function pmGuardarOrden(bid,keys){
-  const upd={}; keys.forEach((k,i)=>{ upd[`${k}/orden`]=i; });
-  db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/items`).update(upd);
-}
-function pmMover(bid,k,delta){
-  const keys=pmOrdenActual(bid); const i=keys.indexOf(k), j=i+delta;
-  if(i<0||j<0||j>=keys.length) return;
-  [keys[i],keys[j]]=[keys[j],keys[i]];
-  pmGuardarOrden(bid,keys);
-}
 let pmDrag=null;
-function pmDragStart(ev){ const t=ev.currentTarget; pmDrag={bid:t.dataset.bid,k:t.dataset.k}; ev.dataTransfer.effectAllowed='move'; ev.dataTransfer.setData('text/plain',pmDrag.k); setTimeout(()=>t.classList.add('dragging'),0); }
-function pmDragEnd(ev){ ev.currentTarget.classList.remove('dragging'); document.querySelectorAll('.pm-tile.drop-target').forEach(e=>e.classList.remove('drop-target')); pmDrag=null; }
-function pmDragOver(ev){
-  if(!pmDrag||ev.currentTarget.dataset.bid!==pmDrag.bid) return;
-  ev.preventDefault(); ev.dataTransfer.dropEffect='move';
-  document.querySelectorAll('.pm-tile.drop-target').forEach(e=>{ if(e!==ev.currentTarget) e.classList.remove('drop-target'); });
-  ev.currentTarget.classList.add('drop-target');
-}
-function pmDrop(ev){
-  ev.preventDefault();
-  if(!pmDrag) return;
-  const t=ev.currentTarget, bid=t.dataset.bid, target=t.dataset.k;
-  if(bid!==pmDrag.bid||target===pmDrag.k){ pmDrag=null; return; }
-  const keys=pmOrdenActual(bid).filter(k=>k!==pmDrag.k);
-  // Si soltás sobre la mitad derecha de una foto, queda después; si no, antes.
-  const r=t.getBoundingClientRect(); const despues=ev.clientX>r.left+r.width/2;
-  keys.splice(keys.indexOf(target)+(despues?1:0),0,pmDrag.k);
-  pmGuardarOrden(bid,keys);
-  pmDrag=null;
-}
-function pmQuitar(bid,k){ db.ref(`fabrica_v5/productos_mes/${pmMes}/${bid}/items/${k}`).remove(); }
-function pmCopiar(desde){
-  const src=pmData[desde]||{}; const upd={}; let i=0;
-  Object.values(src).forEach(b=>{
-    const id=db.ref(`fabrica_v5/productos_mes/${pmMes}`).push().key;
-    upd[id]={title:b.title,creadoEn:Date.now()+(i++),creadoPor:currentUser,items:b.items||{}};
-  });
-  db.ref(`fabrica_v5/productos_mes/${pmMes}`).update(upd);
-  if(typeof showToast==='function') showToast('Tableros copiados — sumá o sacá lo que cambie este mes');
-}
 // ---- Sumar productos ----
-function pmAbrirSumar(bid){ pmSumarBoard=bid; pmSel=new Set(); pmBusca=''; pmFMarca=''; pmFTela=''; pmFOrigen=''; renderProdMes(); window.scrollTo(0,0); }
-function pmCerrarSumar(){ pmSumarBoard=null; pmSel=new Set(); renderProdMes(); }
-function pmToggleSel(k){ if(pmSel.has(k)) pmSel.delete(k); else pmSel.add(k); renderPmSumar(); }
-function renderPmSumar(){
-  const cont=document.getElementById('prodmes-content');
-  const b=(pmData[pmMes]||{})[pmSumarBoard];
-  if(!b){ pmSumarBoard=null; renderProdMes(); return; }
-  const ya=b.items||{};
-  const cat=pmCatalogo();
-  const marcas=[...new Set(cat.map(p=>p.marca).filter(Boolean))].sort();
-  const telas=[...new Set(cat.map(p=>p.tela).filter(Boolean))].sort();
-  const q=pmBusca.trim().toLowerCase();
-  const lista=cat.filter(p=>(!q||(p.code+' '+p.name+' '+(p.proveedor||'')).toLowerCase().includes(q))&&(!pmFMarca||p.marca===pmFMarca)&&(!pmFTela||p.tela===pmFTela)&&(!pmFOrigen||p.origen===pmFOrigen));
-  const opt=(arr,v)=>arr.map(x=>`<option value="${pmEsc(x)}" ${x===v?'selected':''}>${pmEsc(x)}</option>`).join('');
-  const tiles=lista.map(p=>{
-    const enTablero=!!ya[p.key], sel=pmSel.has(p.key);
-    return pmTile(p,{noZoom:true,cls:(sel?'sel':'')+(enTablero?' ya':''),
-      attrs: enTablero?'':`onclick="pmToggleSel('${p.key}')"`,
-      badge:`<span class="pm-check">${sel?'✓':enTablero?'✓':''}</span>`});
-  }).join('');
-  cont.innerHTML=`<div class="pm-sumar-head">
-      <button class="pm-volver" onclick="pmCerrarSumar()">‹ Volver</button>
-      <span class="pm-sub">Terminados de fábrica y de proveedores</span>
-    </div>
-    <div class="pm-sumar-title">Sumar a «${pmEsc(b.title)}»</div>
-    <input class="pm-search" id="pm-search" type="text" placeholder="Buscar por código o nombre" value="${pmEsc(pmBusca)}" oninput="pmBusca=this.value;renderPmSumar();const e=document.getElementById('pm-search');e.focus();e.setSelectionRange(e.value.length,e.value.length)">
-    <div class="filtro-corte-bar" style="margin:8px 0 12px">
-      <select class="filtro-corte-select" onchange="pmFOrigen=this.value;renderPmSumar()"><option value="">Fábrica y proveedores</option><option value="fabrica" ${pmFOrigen==='fabrica'?'selected':''}>Fábrica Nina</option><option value="proveedor" ${pmFOrigen==='proveedor'?'selected':''}>Proveedores</option></select>
-      <select class="filtro-corte-select" onchange="pmFMarca=this.value;renderPmSumar()"><option value="">Marca: todas</option>${opt(marcas,pmFMarca)}</select>
-      <select class="filtro-corte-select" onchange="pmFTela=this.value;renderPmSumar()"><option value="">Tela: todas</option>${opt(telas,pmFTela)}</select>
-    </div>
-    <div class="pm-grid">${tiles||'<div class="empty-state">No hay artículos terminados que coincidan.</div>'}</div>
-    <div class="pm-sumar-bar"><button class="pm-agregar" ${pmSel.size?'':'disabled'} onclick="pmAgregarSel()">${pmSel.size?`Agregar ${pmSel.size} producto${pmSel.size>1?'s':''}`:'Tocá los productos para elegirlos'}</button></div>`;
-}
-function pmAgregarSel(){
-  const b=(pmData[pmMes]||{})[pmSumarBoard]; if(!b) return;
-  const cat=pmCatalogo(); const upd={}; let orden=Object.keys(b.items||{}).length;
-  cat.filter(p=>pmSel.has(p.key)).forEach(p=>{
-    upd[p.key]={code:p.code,name:p.name,tela:p.tela,marca:p.marca,foto:p.foto,origen:p.origen,proveedor:p.proveedor||'',orden:orden++,agregadoEn:Date.now(),agregadoPor:currentUser};
-  });
-  db.ref(`fabrica_v5/productos_mes/${pmMes}/${pmSumarBoard}/items`).update(upd);
-  pmCerrarSumar();
-}
 
 // ============ STOCK DE TELAS (parte 1: ingreso por remito + resumen) ============
 // Datos en fabrica_v5/telas_stock:
@@ -15744,28 +15233,6 @@ let estUltimaFirma='';
 const estEscrituras={}, estFrenadas={};
 
 let galeriaDragKey=null;
-function onGaleriaDragStart(ev){
-  galeriaDragKey=ev.currentTarget.dataset.key;
-  ev.dataTransfer.effectAllowed='move';
-  ev.dataTransfer.setData('text/plain',galeriaDragKey);
-  setTimeout(()=>ev.currentTarget.classList.add('dragging'),0);
-}
-function onGaleriaDragEnd(ev){ ev.currentTarget.classList.remove('dragging'); galeriaDragKey=null; }
-function onGaleriaDragOver(ev){ if(galeriaDragKey){ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; } }
-function onGaleriaDrop(ev){
-  ev.preventDefault();
-  if(!galeriaDragKey) return;
-  const targetKey=ev.currentTarget.dataset.key, board=ev.currentTarget.dataset.board;
-  if(!targetKey||targetKey===galeriaDragKey){ galeriaDragKey=null; return; }
-  const grid=ev.currentTarget.closest('.galeria-grid');
-  const keys=[...grid.querySelectorAll('.galeria-tile')].map(el=>el.dataset.key);
-  const from=keys.indexOf(galeriaDragKey), to=keys.indexOf(targetKey);
-  if(from===-1||to===-1){ galeriaDragKey=null; return; }
-  keys.splice(from,1); keys.splice(to,0,galeriaDragKey);
-  galeriaOrden[board]=keys; galeriaDragKey=null;
-  db.ref(`fabrica_v5/galeria_orden/${board}`).set(keys);
-  renderGaleria();
-}
 
 // Publica una versión "aplanada" y de solo lectura de los pendientes en fabrica_v5/pendientes_resumen,
 // para que control-bynina (la app de tareas) pueda mostrarlos mezclados en su panorama sin
@@ -17630,23 +17097,42 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   logiItemsData = snap.val() || {};
   try{ rdBadge(); rdRefrescar(); }catch(e){}
   cmpIntentarLimpieza();
-  if(pmSumarBoard&&!document.getElementById('tab-prodmes').classList.contains('hidden')) renderPmSumar();
   logiBackfillFechaEntrega();
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
   if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
   if(!document.getElementById('tab-comerc').classList.contains('hidden')) renderComercializarTab();
   if(!document.getElementById('tab-web').classList.contains('hidden')) renderWebTab();
   if(logiInitDone){
-    logiRenderBoard();
-    if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId);
+    if(edicionEnCurso('#tab-logistica')){ redibujoPendiente.logi=true; }
+    else { logiRenderBoard();
+    if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId); }
     logiBackfillCorteTaller();
     renderMisPendientesBadge();
     if(!document.getElementById('mis-pendientes-panel').classList.contains('hidden')) renderMisPendientesPanel();
   }
-  listaEntRender('logistica');
+  if(!edicionEnCurso('#tab-logistica')) listaEntRender('logistica');
   listaEntRender('facturacion');
   facturacionMigrarSiHaceFalta();
 });
+// ---- Cargar números sin pelearse con la pantalla (nov 2026) ----
+// 1) Al entrar a un casillero numérico se selecciona lo que tiene: escribís y reemplaza (no queda el "0").
+// 2) Enter pasa al casillero siguiente.
+// 3) Mientras estás escribiendo en Logística, la pantalla no se redibuja (eso te sacaba del casillero);
+//    se actualiza apenas salís.
+const redibujoPendiente={};
+function edicionEnCurso(sel){ const a=document.activeElement; return !!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA')&&a.type!=='checkbox'&&a.closest&&a.closest(sel)); }
+document.addEventListener('focusin',e=>{ const t=e.target; if(t&&t.tagName==='INPUT'&&t.type==='number'){ setTimeout(()=>{ try{ t.select(); }catch(err){} },0); } });
+document.addEventListener('keydown',e=>{
+  const t=e.target; if(e.key!=='Enter'||!t||t.tagName!=='INPUT'||t.type!=='number') return;
+  const cont=t.closest('table')||t.closest('.logi-fecha')||t.closest('.modal')||document.body;
+  const lista=[...cont.querySelectorAll('input[type=number]')].filter(x=>!x.disabled&&x.offsetParent!==null);
+  const i=lista.indexOf(t); e.preventDefault();
+  t.dispatchEvent(new Event('change',{bubbles:true}));
+  if(i>=0&&lista[i+1]) lista[i+1].focus(); else t.blur();
+});
+document.addEventListener('focusout',()=>{ setTimeout(()=>{
+  if(redibujoPendiente.logi&&!edicionEnCurso('#tab-logistica')){ redibujoPendiente.logi=false; try{ logiRenderBoard(); if(logiCurrentItemId) logiRenderDetail(logiCurrentItemId); listaEntRender('logistica'); }catch(err){ console.error(err); } }
+},60); });
 
 
 // ===== Lista de entregas por fecha =====
@@ -20807,15 +20293,6 @@ function logiCorteFabricaDe(it){
   }
   return porNumero;
 }
-function logiSigueAEstampado(it){
-  if(!it) return false;
-  if(it.avance_pendiente&&it.avance_pendiente.destino_tipo==='en_estampado_taller'&&!it.avance_pendiente.avanzado) return true;
-  if(it.proceso||it.no_facturar) return false; // reconteo de estampado / entrega de terminación
-  const f=logiCorteFabricaDe(it);
-  if(!f||f.item.estampado_taller_entregado) return false;
-  // Si ya está en la sección de estampado va a estampar, aunque haya llegado movido a mano.
-  return f.secId===SEC_ESTAMPADO_TALLER||!!f.item.estampado_dtf;
-}
 // Próximo paso del corte después de esta entrega, según su recorrido (oct 2026). Si la
 // mercadería todavía no está terminada (le falta terminación —plancha, ojal, bordado…— o
 // estampado), el control solo sirve para facturarle al taller: la entrega se cierra sin pasar a
@@ -20958,6 +20435,12 @@ function logiDivSetCelda(itemId,key,valor,max){
     db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_avellaneda:t.av,division_deposito:t.dep});
   });
 }
+function logiDivAplicarColor(itemId,color,valor){
+  const it=logiItemsData[itemId]; if(!it) return;
+  const {m,talles}=logiDivCeldas(it), up={};
+  talles.forEach(t=>{ const k=logiDivKey(color,t); if(m[k]==null) return; const v=valor==='max'?m[k]:Math.min(m[k],Math.max(0,parseInt(valor)||0)); up[`fabrica_v5/logistica/items/${itemId}/division_detalle/${k}`]=v||null; });
+  db.ref().update(up).then(()=>{ const tt=logiDivTotales(logiItemsData[itemId]||{}); db.ref(`fabrica_v5/logistica/items/${itemId}`).update({division_avellaneda:tt.av,division_deposito:tt.dep}); });
+}
 function logiDivCopiarPrimera(itemId){
   const it=logiItemsData[itemId]; if(!it) return;
   const {m,colores,talles}=logiDivCeldas(it), d=it.division_detalle||{}, up={};
@@ -21013,11 +20496,14 @@ function logiDivisionHtml(id,it){
     let tot=0;
     const celdas=talles.map(tl=>{ const k=logiDivKey(c,tl), max=m[k]; if(max==null) return '<td></td>'; const v=parseInt(d[k])||0; tot+=Math.min(v,max);
       return `<td style="text-align:center;padding:2px"><input type="number" min="0" max="${max}" value="${v||''}" placeholder="0" title="Hay ${max}" style="width:48px;border:1px solid ${v?'#416096':'var(--border)'};border-radius:6px;padding:3px;font-size:12px;text-align:center" onchange="logiDivSetCelda('${id}','${k}',this.value,${max})"><div style="font-size:10px;color:var(--text3)">de ${max}</div></td>`; }).join('');
-    return `<tr style="border-top:1px solid var(--border)"><td style="padding:4px 6px 4px 0;font-size:12px;white-space:nowrap">${e(c)}</td>${celdas}<td style="text-align:right;font-weight:600;font-size:12px;padding-left:6px">${tot}</td></tr>`;
+    const cAttr=e(c).replace(/'/g,"\\'");
+    return `<tr style="border-top:1px solid var(--border)"><td style="padding:4px 6px 4px 0;font-size:12px;white-space:nowrap">${e(c)}</td>${celdas}<td style="text-align:right;font-weight:600;font-size:12px;padding-left:6px">${tot}</td>
+      <td style="padding-left:8px;white-space:nowrap"><input type="number" min="0" placeholder="todos" title="Poné un número y se aplica a todos los talles de ${e(c)}" style="width:58px;border:1px dashed #416096;border-radius:6px;padding:3px;font-size:12px;text-align:center" onchange="if(this.value!=='')logiDivAplicarColor('${id}','${cAttr}',this.value)"> <button class="btn-sm" style="padding:2px 6px;font-size:11px" title="Todo ${e(c)} a Avellaneda" onclick="logiDivAplicarColor('${id}','${cAttr}','max')">Todo</button> <button class="btn-sm" style="padding:2px 6px;font-size:11px" title="Nada de ${e(c)} a Avellaneda" onclick="logiDivAplicarColor('${id}','${cAttr}',0)">0</button></td></tr>`;
   }).join('');
   return `<div class="logi-fecha" onclick="event.stopPropagation()" style="margin-top:6px;display:block">
     <div style="margin-bottom:4px">📦 Cargá lo que va a <b>Avellaneda</b> · el resto queda en depósito</div>
-    <div style="overflow-x:auto"><table style="border-collapse:collapse"><tr><th></th>${talles.map(th).join('')}<th style="font-size:11px;color:var(--text2);text-align:right;padding-left:6px">Avell.</th></tr>${filas}</table></div>
+    <div style="overflow-x:auto"><table style="border-collapse:collapse"><tr><th></th>${talles.map(th).join('')}<th style="font-size:11px;color:var(--text2);text-align:right;padding-left:6px">Avell.</th><th style="font-size:11px;color:var(--text2);padding-left:8px;text-align:left">Todo el color</th></tr>${filas}</table></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px">Tip: Enter pasa al casillero siguiente · en "todos" ponés un número y se aplica a cada talle de ese color</div>
     <div style="margin:6px 0;font-size:12px">Avellaneda <b style="color:#416096">${t.av}</b> · Depósito <b>${t.dep}</b> · Total ${t.pool}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">${colores.length>1?`<button class="btn-sm" onclick="logiDivCopiarPrimera('${id}')">Copiar 1ª fila a todas</button>`:''}<button class="btn-sm" style="background:#416096;color:#fff;border-color:#416096" onclick="logiDivConfirmar('${id}')">Confirmar división</button></div></div>`;
 }
@@ -23306,7 +22792,7 @@ function renderHistorialArticulo(){
 }
 
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-resumen','tab-peque','tab-galeria','tab-prodmes','tab-telas','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc','tab-histart'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-resumen','tab-peque','tab-telas','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc','tab-histart'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -23350,16 +22836,6 @@ document.getElementById('tab-btn-histart').onclick=function(){
   ocultarTabsMenosActiva('tab-histart');
   this.classList.add('active');
   renderHistorialArticulo();
-};
-document.getElementById('tab-btn-prodmes').onclick=function(){
-  ocultarTabsMenosActiva('tab-prodmes');
-  this.classList.add('active');
-  renderProdMes();
-};
-document.getElementById('tab-btn-galeria').onclick=function(){
-  ocultarTabsMenosActiva('tab-galeria');
-  this.classList.add('active');
-  renderGaleria();
 };
 document.getElementById('tab-btn-actividad').onclick=function(){
   ocultarTabsMenosActiva('tab-actividad');

@@ -15095,7 +15095,7 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
   // 3. Corte: orden, rollos, encimado (bloque compartido por todo el N° de corte)
   const corteRes=[ordenCargadaGrupo(item)?'Orden ✓':'Sin orden',g.tiza_impresa?'Tiza ✓':'',encimadoTerminadoGrupo(item)?'Encimado ✓':''].filter(Boolean).join(' · ');
   let corteCuerpo='';
-  if(secId==='s3'){ try{ corteCuerpo=buildFlujoPreCorte(secId,itemId,item,canCortar); }catch(err){ corteCuerpo='<div style="font-size:12px;color:var(--text3)">Abrí la vista anterior para cargar la orden y los rollos.</div>'; } }
+  if(secId==='s3'){ try{ corteCuerpo=buildFlujoPreCorte(secId,itemId,item,canCortar).replace(/<button[^>]*setTizaImpresa\([^)]*,true\)[^>]*>[^<]*<\/button>/g,''); }catch(err){ corteCuerpo='<div style="font-size:12px;color:var(--text3)">Abrí la vista anterior para cargar la orden y los rollos.</div>'; } }
   else if(!esTizada){ try{ const capEd=((yo2==='ariel'||yo2==='stef')||yo2==='peque'||yo2==='arimoron'); corteCuerpo=buildCapasHtml(item,secId,itemId,capEd)+buildRollosHtml(item,secId,itemId,puedeCargarCorte(item))+buildRealesHtml(item,secId,itemId); }catch(err){} }
   // Avíos
   const avs=Object.entries(item.avios||{}).filter(([,a])=>a&&a.nombre), avPend=avs.filter(([,a])=>!a.recibido);
@@ -18993,13 +18993,14 @@ function comercEstadoItem(it){
   const costoHecho=!!it.costo_confirmado;
   const artC=costeoEntry?costeoArtParaCodigo(costeoEntry,it.code):null;
   const preciosFuente = esProveedor ? it : (costeoEntry?{precio_lista_local:costeoPrecioArt(costeoEntry,artC,'precio_lista_local'),precio_tn_minorista:costeoPrecioArt(costeoEntry,artC,'precio_tn_minorista'),precio_tn_mayorista:costeoPrecioArt(costeoEntry,artC,'precio_tn_mayorista')}:{});
-  const preciosCount=['precio_lista_local','precio_tn_minorista','precio_tn_mayorista'].filter(c=>preciosFuente[c]).length;
+  // comerc_ok_precios / comerc_ok_web: Ariel lo dio por resuelto por fuera (ej. cargado directo en Ninox o en la web), nov 2026
+  const preciosCount=it.comerc_ok_precios?3:['precio_lista_local','precio_tn_minorista','precio_tn_mayorista'].filter(c=>preciosFuente[c]).length;
   const recAvellaneda = it.division_avellaneda!=null ? !!it.recibido_avellaneda : null;
   const recDeposito = it.division_deposito!=null ? !!it.recibido_deposito : null;
   const filas=Object.values(it.grilla||{});
   const colores=[...new Set(filas.map(f=>f.color).filter(Boolean))];
   const coloresSubidos=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
-  const webOk = colores.length ? (coloresSubidos===colores.length) : null;
+  const webOk = it.comerc_ok_web ? true : (colores.length ? (coloresSubidos===colores.length) : null);
   const medidasOk = medidasCompletas(it);
   return {costoHecho,preciosCount,recAvellaneda,recDeposito,webOk,coloresSubidos,coloresTotal:colores.length,medidasOk};
 }

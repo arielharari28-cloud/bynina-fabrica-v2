@@ -1075,6 +1075,7 @@
       <button class="tab hidden" id="tab-btn-costeo">💰 Costeo</button>
       <button class="tab hidden" id="tab-btn-rendimiento">📊 Rendimiento</button>
       <button class="tab hidden" id="tab-btn-cortes">📋 Cortes</button>
+      <button class="tab hidden" id="tab-btn-histart">📜 Historial artículo</button>
       <button class="tab hidden" id="tab-btn-facturacion">🧾 Facturación</button>
     </div>
     <div id="tab-diseno">
@@ -1122,6 +1123,7 @@
       <div id="galeria-content"><div class="loading">Cargando...</div></div>
     </div>
     <div id="tab-telas" class="hidden"><div id="telas-content"><div class="loading">Cargando...</div></div></div>
+    <div id="tab-histart" class="hidden"><div id="histart-content"></div></div>
     <div id="tab-prodmes" class="hidden"><div id="prodmes-content"><div class="loading">Cargando...</div></div></div>
     <div id="tab-actividad" class="hidden"><div id="actividad-list"><div class="loading">Cargando...</div></div></div>
     <div id="tab-estampas" class="hidden">
@@ -12698,12 +12700,12 @@ function closeGlobalSearchAndGo(secId,itemId){
 }
 
 // ---- Ordenar pestañas a gusto de cada uno (se guarda en este celu/navegador, no es global) ----
-const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'];
-const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-peque':'📋 Mi día','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes'};
+const TAB_ORDER_DEFAULT=['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes','tab-btn-histart'];
+const TAB_LABELS={'tab-btn-diseno':'Diseño','tab-btn-fabrica':'Fábrica','tab-btn-talleres':'Talleres','tab-btn-pendientes':'Pendientes','tab-btn-resumen':'📋 Resumen del día','tab-btn-peque':'📋 Mi día','tab-btn-galeria':'Galería','tab-btn-prodmes':'⭐ Productos del mes','tab-btn-telas':'🧵 Telas','tab-btn-actividad':'Actividad','tab-btn-estampas':'🎨 Estampas','tab-btn-logistica':'📦 Logística','tab-btn-web':'🌐 Web','tab-btn-comerc':'🛒 Comercializar','tab-btn-costeo':'💰 Costeo','tab-btn-rendimiento':'📊 Rendimiento','tab-btn-facturacion':'🧾 Facturación','tab-btn-cortes':'📋 Cortes','tab-btn-histart':'📜 Historial artículo'};
 // Qué pestañas ve cada usuario — es la única fuente de verdad; ACCESOS_POR_USUARIO (el panel
 // informativo 👥) se arma en base a este mismo mapa para que nunca queden desincronizados.
 const TAB_VISIBILITY={
-  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
+  ariel:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-resumen','tab-btn-peque','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes','tab-btn-histart'],
   stef:['tab-btn-diseno','tab-btn-fabrica','tab-btn-talleres','tab-btn-pendientes','tab-btn-galeria','tab-btn-prodmes','tab-btn-telas','tab-btn-actividad','tab-btn-estampas','tab-btn-logistica','tab-btn-web','tab-btn-comerc','tab-btn-costeo','tab-btn-rendimiento','tab-btn-facturacion','tab-btn-cortes'],
   // Peque ahora tiene Costeo para poder cargar/corregir Proveedor y Precio de los avíos ahí —
   // el resto de los campos de Costeo (kg, precio x kg, otros gastos, precios de venta) le
@@ -22671,8 +22673,203 @@ function deleteCosteo(key){
   showToast('Eliminado del tablero de Costeo');
 }
 
+// Venta del artículo (nov 2026): se lee de lo que ya sube el Dashboard de ventas (misma base de Firebase).
+// Local: cargas de "dashboard_local_cargas" (código Ninox, unidades por período). Web: "dashboard/productos"
+// (sync de Tiendanube, por períodos: 30 días, este mes, mes anterior…). Se baja una sola vez al abrir la pestaña.
+let haVentas=null, haVentasCargando=false;
+function haCargarVentas(){
+  if(haVentas||haVentasCargando) return;
+  haVentasCargando=true;
+  Promise.all(['dashboard/productos','dashboard/actualizado','dashboard_local_cargas','dashboard_local_map'].map(p=>db.ref(p).once('value').then(s=>s.val()).catch(()=>null)))
+    .then(([prods,act,cargas,map])=>{ haVentas={prods:Array.isArray(prods)?prods:Object.values(prods||{}),act,cargas:cargas||{},map:map||{}}; })
+    .finally(()=>{ haVentasCargando=false; if(!document.getElementById('tab-histart').classList.contains('hidden')) renderHistorialArticulo(); });
+}
+function haVNorm(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function haProductoWeb(code,name){
+  if(!haVentas) return null;
+  const prods=haVentas.prods.filter(p=>p&&p.id!=null);
+  const m=haVentas.map[String(code).replace(/[.#$/\[\]]/g,'_')];
+  if(m==='x') return null;
+  if(m){ const p=prods.find(p=>String(p.id)===String(m)); if(p) return p; }
+  const c=haVNorm(code);
+  const porSku=prods.find(p=>(p.variantes||[]).some(v=>v&&v.sku&&haVNorm(v.sku)===c)); if(porSku) return porSku;
+  const n=haVNorm(name); if(!n) return null;
+  const igual=prods.filter(p=>haVNorm(p.producto)===n); if(igual.length===1) return igual[0];
+  return null;
+}
+function haVentaLocalMeses(code){
+  if(!haVentas) return [];
+  const c=haVNorm(code), meses={};
+  Object.values(haVentas.cargas).forEach(cg=>{
+    if(!cg||!cg.hasta||!Array.isArray(cg.items)) return;
+    const it=cg.items.find(i=>i&&haVNorm(i.k)===c); if(!it) return;
+    const mes=String(cg.hasta).slice(0,7);
+    const x=meses[mes]=meses[mes]||{mes,u:0,desde:cg.desde,hasta:cg.hasta};
+    x.u+=parseInt(it.u)||0; if(cg.desde<x.desde) x.desde=cg.desde; if(cg.hasta>x.hasta) x.hasta=cg.hasta;
+  });
+  return Object.values(meses).sort((a,b)=>a.mes<b.mes?1:-1).slice(0,6);
+}
+function haVentasHtml(code,name,totEnt){
+  if(!haVentas){ haCargarVentas(); return '<div style="font-size:12px;color:var(--text3);margin:8px 0 12px">Cargando ventas del Dashboard…</div>'; }
+  const MES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const loc=haVentaLocalMeses(code), p=haProductoWeb(code,name);
+  const vp=k=>p&&p.ventasPorPeriodo&&p.ventasPorPeriodo[k]?(parseInt(p.ventasPorPeriodo[k].unidades)||0):null;
+  const w30=vp('30dias'), wMes=vp('estemes'), wAnt=vp('mesanterior');
+  const locUlt=loc.length?loc[0].u:0;
+  const prom=loc.length?Math.round(loc.reduce((s,x)=>s+x.u,0)/loc.length):0;
+  const mensual=prom+(w30||0);
+  const stock=p&&p.stockTotal!=null?parseInt(p.stockTotal)||0:null;
+  const caja=(l,v,sub)=>`<div style="background:var(--surface2);border-radius:10px;padding:8px 10px"><div style="font-size:11px;color:var(--text2)">${l}</div><div style="font-weight:700;font-size:15px">${v}</div>${sub?`<div style="font-size:11px;color:var(--text3)">${sub}</div>`:''}</div>`;
+  let h='<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin:0 0 12px;background:#fff">';
+  h+='<div style="font-weight:700;font-size:14px;margin-bottom:8px">Venta</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">';
+  h+=caja('Por mes (local + web)',mensual?'≈ '+mensual.toLocaleString('es-AR'):'—','prom. local + web 30 días');
+  h+=caja('Stock web',stock!=null?stock.toLocaleString('es-AR'):'—',stock!=null&&mensual?'≈ '+(stock/mensual).toLocaleString('es-AR',{maximumFractionDigits:1})+' meses':'');
+  h+=caja('Web · 30 días',w30!=null?w30:'—',wMes!=null?`este mes ${wMes} · mes ant. ${wAnt??'—'}`:(p?'':'sin cruzar con Tiendanube'));
+  h+=caja('Local · última carga',loc.length?locUlt:'—',loc.length?`prom. ${prom}/mes`:'sin ventas cargadas');
+  h+='</div>';
+  if(loc.length){
+    const max=Math.max(...loc.map(x=>x.u),1);
+    h+='<div style="font-size:11px;color:var(--text2);margin:10px 0 4px">Local por mes</div>'+loc.slice().reverse().map(x=>{
+      const [y,m]=x.mes.split('-');
+      return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0"><span style="width:52px;color:var(--text2)">${MES[+m-1]} ${y.slice(2)}</span><span style="flex:1;background:var(--surface2);border-radius:40px;height:8px;overflow:hidden"><span style="display:block;height:8px;width:${Math.round(x.u/max*100)}%;background:#416096"></span></span><span style="width:40px;text-align:right;font-weight:600">${x.u}</span></div>`;}).join('');
+  }
+  if(totEnt&&mensual) h+=`<div style="font-size:11px;color:var(--text3);margin-top:8px">Entraron ${totEnt.toLocaleString('es-AR')} en total en todos los cortes.</div>`;
+  h+=`<div style="font-size:11px;color:var(--text3);margin-top:6px">Fuente: Dashboard de ventas${haVentas.act?' · actualizado '+new Date(haVentas.act).toLocaleDateString('es-AR'):''}</div></div>`;
+  return h;
+}
+
+// ---- Historial de artículo (nov 2026) ----
+// Buscás un código o nombre y ves todos los cortes que se hicieron de ese artículo:
+// taller, precio de taller, prendas entregadas, fallados, consumo de tela, avíos y costo.
+// Solo lectura: junta datos de Fábrica (sections), Logística (logistica/items) y Costeo (costeos).
+let haBusqueda='', haCodigoSel='';
+function haNorm(t){ return String(t||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function haPrendasGrilla(g){
+  let ent=0, fall=0;
+  Object.values(g||{}).forEach(f=>{
+    if(!f) return;
+    const ok=parseInt(f.ok)||0, det=parseInt(f.detalle)||0;
+    ent+=(ok+det)||parseInt(f.contado)||parseInt(f.esperado)||0;
+    fall+=(parseInt(f.fallado)||0)+(parseInt(f.fallado_tela)||0);
+  });
+  return {ent,fall};
+}
+// Índice código -> {code,name,cortes:{corteKey:{...}}}
+function haIndice(){
+  const idx={};
+  const art=(code,name)=>{
+    const c=String(code||'').trim(); if(!c) return null;
+    const a=idx[c]=idx[c]||{code:c,name:'',cortes:{}};
+    if(name&&!a.name) a.name=String(name).trim();
+    return a;
+  };
+  const corte=(a,num)=>{
+    const k=corteKeyFrom(String(num||''))||'sin_corte';
+    return a.cortes[k]=a.cortes[k]||{key:k,numero:String(num||'').trim(),fab:null,logi:[]};
+  };
+  try{ cortesTabFilas().forEach(f=>{ const a=art(f.item.code,f.item.name); if(!a) return; const c=corte(a,f.item.numero_corte); if(!c.fab) c.fab=f; }); }catch(e){ console.error('historial fabrica',e); }
+  Object.entries(logiItemsData||{}).forEach(([id,it])=>{
+    if(!it) return;
+    const a=art(it.code,it.name||it.articulo); if(!a) return;
+    corte(a,it.numero_corte).logi.push({id,it});
+  });
+  Object.entries(costeosData||{}).forEach(([k,e])=>{
+    (e&&e.articulos||[]).forEach(x=>{ const a=art(x&&x.code,x&&x.name); if(a) corte(a,e.numero_corte); });
+  });
+  return idx;
+}
+function haCosteo(numero,code){
+  const k=corteKeyFrom(String(numero||'')), e=k?costeosData[k]:null;
+  if(!e) return null;
+  const i=(e.articulos||[]).findIndex(a=>a&&String(a.code||'')===String(code));
+  if(i<0) return null;
+  try{ return costeoArtCalc(e,i); }catch(err){ return null; }
+}
+function haFilaCorte(c,code){
+  const fab=c.fab&&c.fab.item;
+  let ent=0, fall=0, fechaTs=0;
+  const talleres=new Set(), precios=new Set();
+  c.logi.forEach(({it})=>{
+    const p=haPrendasGrilla(it.grilla); ent+=p.ent; fall+=p.fall;
+    const ts=logiParseFechaEntregado(it.fecha_entregado)||it.fecha_creado||0; if(ts>fechaTs) fechaTs=ts;
+    if(it.taller) talleres.add(String(it.taller).trim());
+    if(parseFloat(it.precio_taller)>0) precios.add(parseFloat(it.precio_taller));
+  });
+  if(fab){
+    if(fab.taller_corte) talleres.add(String(fab.taller_corte).trim());
+    if(!precios.size&&parseFloat(fab.precio_taller)>0) precios.add(parseFloat(fab.precio_taller));
+  }
+  const fechaCorte=fab?(fab.fecha_corte_ts||parseFechaArToTs(fab.fecha_corte)||0):0;
+  const cortadas=fab?(cortesTabCantidad(fab)||0):0;
+  const r=haCosteo(c.numero,code);
+  const tallerCosteo=r?((r.otros.find(o=>o.c.key==='costo_taller')||{}).unit||0):0;
+  return {c,fab,ent,fall,fechaTs,fechaCorte,cortadas,talleres:[...talleres].filter(Boolean),precios:[...precios],r,tallerCosteo,
+    orden:fechaCorte||fechaTs||0, dias:(fechaCorte&&fechaTs&&fechaTs>=fechaCorte)?Math.round((fechaTs-fechaCorte)/86400000):null};
+}
+function haAviosHtml(r){
+  if(!r||!r.avios.length) return '<div style="font-size:12px;color:var(--text3)">Sin avíos cargados en Costeo</div>';
+  return '<table style="width:100%;font-size:12px;border-collapse:collapse">'+
+    '<tr style="color:var(--text2);text-align:left"><th style="padding:3px 4px">Avío</th><th style="padding:3px 4px">Consumo</th><th style="padding:3px 4px">Precio u.</th><th style="padding:3px 4px;text-align:right">x prenda</th></tr>'+
+    r.avios.map(x=>`<tr style="border-top:1px solid var(--border)"><td style="padding:3px 4px">${costeoEsc(x.av.nombre||'—')}${x.av.proveedor?` <span style="color:var(--text3)">· ${costeoEsc(x.av.proveedor)}</span>`:''}</td><td style="padding:3px 4px">${costeoKg(numAr2(x.av.cantidad),2)}</td><td style="padding:3px 4px">${x.precioEf?costeoPesos(x.precioEf):'<span style="color:#b45309">sin precio</span>'}${x.compra?' <span title="Precio tomado de la compra del corte" style="color:var(--text3)">(compra)</span>':''}</td><td style="padding:3px 4px;text-align:right">${costeoPesos(x.unit)}</td></tr>`).join('')+
+    '</table>';
+}
+function renderHistorialArticulo(){
+  const cont=document.getElementById('histart-content'); if(!cont) return;
+  const idx=haIndice();
+  const q=haNorm(haBusqueda);
+  let html=`<input type="text" class="search-input" id="histart-search" placeholder="Buscá por código o nombre del artículo" value="${costeoEsc(haBusqueda)}" oninput="haBusqueda=this.value;haCodigoSel='';renderHistorialArticulo();setTimeout(()=>{const i=document.getElementById('histart-search');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},0)">`;
+  if(!q){ cont.innerHTML=html+'<div style="color:var(--text2);font-size:13px;padding:12px 2px">Escribí un código (ej. 4703) o parte del nombre para ver todos sus cortes: taller, precio, consumo y avíos.</div>'; return; }
+  const matches=Object.values(idx).filter(a=>haNorm(a.code).includes(q)||haNorm(a.name).includes(q))
+    .sort((a,b)=>(haNorm(a.code)===q?-1:0)-(haNorm(b.code)===q?-1:0)||a.code.localeCompare(b.code,'es',{numeric:true}));
+  if(!matches.length){ cont.innerHTML=html+'<div style="color:var(--text2);font-size:13px;padding:12px 2px">No encontré artículos con eso.</div>'; return; }
+  let sel=haCodigoSel==='__lista__'?null:(matches.find(a=>a.code===haCodigoSel)||(matches.length===1||haNorm(matches[0].code)===q?matches[0]:null));
+  if(!sel){
+    html+='<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">'+matches.slice(0,40).map(a=>
+      `<button class="btn-sm" style="text-align:left;justify-content:flex-start" onclick="haCodigoSel='${costeoEsc(a.code).replace(/'/g,"\\'")}';renderHistorialArticulo()"><strong>${costeoEsc(a.code)}</strong> ${costeoEsc(a.name)} <span style="color:var(--text3)">· ${Object.keys(a.cortes).length} corte${Object.keys(a.cortes).length!==1?'s':''}</span></button>`).join('')+
+      (matches.length>40?`<div style="font-size:12px;color:var(--text3)">…y ${matches.length-40} más, afiná la búsqueda</div>`:'')+'</div>';
+    cont.innerHTML=html; return;
+  }
+  const filas=Object.values(sel.cortes).map(c=>haFilaCorte(c,sel.code)).sort((a,b)=>b.orden-a.orden);
+  const totEnt=filas.reduce((s,f)=>s+f.ent,0), totFall=filas.reduce((s,f)=>s+f.fall,0);
+  const talleresTot={};
+  filas.forEach(f=>f.talleres.forEach(t=>{ const x=talleresTot[t]=talleresTot[t]||{n:0,d:0,nd:0}; x.n++; if(f.dias!=null){ x.d+=f.dias; x.nd++; } }));
+  const conDias=filas.filter(f=>f.dias!=null), promDias=conDias.length?Math.round(conDias.reduce((s,f)=>s+f.dias,0)/conDias.length):null;
+  html+=`<div style="margin:10px 0 12px">
+    <div style="font-family:Poppins,sans-serif;font-weight:700;font-size:17px">${costeoEsc(sel.code)} · ${costeoEsc(sel.name||'')}</div>
+    <div style="font-size:12px;color:var(--text2);margin-top:4px">${filas.length} corte${filas.length!==1?'s':''} · ${totEnt.toLocaleString('es-AR')} prendas entregadas${totFall?` · ${totFall} falladas`:''}${promDias!=null?` · tarda ${promDias} días en promedio`:''}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${Object.entries(talleresTot).sort((a,b)=>b[1].n-a[1].n).map(([t,x])=>`<span style="font-size:11px;padding:3px 10px;border-radius:40px;background:#8FADC5;color:#fff">${costeoEsc(t)} · ${x.n} corte${x.n!==1?'s':''}${x.nd?` · ${Math.round(x.d/x.nd)} días prom.`:''}</span>`).join('')||'<span style="font-size:12px;color:var(--text3)">Sin taller cargado</span>'}</div>
+    ${matches.length>1?`<button class="btn-sm" style="margin-top:8px" onclick="haCodigoSel='__lista__';renderHistorialArticulo()">← Ver los ${matches.length} resultados</button>`:''}
+  </div>`;
+  html+=haVentasHtml(sel.code,sel.name,totEnt);
+  html+=filas.map(f=>{
+    const r=f.r, local=r?((r.precios.find(p=>p.campo==='precio_lista_local')||{}).p||0):0;
+    const pt=f.precios.length?f.precios.map(costeoPesos).join(' / '):(f.tallerCosteo?costeoPesos(f.tallerCosteo)+' (costeo)':'—');
+    const dato=(l,v)=>`<div><div style="font-size:11px;color:var(--text2)">${l}</div><div style="font-weight:600;font-size:13px">${v}</div></div>`;
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px;background:#fff">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap">
+        <div style="font-weight:700">Corte ${costeoEsc(f.c.numero||'s/n')}</div>
+        <div style="font-size:12px;color:var(--text2)">${f.fechaCorte?'Cortado '+fmtFecha(f.fechaCorte):''}${f.fechaTs?(f.fechaCorte?' · ':'')+'Entregado '+fmtFecha(f.fechaTs):''}${f.dias!=null?` <span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:40px;font-size:11px;font-weight:600;background:${f.dias>21?'#9B5C6B':'#416096'};color:#fff">${f.dias} días</span>`:(f.fechaCorte&&!f.fechaTs?` <span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:40px;font-size:11px;border:1px solid #416096;color:#416096">hace ${Math.round((Date.now()-f.fechaCorte)/86400000)} días · sin entregar</span>`:'')}</div>
+      </div>
+      <div style="font-size:13px;margin:4px 0 10px">🧵 ${f.talleres.length?costeoEsc(f.talleres.join(' + ')):'<span style="color:var(--text3)">sin taller</span>'}${f.c.fab?' · '+costeoChip(f.c.fab.estado):''}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">
+        ${dato('Precio taller',pt)}
+        ${dato('Prendas',(f.ent?f.ent.toLocaleString('es-AR')+' entregadas':'')+(f.cortadas&&!f.ent?f.cortadas.toLocaleString('es-AR')+' cortadas':'')+(!f.ent&&!f.cortadas?'—':'')+(f.fall?` <span style="color:#9B5C6B">· ${f.fall} fall.</span>`:''))}
+        ${dato('Consumo tela',r&&r.consumoU?costeoKg(r.consumoU,3)+' kg/prenda':'—')}
+        ${dato('Avíos x prenda',r&&r.piezas?costeoPesos(r.costoAvios/r.piezas):'—')}
+        ${dato('Costo unitario',r&&r.hayCosto?costeoPesos(r.costoU):'—')}
+        ${dato('Precio local',local?`<span style="color:#9B5C6B">${costeoPesos(local)}</span>`:'—')}
+      </div>
+      ${r?`<details style="margin-top:10px"><summary style="font-size:12px;color:#416096;cursor:pointer">Ver avíos y tela</summary>
+        <div style="font-size:12px;color:var(--text2);margin:6px 0">Tela: ${costeoKg(r.kg,2)} kg para ${r.piezas} prendas · ${r.precioKg?costeoPesos(r.precioKg)+'/kg':'sin precio por kg'}</div>
+        ${haAviosHtml(r)}</details>`:'<div style="font-size:12px;color:var(--text3);margin-top:8px">Este corte no tiene costeo cargado</div>'}
+    </div>`;
+  }).join('');
+  cont.innerHTML=html;
+}
+
 function ocultarTabsMenosActiva(activo){
-  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-resumen','tab-peque','tab-galeria','tab-prodmes','tab-telas','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc'].forEach(id=>{
+  ['tab-diseno','tab-fabrica','tab-talleres','tab-pendientes','tab-resumen','tab-peque','tab-galeria','tab-prodmes','tab-telas','tab-actividad','tab-estampas','tab-logistica','tab-web','tab-costeo','tab-rendimiento','tab-facturacion','tab-cortes','tab-comerc','tab-histart'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id!==activo);
   });
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
@@ -22711,6 +22908,11 @@ document.getElementById('tab-btn-telas').onclick=function(){
   ocultarTabsMenosActiva('tab-telas');
   this.classList.add('active');
   if(tsVista.modo!=='form') renderTelasStock();
+};
+document.getElementById('tab-btn-histart').onclick=function(){
+  ocultarTabsMenosActiva('tab-histart');
+  this.classList.add('active');
+  renderHistorialArticulo();
 };
 document.getElementById('tab-btn-prodmes').onclick=function(){
   ocultarTabsMenosActiva('tab-prodmes');

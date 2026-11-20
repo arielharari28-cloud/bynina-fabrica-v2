@@ -8192,846 +8192,9 @@ function destinoMoldeAdela(item){
   return necesitaProgresiones(item)?'Molde - Pendiente Progresiones':'Molde - Pendiente Digitalizar';
 }
 function buildItemBase(secId,itemId,item,sec,idx,total){
+  // Muestras, terminación, estampado, revisión, mejora y perfectos usan fichaMuestraHtml; acá quedan las secciones "normales".
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||(currentUser==='arimoron'&&secId===SEC_PEND);
-  const tipo=sec.tipo||'';
-  // Noelia no tiene edición general acá, pero en Revisión Final y en Productos Perfectos sí
-  // puede subir la foto (de cómo quedó la muestra terminada / la foto final del producto) — es
-  // un permiso puntual, no todo el resto (código, nombre, eliminar siguen bloqueados para ella).
-  const canEditFotoRevision=canEdit||(currentUser==='noelia'&&(tipo==='revision_final'||tipo==='producto_perfecto'));
-  // Noelia puede marcar el resultado de la revisión final (Producto Perfecto / Necesita mejora)
-  // — permiso puntual, igual que la foto; el resto de los botones de esa tarjeta (cancelar,
-  // eliminar, mover) siguen bloqueados para ella.
-  const canRevisarFinal=canEdit||(currentUser==='noelia'&&tipo==='revision_final');
-  const canCheck=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir';
-  // Emir puede marcar las muestras como cortadas (él es quien las corta), aunque no tenga
-  // el resto de los permisos de edición de esta tarjeta (cancelar, eliminar, editar campos).
-  const canMarcarCortadaMuestra=canEdit||currentUser==='emir';
   const moveOpts=buildMoveOptsForItem(secId,itemId);
-
-  if(tipo==='muestra_pend'){
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            <span class="modelista-label">Tela:</span>
-            ${item.tela_nombre
-              ? `<span style="font-size:12px;font-weight:600">${item.tela_nombre}</span>${item.tela_proveedor?` <span style="font-size:10px;color:var(--text3)">· ${item.tela_proveedor}</span>`:''}${item.tela_set_by?` <span style="font-size:10px;color:var(--text3)">(cargado por ${item.tela_set_by})</span>`:''}`
-              : `<span style="font-size:12px;color:var(--warn-text);font-style:italic">⚠️ Sin tela</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editTelaPendPrompt('${secId}','${itemId}')">${item.tela_nombre?'✏️ Editar':'+ Tela'}</button>`:''}
-          </div>
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            <span class="modelista-label">Color:</span>
-            ${item.color
-              ? `<span style="font-size:12px;font-weight:600">${item.color}</span><span style="font-size:10px;color:var(--text3)">(cargado por ${item.color_set_by||'—'})</span>`
-              : `<span style="font-size:12px;color:var(--warn-text);font-style:italic">⚠️ Sin color</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editColorPrompt('${secId}','${itemId}')">${item.color?'✏️ Editar':'+ Color'}</button>`:''}
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            <span class="modelista-label">Talle:</span>
-            ${item.talle
-              ? `<span style="font-size:12px;font-weight:600">${item.talle}</span><span style="font-size:10px;color:var(--text3)">(cargado por ${item.talle_set_by||'—'})</span>`
-              : `<span style="font-size:12px;color:var(--warn-text);font-style:italic">⚠️ Sin talle</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editTallePrompt('${secId}','${itemId}')">${item.talle?'✏️ Editar':'+ Talle'}</button>`:''}
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            ${item.ficha_link
-              ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
-          </div>
-          <div class="item-actions">
-            ${canMarcarCortadaMuestra?`<button class="btn-advance" ${(item.color&&item.talle)?'':'disabled'} title="${(item.color&&item.talle)?'':'Falta cargar Color y/o Talle'}" onclick="moverACortada('${secId}','${itemId}')">✂️ Marcar cortada</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  if(tipo==='muestra_cort'){
-    const ficha=item.ficha||false;
-    const llevaAvios=item.lleva_avios;
-    const avios=Object.entries(item.avios||{});
-    let aviosPanel='';
-    if(llevaAvios===true){
-      if(avios.length===0){
-        aviosPanel=`<div class="avio-item" style="gap:8px"><span style="font-size:12px;color:var(--text3);font-style:italic">Sin avíos cargados</span>
-          ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">+ Cargar</button>`:''}
-        </div>`;
-      } else {
-        aviosPanel=avios.map(([avioId,avio])=>{
-          const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
-          const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
-          const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Entregado</span>`
-            :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
-            :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-          const canPedir=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-          const canRecibir=puedeRecibirAvio();
-          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
-            ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Entregado</button>`
-            :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
-          return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
-            <span class="avio-name">${avio.nombre}${avio.tenido?' <span title="Lleva teñido" style="font-size:10px;color:#7c3aed">🎨 teñido</span>':''}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
-            ${badge}${btns}</div>`;
-        }).join('');
-        if(canEdit) aviosPanel+=`<div class="avio-item"><button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar avíos</button></div>`;
-      }
-    }
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--text2)">Color: <strong>${item.color||'—'}</strong></span>
-            <span style="font-size:11px;color:var(--text2)">Talle: <strong>${item.talle||'—'}</strong></span>
-            ${canCheck?`<button class="btn-sm" onclick="editColorPrompt('${secId}','${itemId}')">✏️ Color</button>`:''}
-            ${canCheck?`<button class="btn-sm" onclick="editTallePrompt('${secId}','${itemId}')">✏️ Talle</button>`:''}
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--text2)">✂️ Cortado: <strong>${item.fecha_corte||'—'}</strong></span>
-            ${canCheck?`<button class="btn-sm" onclick="editFechaCorteMuestra('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}
-          </div>
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div class="cortada-panel">
-            <div class="cortada-row">
-              <div class="c-check ${ficha?'checked':''}" onclick="${canCheck?`toggleFicha('${secId}','${itemId}')`:''}">
-                ${ficha?'✓':''}
-              </div>
-              ${item.ficha_link
-                ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" class="c-label ${ficha?'done':''}" style="color:var(--accent);text-decoration:underline">Ficha Producto lista 🔗</a>`
-                : `<span class="c-label ${ficha?'done':''}">Ficha Producto lista</span>`}
-              ${canCheck?`<button class="btn-sm" style="margin-left:auto" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
-            </div>
-            <div class="cortada-row">
-              <span class="c-label" style="font-weight:500">¿Lleva avíos?</span>
-              <div class="radio-group">
-                ${canCheck?`
-                  <button class="radio-btn ${llevaAvios===true?'selected':''}" onclick="setLlevaAvios('${secId}','${itemId}',true)">Sí</button>
-                  <button class="radio-btn ${llevaAvios===false?'selected':''}" onclick="setLlevaAvios('${secId}','${itemId}',false)">No</button>
-                `:`<span style="font-size:12px;color:var(--text2)">${llevaAvios===true?'Sí':llevaAvios===false?'No':'Sin definir'}</span>`}
-              </div>
-            </div>
-            ${llevaAvios===true?`<div class="avios-sub">${aviosPanel}</div>`:''}
-          </div>
-          <div class="item-actions">
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  if(tipo==='muestra_lista'){
-    const tallerOpts=TALLERISTAS_MUESTRA.map(t=>`<option value="${t}">${t}</option>`).join('');
-    const tallerElegido=item.taller_elegido;
-    const canMarcarEnviado=canEdit||currentUser==='emir';
-    // Último punto de control antes de que la muestra salga físicamente al taller: si lleva
-    // avíos y todavía no llegaron, se bloquea el botón "Enviado" (salvo autorización de Ariel/Stef).
-    const llevaAvios=item.lleva_avios;
-    const avios=Object.entries(item.avios||{});
-    const esAutorizador=(currentUser==='ariel'||currentUser==='stef');
-    const canPedir=esAutorizador||currentUser==='peque';
-    const canRecibir=puedeRecibirAvio();
-    const aviosPendientes=llevaAvios===true&&avios.length>0&&!avios.every(([,a])=>a.recibido);
-    let aviosPanel='';
-    if(llevaAvios===true){
-      if(avios.length===0){
-        aviosPanel=`<div class="avio-item" style="padding-left:0;border-top:none;color:var(--text3);font-size:12px;font-style:italic">Sin avíos cargados ${canEdit?`<button class="btn-sm" style="margin-left:4px" onclick="openEditModal('${secId}','${itemId}')">+ Cargar</button>`:''}</div>`;
-      } else {
-        aviosPanel='<div class="avios-sub">'+avios.map(([avioId,avio])=>{
-          const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
-          const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
-          const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
-            :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
-            :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-          const btns=`${(!rec&&!hasDate&&canPedir)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedir)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibir)
-            ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
-            :(rec&&canRecibir)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩</button>`:''}`;
-          return `<div class="avio-item"><div class="avio-dot" style="background:${dot}"></div>
-            <span class="avio-name">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
-            ${badge}${btns}</div>`;
-        }).join('')+(canEdit?`<div class="avio-item"><button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar avíos</button></div>`:'')+'</div>';
-      }
-    }
-    const pedidoSinAvioHtml=item.pedido_sin_avio?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">🔔 <strong>${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por}</strong> pidió enviar sin esperar el avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`:'';
-    let enviarBtnHtml;
-    if(!aviosPendientes){
-      enviarBtnHtml=`<button class="btn-advance" onclick="marcarEnviadoTaller('${secId}','${itemId}')">✅ Enviado</button>`;
-    } else if(esAutorizador){
-      enviarBtnHtml=item.pedido_sin_avio
-        ? `<button class="btn-advance" onclick="autorizarEnviarMuestraSinAvio('${secId}','${itemId}')">✅ Autorizar y enviar</button>
-           <button class="btn-sm" onclick="rechazarSinAvio('${secId}','${itemId}')">✖ Rechazar pedido</button>`
-        : `<span class="c-label" style="font-size:11px;color:var(--text3);flex:0">Faltan avíos — esperando que pidan autorización para enviar igual</span>`;
-    } else {
-      enviarBtnHtml=item.pedido_sin_avio
-        ? `<span class="c-label" style="font-size:11px;color:var(--warn-text);flex:0">🔔 Esperando autorización de Ariel/Stef</span>`
-        : `<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAutorizacionSinAvio('${secId}','${itemId}')">🔔 Faltan avíos — pedir autorización para enviar igual</button>`;
-    }
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            ${item.ficha_link
-              ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
-          </div>
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div class="cortada-panel">
-            <div class="cortada-row">
-              <span class="c-label" style="font-weight:500">¿Lleva avíos?</span>
-              <div class="radio-group">
-                ${canCheck?`
-                  <button class="radio-btn ${llevaAvios===true?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',true)">Sí</button>
-                  <button class="radio-btn ${llevaAvios===false?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',false)">No</button>
-                `:`<span style="font-size:12px;color:var(--text2)">${llevaAvios===true?'Sí':llevaAvios===false?'No':'Sin definir'}</span>`}
-              </div>
-            </div>
-            ${aviosPanel}
-          </div>
-          <div class="listo-badge">🎉 Lista para sacar a taller</div>
-          ${(!tallerElegido&&canEdit)?`
-          <div class="enviar-taller-row">
-            <select class="move-select" id="taller-sel-${itemId}">
-              <option value="">Elegir taller...</option>
-              ${tallerOpts}
-              <option value="__nuevo__">+ Otro...</option>
-            </select>
-            <button class="btn-advance" onclick="confirmarEleccionTaller('${secId}','${itemId}')">Elegir taller</button>
-          </div>`:''}
-          ${tallerElegido?`
-          ${pedidoSinAvioHtml}
-          <div class="enviar-taller-row" style="align-items:center;flex-wrap:wrap">
-            <span style="font-size:12px;color:var(--text2)">Taller elegido: <strong>${tallerElegido}</strong></span>
-            ${canMarcarEnviado?enviarBtnHtml:''}
-          </div>`:''}
-          <div class="item-actions">
-            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Avíos</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  if(tipo==='muestra_en_taller'){
-    const dias=diasDesde(item.fecha_envio_taller);
-    const diasColor = dias>=7 ? 'var(--danger)' : dias>=3 ? 'var(--warn-text)' : 'var(--text2)';
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--text2)">Color: <strong>${item.color||'—'}</strong></span>
-            <span style="font-size:11px;color:var(--text2)">Talle: <strong>${item.talle||'—'}</strong></span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            ${item.ficha_link
-              ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
-          </div>
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div class="en-taller-panel">
-            <div class="en-taller-row"><span class="et-label">Taller:</span><span class="et-val">${item.tallerista||'—'}</span></div>
-            <div class="en-taller-row"><span class="et-label">Enviada:</span><span class="et-val">${fmtFecha(item.fecha_envio_taller)}</span></div>
-            <div class="en-taller-row"><span class="et-label">Días sin entregar:</span><span class="et-val" style="color:${diasColor};font-weight:700">${dias} día${dias!==1?'s':''}</span></div>
-          </div>
-          ${canEdit?`<div style="font-size:11px;color:var(--warn-text);margin-top:4px">⚠️ Recordá: se entrega con <strong>ficha y muestra</strong></div>`:''}
-          <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" title="Entregar con ficha y muestra" onclick="marcarEntregada('${secId}','${itemId}')">✅ Entregada</button>`:''}
-            ${canEdit?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="volverAMolderiaDesdeTaller('${secId}','${itemId}')">↩ Taller no puede armarla</button>`:''}
-            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Avíos</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  // --- CANCELADAS: archivo de muestras que no llegaron a aprobarse ---
-  if(tipo==='muestra_cancelada'){
-    return `<div class="item">
-      <div class="item-with-photo">
-        ${buildPhotoHtml(secId,itemId,item,false)}
-        <div class="item-body">
-          ${buildNameHtml(secId,itemId,item,false)}
-          ${item.code?`<div class="item-code" style="margin-top:0">${item.code}</div>`:''}
-          <div style="font-size:11px;color:var(--text2);margin-top:6px">Estaba en: ${item.cancelada_desde||'—'}</div>
-          ${item.fecha_cancelacion?`<div style="font-size:11px;color:var(--text2)">Cancelada: ${fmtFecha(item.fecha_cancelacion)}</div>`:''}
-          <div style="margin-top:8px">
-            <span class="modelista-label">Motivo:</span>
-            ${item.motivo_cancelacion?`<div style="font-size:12px;color:var(--text);background:var(--surface2);border-radius:6px;padding:6px 8px;margin-top:4px;white-space:pre-wrap">${item.motivo_cancelacion}</div>`:`<span style="font-size:12px;color:var(--text3);font-style:italic;margin-left:6px">Sin motivo cargado</span>`}
-          </div>
-          <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" title="Vuelve al principio, a Nuevos Desarrollos" onclick="reactivarMuestra('${secId}','${itemId}')">↩ Reactivar</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar definitivo</button>`:''}
-          </div>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // --- NUEVOS DESARROLLOS: nombre + código + ficha + control, todo en la misma tarjeta ---
-  if(tipo==='muestra_prep'){
-    const ninox=item.en_ninox||false;
-    const cStef=item.control_stef||false, cAriel=item.control_ariel||false, cNoelia=item.control_noelia||false;
-    const controlDone=cAriel||cStef||cNoelia;
-    const fichaModPendiente=item.ficha_estado==='modificar';
-    const fichaCorregidaEsperando=item.ficha_estado==='modificada'&&!controlDone;
-    const fichaStatusLabel=fichaModPendiente
-      ? '🔁 Pendiente modificar ficha'
-      : fichaCorregidaEsperando
-        ? '🔄 Corregida — esperando control'
-        : (controlDone ? (item.ficha_estado==='modificada' ? '✅ Ficha Técnica Modificada' : '✅ Ficha Técnica Aprobada') : 'Pendiente');
-    const fichaStatusColor=(fichaModPendiente||fichaCorregidaEsperando||!controlDone) ? 'var(--warn-text)' : 'var(--accent)';
-    const modelistaLocked=!(ninox&&controlDone)||fichaModPendiente;
-    const esAdela=item.modelista==='Adela';
-    const baseAprobadaCompleta=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&controlDone&&!!(item.base_ref_id||item.base_ref_manual);
-    const puedeAvanzar=item.base_aprobada
-      ? baseAprobadaCompleta
-      : !!(item.code&&item.code.trim())&&!!item.ficha_link&&aviosDefinidosNuevoDesarrollo(item)&&!fichaModPendiente&&!!item.color_muestra&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
-    const canControl=(currentUser==='ariel'||currentUser==='stef');
-    const canStef=(currentUser==='ariel'||currentUser==='stef')||esMinisurPeque(item);
-    const canPeque=(currentUser==='ariel'||currentUser==='peque');
-    // Código y Ninox los carga Noelia (Peque y Ariel también pueden, por si hace falta).
-    const canCodigoNinox=canPeque||usuarioLogueado==='noelia';
-    // El nombre del producto lo pone Peque (es su tarea asignarlo), así que además de
-    // Ariel/Stef también puede editarlo acá — el resto de los campos de esta tarjeta (tipo de
-    // desarrollo, tela, etc.) siguen limitados a canStef como antes.
-    const canNombre=canStef||currentUser==='peque';
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:3;min-width:320px">
-        ${buildPhotoHtml(secId,itemId,item,canStef,true)}
-        <div class="item-body">
-          ${item.origen_mejora?`<div style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);border-radius:6px;padding:4px 8px;margin-bottom:6px">🔧 <strong>Viene de una mejora:</strong> ${item.origen_mejora}</div>`:''}
-          ${buildNameHtml(secId,itemId,item,canNombre,true)}
-          ${buildTipoDesarrolloHtml(secId,itemId,item,canStef)}
-          ${item.base_aprobada?buildBaseTizadaHtml(secId,itemId,item,canPeque):((item.name&&item.name.trim())?buildBaseTizadaHtml(secId,itemId,item,canPeque||canStef,'nd'):'')}
-          ${procesoInfoHtml(item,secId,itemId)}
-          <div class="idea-tela-row" style="align-items:flex-start">
-            ${item.foto_tela
-              ? `<div class="item-photo-wrap small"><img class="item-photo" src="${item.foto_tela}" onclick="openPhotoModal('${item.foto_tela}')">${canStef?`<button class="photo-edit-btn" onclick="event.stopPropagation();triggerFotoTelaUpload('${secId}','${itemId}')" title="Cambiar tela">✏️</button>`:''}</div>`
-              : (canStef?`<div class="item-photo-placeholder small" onclick="triggerFotoTelaUpload('${secId}','${itemId}')" title="Agregar tela base">🧵</div>`:'')}
-            <div style="display:flex;flex-direction:column;gap:6px;min-width:0;flex:1">
-              <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                <span style="font-size:11px;color:var(--text2);min-width:56px;flex-shrink:0">Tela base</span>
-                ${buildTelaBaseHtml(secId,itemId,item,canStef)}
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                <span style="font-size:11px;color:var(--text2);min-width:56px;flex-shrink:0">Proveedor</span>
-                ${buildProveedorTelaHtml(secId,itemId,item,canStef)}
-              </div>
-            </div>
-          </div>
-
-          ${canStef?buildMarcaHtml(secId,itemId,item):''}
-          ${canStef?buildCategoriaHtml(secId,itemId,item):''}
-          ${canStef?buildTemporadaHtml(secId,itemId,item):''}
-          ${buildFechaObjetivoRecibirHtml(secId,itemId,item,canStef)}
-          ${canStef?buildColorMuestraHtml(secId,itemId,item):(item.color_muestra?`<div style="font-size:11px;color:var(--text2);margin-top:6px">Color de la muestra: <strong>${item.color_muestra}</strong></div>`:'')}
-          ${!item.color_muestra?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:6px">⚠️ Falta elegir el color de la muestra (Noelia)</div>`:''}
-
-          <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <span class="modelista-label">Link:</span>
-            ${item.ref_link
-              ? `<a href="${item.ref_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">🔗 Ver</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin link</span>`}
-            ${canStef?`<button class="btn-sm" onclick="editRefLink('${secId}','${itemId}')">${item.ref_link?'🔗 Editar link':'+ Link'}</button>`:''}
-          </div>
-
-          <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <span class="modelista-label">${item.base_aprobada?'Código nuevo:':'Código:'}</span>
-            ${item.code?`<span class="item-code" style="margin-top:0">${item.code}</span>`:`<span style="font-size:12px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-            ${canCodigoNinox?`<button class="btn-sm" onclick="editCodigoPrompt('${secId}','${itemId}')">✏️ Editar código</button>`:''}
-          </div>
-          <div class="avio-item" style="padding-left:0;border-top:none">
-            <div class="c-check ${ninox?'checked':''}" onclick="${canCodigoNinox?`toggleNinox('${secId}','${itemId}')`:''}">${ninox?'✓':''}</div>
-            <span class="c-label" style="font-size:11px">Cargado en Ninox</span>
-          </div>
-          <div class="avio-item" style="padding-left:0;border-top:none;flex-wrap:wrap;gap:6px">
-            <span class="c-label" style="font-size:11px">🧵 ¿Lleva avíos?${item.base_aprobada?'':' <span style="color:var(--text3)">(se define con la ficha)</span>'}</span>
-            ${canPeque?`<div class="radio-group">
-                <button class="radio-btn ${item.lleva_avios===true?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',true)">Sí</button>
-                <button class="radio-btn ${item.lleva_avios===false?'selected':''}" onclick="setLlevaAviosLista('${secId}','${itemId}',false)">No</button>
-              </div>`:`<span style="font-size:11px;color:var(--text2)">${item.lleva_avios===true?'Sí':item.lleva_avios===false?'No':'Sin definir'}</span>`}
-            ${item.lleva_avios===true?`<span style="font-size:11px">${Object.keys(item.avios||{}).length?`<strong>${Object.keys(item.avios||{}).length} cargado${Object.keys(item.avios||{}).length!==1?'s':''}</strong>`:'<span style="color:var(--warn-text);font-style:italic">falta cargarlos</span>'}</span>
-              ${canPeque?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar avíos':'+ Cargar avíos'}</button>`:''}`:''}
-          </div>
-
-          <div style="margin-top:10px">
-            <span class="modelista-label">Ficha técnica:</span>
-            ${item.ficha_link
-              ? `<span style="font-size:12px;font-weight:600;color:var(--accent)">Cargada ✓</span> <a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">🔗 Ver</a>`
-              : `<span style="font-size:12px;font-weight:600;color:var(--warn-text)">Pendiente</span>`}
-            ${canPeque?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar link':'+ Link'}</button>`:''}
-          </div>
-
-          <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="modelista-label">Control de ficha:</span>
-            <span style="font-size:12px;font-weight:600;color:${fichaStatusColor}">${fichaStatusLabel}</span>
-            ${canControl&&item.ficha_link&&!fichaModPendiente?`<button class="radio-btn ${cAriel?'selected':''}" onclick="toggleControlFicha('${secId}','${itemId}','control_ariel')">${cAriel?'✓ ':''}Ariel</button>
-            <button class="radio-btn ${cStef?'selected':''}" onclick="toggleControlFicha('${secId}','${itemId}','control_stef')">${cStef?'✓ ':''}Stef</button>
-            <button class="radio-btn ${cNoelia?'selected':''}" onclick="toggleControlFicha('${secId}','${itemId}','control_noelia')">${cNoelia?'✓ ':''}Noelia</button>
-            ${!fichaCorregidaEsperando?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirModificacionFicha('${secId}','${itemId}')">🔧 Pedir modificación</button>`:''}`:''}
-            ${canControl&&!item.ficha_link?`<span style="font-size:11px;color:var(--text3);font-style:italic">Cargá la ficha primero</span>`:''}
-          </div>
-          ${(()=>{ const modFotos=Object.entries(item.mod_fotos||{}); const fotosHtml=`<div class="diseno-fotos-grid" style="margin-top:6px">
-              ${modFotos.map(([fotoId,url])=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')">${canControl?`<button class="diseno-foto-del" onclick="deleteModFoto('${secId}','${itemId}','${fotoId}')">×</button>`:''}</div>`).join('')}
-              ${canControl?`<div class="diseno-add-foto" onclick="triggerModFotoUpload('${secId}','${itemId}')" title="Agregar foto de cómo quedó puesto">📷</div>`:''}
-            </div>`;
-          if(fichaModPendiente) return `<div class="mod-ref-box">
-            <div class="mod-ref-title">🔧 Modificación pedida${item.ficha_mod_por?` por ${item.ficha_mod_por}`:''}:</div>
-            <div>${(item.ficha_mod_notas||'').replace(/</g,'&lt;')}</div>
-            ${fotosHtml}
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-              ${canPeque?`<button class="btn-advance" onclick="marcarFichaCorregida('${secId}','${itemId}')">✅ Ya corregí la ficha</button>`:''}
-              ${canControl?`<button class="btn-sm" onclick="deshacerPedidoModificacion('${secId}','${itemId}')">↩ Deshacer pedido</button>`:''}
-            </div>
-          </div>`;
-          if(fichaCorregidaEsperando) return `<div class="mod-ref-box" style="background:var(--accent-bg);color:var(--accent)">
-            <div class="mod-ref-title">🔄 Ficha corregida — falta que Ariel/Stef la vuelvan a controlar</div>
-            <div style="color:var(--text)">🔧 Se había pedido${item.ficha_mod_por?` por ${item.ficha_mod_por}`:''}: ${(item.ficha_mod_notas||'').replace(/</g,'&lt;')}</div>
-            ${fotosHtml}
-            ${canPeque?`<button class="btn-sm" style="margin-top:8px" onclick="deshacerFichaCorregida('${secId}','${itemId}')">↩ Todavía no está corregida</button>`:''}
-          </div>`;
-          return ''; })()}
-
-          ${item.base_aprobada
-            ? `<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3);font-style:italic">No aplica — base ya aprobada</span></div>`
-            : (canStef?buildModelistaHtml(secId,itemId,item,modelistaLocked,fichaModPendiente?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha'):`<div class="modelista-row"><span class="modelista-label">Modelista:</span><span style="font-size:11px;color:var(--text3)">${item.modelista||'— Sin asignar —'}</span></div>`)}
-
-          ${esAdela?`<div style="margin:4px 0">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span class="c-label" style="font-size:11px">📏 Tela a separar:</span>
-              ${item.tela_cantidad_adela?`<strong style="font-size:12px">${item.tela_cantidad_adela}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-              ${canPeque?`<button class="btn-sm" onclick="editTelaCantidadAdela('${secId}','${itemId}')">${item.tela_cantidad_adela?'✏️ Editar':'+ Cargar cantidad'}</button>`:''}
-            </div>
-            <div class="avio-item" style="padding-left:0;border-top:none">
-              <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canPeque?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
-              <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada (ella corta directo, sin pasar por Cortador)</span>
-            </div>
-            <div class="avio-item" style="padding-left:0;border-top:none">
-              <div class="c-check ${item.avios_entregados_adela?'checked':''}" onclick="${canPeque?`toggleAviosEntregadosAdela('${secId}','${itemId}')`:''}">${item.avios_entregados_adela?'✓':''}</div>
-              <span class="c-label ${item.avios_entregados_adela?'done':''}" style="font-size:11px">Avíos entregados junto con la tela</span>
-            </div>
-          </div>`:''}
-
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-
-          <div class="item-actions">
-            ${canPeque?`<button class="btn-advance" ${puedeAvanzar?'':'disabled'} title="${puedeAvanzar?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.color_muestra&&item.modelista&&!fichaModPendiente?'Falta tildar Tela separada':(!item.color_muestra?'Falta elegir el color de la muestra':'Falta código, link de ficha o modelista')))}" onclick="${item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`}">🧵 ${item.base_aprobada?'Enviar a Pendiente armar tizada (sin moldería)':'Enviar a moldería'}</button>`:''}
-            ${item.molde_aprobado?`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0;width:100%">⚠️ Este ítem ya tenía el molde aprobado antes — probablemente no debería estar acá. Usá "Mover a..." para mandarlo a "Molde - Pendiente Digitalizar" o "Pendiente armar tizada" según corresponda.</div>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildPasosPanelHtml(item,secId,itemId)}
-    </div>`;
-  }
-
-  if(tipo==='muestra_molderia'){
-    const canCorregirOrigen=(currentUser==='ariel'||currentUser==='stef')||esMinisurPeque(item);
-    const enRevision=item.estado==='modificaciones';
-    const refBox=enRevision?`<div class="mod-ref-box">
-      <div class="mod-ref-title">🔁 Modificaciones pedidas:</div>
-      <div>${item.modificaciones?item.modificaciones.replace(/</g,'&lt;'):'(sin detalle)'}</div>
-      ${item.fotos_prueba&&Object.keys(item.fotos_prueba).length?`<div class="diseno-fotos-grid" style="margin-top:6px">
-        ${Object.values(item.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}
-      </div>`:''}
-      ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-        <button class="btn-advance" ${item.foto_drive_ok?'':'disabled'} title="${item.foto_drive_ok?'':'Falta cargar la foto en Drive'}" onclick="corregirFichaYEnviarCorte('${secId}','${itemId}')">🔧 Molde ya corregido — solo falta ficha, ir a corte</button>
-        <button class="btn-sm" onclick="deshacerModificacionMolderia('${secId}','${itemId}')">↩ Deshacer modificación</button>
-      </div>`:''}
-    </div>`:'';
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${(item.base_ref_id||item.base_ref_manual)?buildBaseTizadaHtml(secId,itemId,item,false,'nd'):''}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canCorregirOrigen?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          ${enRevision?`<div class="mod-badge">🔁 Modificaciones pendientes</div>`:''}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            ${item.ficha_link
-              ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
-          </div>
-          ${buildModelistaHtml(secId,itemId,item)}
-          <div class="avio-item" style="padding-left:0;border-top:none">
-            <span class="c-label" style="font-size:11px">🧵 Avíos: ${Object.keys(item.avios||{}).length?`<strong>${Object.keys(item.avios||{}).length} cargado${Object.keys(item.avios||{}).length!==1?'s':''}</strong>`:'<span style="color:var(--text3);font-style:italic">sin cargar</span>'}</span>
-            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">${Object.keys(item.avios||{}).length?'✏️ Editar':'+ Cargar si ya se sabe'}</button>`:''}
-          </div>
-          ${item.modelista==='Adela'?`<div style="margin:4px 0">
-            <div class="mod-badge" style="background:var(--accent-bg);color:var(--accent)">🧵✂️ Moldería + Muestra — lo hace Adela junto</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <span class="c-label" style="font-size:11px">📏 Tela a separar:</span>
-              ${item.tela_cantidad_adela?`<strong style="font-size:12px">${item.tela_cantidad_adela}</strong>`:`<span style="font-size:11px;color:var(--text3);font-style:italic">Sin cargar</span>`}
-              ${canEdit?`<button class="btn-sm" onclick="editTelaCantidadAdela('${secId}','${itemId}')">${item.tela_cantidad_adela?'✏️ Editar':'+ Cargar cantidad'}</button>`:''}
-            </div>
-            <div class="avio-item" style="padding-left:0;border-top:none">
-              <div class="c-check ${item.tela_entregada?'checked':''}" onclick="${canEdit?`toggleTelaEntregada('${secId}','${itemId}')`:''}">${item.tela_entregada?'✓':''}</div>
-              <span class="c-label ${item.tela_entregada?'done':''}" style="font-size:11px">Tela separada — ¿ya se le dio la tela a Adela?</span>
-            </div>
-            <div class="avio-item" style="padding-left:0;border-top:none">
-              <div class="c-check ${item.avios_entregados_adela?'checked':''}" onclick="${canEdit?`toggleAviosEntregadosAdela('${secId}','${itemId}')`:''}">${item.avios_entregados_adela?'✓':''}</div>
-              <span class="c-label ${item.avios_entregados_adela?'done':''}" style="font-size:11px">Avíos entregados junto con la tela</span>
-            </div>
-          </div>`:''}
-          ${buildRefLinkHtml(secId,itemId,item,canCorregirOrigen)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div class="cortada-row" style="padding:6px 0;border:none">
-            <div class="c-check ${item.entregada_modelista?'checked':''}" onclick="${canEdit?`toggleEntregaModelista('${secId}','${itemId}')`:''}">${item.entregada_modelista?'✓':''}</div>
-            <span class="c-label ${item.entregada_modelista?'done':''}">Modelista entregó la muestra <span style="font-size:10px;color:var(--text3)">(${item.modelista==='Adela'?'pasa directo a Diseño / Probar muestra':'pasa directo a corte'})</span></span>
-          </div>
-          <div class="cortada-row" style="padding:6px 0;border:none">
-            <div class="c-check ${item.foto_drive_ok?'checked':''}" onclick="${canEdit?`toggleFotoDriveOk('${secId}','${itemId}')`:''}">${item.foto_drive_ok?'✓':''}</div>
-            <span class="c-label ${item.foto_drive_ok?'done':''}">Foto en Drive con nombre prenda y código</span>
-          </div>
-          ${refBox}
-          <div class="item-actions">
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  if(tipo==='muestra_diseno'){
-    const canDesign=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-    const fotos=Object.entries(item.fotos_prueba||{});
-    const tieneFotos=fotos.length>0;
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px;flex-wrap:wrap">
-            <span style="font-size:11px;color:var(--text2)">Color: <strong>${item.color||'—'}</strong></span>
-            <span style="font-size:11px;color:var(--text2)">Talle: <strong>${item.talle||'—'}</strong></span>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            ${item.ficha_link
-              ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
-            ${canCheck?`<button class="btn-sm" onclick="editFichaLink('${secId}','${itemId}')">${item.ficha_link?'🔗 Editar':'+ Link'}</button>`:''}
-          </div>
-          ${(()=>{
-            const canControlFicha=(currentUser==='ariel'||currentUser==='stef');
-            if(item.ficha_ajuste_pendiente){
-              return `<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
-                <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Falta que Peque ajuste la ficha técnica pedida</div>
-                ${(item.ficha_ajuste_nota_actual||item.nota)?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.ficha_ajuste_nota_actual||item.nota.split('\n').slice(-1)[0]}</div>`:''}
-                ${canDesign?`<button class="btn-sm" onclick="marcarFichaAjustada('${secId}','${itemId}')">✓ Ficha ya ajustada</button>`:''}
-                ${canControlFicha?`<button class="btn-sm" onclick="editarAjusteFichaDiseno('${secId}','${itemId}')">✏️ Editar</button>`:''}
-              </div>`;
-            }
-            if(item.ficha_control_pendiente){
-              return `<div style="background:var(--warn-bg);border-radius:6px;padding:6px 8px;margin:2px 0 6px">
-                <div style="font-size:11px;color:var(--warn-text);font-weight:600;margin-bottom:4px">📋 Ficha corregida — falta que Noelia vuelva a controlar la ficha ajustada</div>
-                ${item.nota?`<div style="font-size:11px;color:var(--text2);margin-bottom:4px;white-space:pre-line">${item.nota.split('\n').slice(-1)[0]}</div>`:''}
-                ${canControlFicha?`<button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_ariel')">Ariel</button>
-                <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_stef')">Stef</button>
-                <button class="radio-btn" onclick="toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_noelia')">Noelia</button>`:''}
-              </div>`;
-            }
-            if(item.ficha_confirmada_ok){
-              return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
-                <span style="font-size:11px;color:var(--accent)">✅ Ficha OK confirmada${item.ficha_confirmada_por?` por ${item.ficha_confirmada_por}`:''}</span>
-                ${canControlFicha?`<button class="btn-sm" onclick="deshacerFichaOkDiseno('${secId}','${itemId}')">↩ Deshacer</button>`:''}
-              </div>`;
-            }
-            return canControlFicha?`<div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
-              <span style="font-size:11px;color:var(--text2)">Ficha técnica:</span>
-              <button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarFichaOkDiseno('${secId}','${itemId}')">✅ Ficha OK</button>
-              <button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="pedirAjusteFichaDiseno('${secId}','${itemId}')">⚠️ Necesita modificación</button>
-            </div>`:'';
-          })()}
-          <div class="diseno-panel">
-            <div>
-              <div class="diseno-field-label">Fotos — cómo queda puesta</div>
-              <div class="diseno-fotos-grid" style="margin-top:6px">
-                ${fotos.map(([fotoId,url])=>`<div class="diseno-foto-item">
-                  <img src="${url}" onclick="openPhotoModal('${url}')">
-                  ${canDesign?`<button class="diseno-foto-del" onclick="deleteFotoPrueba('${secId}','${itemId}','${fotoId}')">×</button>`:''}
-                </div>`).join('')}
-                ${canDesign?`<div class="diseno-add-foto" onclick="triggerFotoPruebaUpload('${secId}','${itemId}')" title="Agregar foto">📷</div>`:''}
-              </div>
-            </div>
-            <div>
-              <div class="diseno-field-label">Modificaciones</div>
-              ${canDesign
-                ? `<textarea class="mod-textarea" placeholder="Anotá los cambios a pedir..." onblur="saveModificaciones('${secId}','${itemId}',this)">${item.modificaciones||''}</textarea>`
-                : `<div style="font-size:12px;color:var(--text2);margin-top:4px">${item.modificaciones||'—'}</div>`}
-            </div>
-          </div>
-          <div class="item-actions">
-            ${canDesign?`<button class="btn-approve" ${tieneFotos?'':'disabled'} title="${tieneFotos?'':'Cargá al menos una foto de cómo queda puesta'}" onclick="marcarAprobada('${secId}','${itemId}')">✅ Aprobar muestra</button>`:''}
-            ${canDesign?`<button class="btn-revision" onclick="marcarRevision('${secId}','${itemId}')" title="Necesita que le hagan una muestra nueva">🔁 A revisión (nueva muestra)</button>`:''}
-            ${canDesign?`<button class="btn-sm" style="border-color:var(--accent);color:var(--accent)" onclick="marcarCorregirSinMuestra('${secId}','${itemId}')" title="Se corrige molde/ficha pero NO hace falta otra muestra">🔧 Corregir sin nueva muestra</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-          ${buildNotasHtml(secId,itemId,item,canDesign)}
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  // --- TALLER DE ESTAMPADO (Plancha Nina): corte que llegó del taller de costura y va a estampar ---
-  if(tipo==='en_estampado_taller'){
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${item.numero_corte?`<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:700">${item.numero_corte}</strong></div>`:''}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div style="font-size:12px;color:var(--text2);margin-bottom:6px">🎨 En taller de estampado (Plancha Nina) — todavía no pasa a Revisión Final.</div>
-          ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Entregado por costura: <strong>${item.fecha_entregado}</strong></div>`:''}
-          ${buildMovimientosExtraHtml(secId,itemId,item)}
-          <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoEstampadoTaller('${secId}','${itemId}')">✅ Estampado entregado → Revisión Final</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  // --- TALLER DE TERMINACIÓN: pasos extra (plancha, ojal, broche...) antes de seguir ---
-  if(tipo==='en_terminacion'){
-    const pasosPendientes=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
-    const aviosTerm=Object.entries(item.avios||{});
-    let aviosTermHtml='';
-    if(aviosTerm.length){
-      const canCostoTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='emir'||currentUser==='arimoron';
-      aviosTermHtml='<div class="avios-normal" style="margin-bottom:6px">'+aviosTerm.map(([avioId,avio])=>{
-        const rec=avio.recibido;const hasDate=!!avio.fecha_pedido;
-        const dot=rec?'#16a34a':hasDate?'#d97706':'#dc2626';
-        const badge=rec?`<span class="avio-badge" style="background:#dcfce7;color:#166534">✓ Recibido</span>`
-          :hasDate?`<span class="avio-badge" style="background:#fef3c7;color:#92400e">Pedido ${avio.fecha_pedido}</span>`
-          :`<span class="avio-badge" style="background:#fee2e2;color:#991b1b">Sin pedir</span>`;
-        const canPedirTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
-        const canRecibirTerm=(currentUser==='ariel'||currentUser==='stef')||currentUser==='emir'||currentUser==='peque';
-        const btns=`${(!rec&&!hasDate&&canPedirTerm)?`<button class="avio-btn" style="border-color:#d97706;color:#d97706" onclick="marcarAvioPedidoHoy('${secId}','${itemId}','${avioId}')">📅 Pedir hoy</button>`:''}${(!rec&&hasDate&&canPedirTerm)?`<button class="avio-btn" onclick="desmarcarAvioPedido('${secId}','${itemId}','${avioId}')">↩ deshacer pedido</button>`:''}${(!rec&&canRecibirTerm)
-          ?`<button class="avio-btn green" onclick="marcarRecibido('${secId}','${itemId}','${avioId}')">✓ Recibido</button>`
-          :(rec&&canRecibirTerm)?`<button class="avio-btn" onclick="desmarcarRecibido('${secId}','${itemId}','${avioId}')">↩ Deshacer</button>`:''}`;
-        return `<div class="avio-row-n"><div class="avio-dot" style="background:${dot}"></div>
-          <span style="font-size:11px;color:var(--text2)">${avio.nombre}${avio.proveedor?` <span style="color:var(--text3);font-size:10px">· ${avio.proveedor}</span>`:''}</span>
-          ${badge}${btns}</div>`;
-      }).join('')+'</div>';
-    }
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${item.numero_corte?`<div style="font-size:13px;color:var(--text);margin-top:4px">🔢 N° de corte: <strong style="color:var(--accent);font-weight:700">${item.numero_corte}</strong></div>`:''}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div style="font-size:12px;color:var(--text2);margin-bottom:6px">🧵 En taller de terminación — todavía no pasa a Estampado/Revisión Final.</div>
-          ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Salió del taller de armado: <strong>${item.fecha_entregado}</strong></div>`:''}
-          <div style="display:flex;align-items:center;gap:8px;margin:2px 0 6px;flex-wrap:wrap">
-            <div class="c-check ${item.salio_plancha?'checked':''}" onclick="${canEdit?`toggleSalioPlancha('${secId}','${itemId}')`:''}">${item.salio_plancha?'✓':''}</div>
-            <span class="c-label ${item.salio_plancha?'done':''}" style="font-size:11px">🧺 Salió a plancha</span>
-            ${item.salio_plancha?`<span style="font-size:11px;color:var(--text2)">el <strong>${item.fecha_salio_plancha||''}</strong></span>${canEdit?`<button class="btn-sm" onclick="editFechaSalioPlancha('${secId}','${itemId}')">✏️ Editar fecha</button>`:''}`:''}
-          </div>
-          ${aviosTermHtml}
-          ${buildPasosExtraHtml(secId,itemId,item,canEdit)}
-          ${window.__sinRecorrido?'':buildRecorridoHtml(secId,itemId,item)}
-          <div class="item-actions">
-            ${canEdit?`<button class="btn-advance" onclick="marcarEntregadoTerminacion('${secId}','${itemId}')" ${(pasosPendientes.length||((item.estampado_dtf&&!item.estampado_taller_entregado)?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item)))?'title="Faltan pasos o movimientos por cerrar"':''}>✅ Entregado → ${(item.estampado_dtf&&!item.estampado_taller_entregado)?'Taller de estampado':'Revisión'}</button>`:''}
-            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar (avíos y más)</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-  if(tipo==='revision_final'){
-    return `<div class="item" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEditFotoRevision)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          <div style="display:flex;align-items:center;gap:8px;margin:4px 0 6px">
-            ${item.ficha_link
-              ? `<a href="${item.ficha_link}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;font-size:12px">📋 Ficha Producto 🔗</a>`
-              : `<span style="font-size:12px;color:var(--text3);font-style:italic">Sin ficha cargada</span>`}
-          </div>
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit)}
-          <div style="font-size:12px;color:var(--text2);margin-bottom:6px">Compará contra la muestra aprobada.</div>
-          ${item.fecha_entregado?`<div style="font-size:11px;color:var(--text2);margin-bottom:6px">📦 Entregado: <strong>${item.fecha_entregado}</strong></div>`:''}
-          <div class="item-actions">
-            ${canRevisarFinal?`<button class="btn-approve" onclick="marcarProductoPerfecto('${secId}','${itemId}')">✅ Producto Perfecto</button>`:''}
-            ${canRevisarFinal?`<button class="btn-revision" onclick="marcarNecesitaMejora('${secId}','${itemId}')">🔧 Necesita mejora</button>`:''}
-            ${moveOpts}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  // --- MEJORA: nota + foto + tipo de modificación + responsable Peque + ¿necesita muestra nueva? ---
-  if(tipo==='mejora'){
-    const resuelta=item.mejora_resuelta||false;
-    const necesitaMuestra=item.necesita_muestra;
-    // Noelia puede cargar fotos en Mejora (problema, prueba y producción) — permiso puntual, el resto sigue bloqueado.
-    const canFotoMej=canEdit||currentUser==='noelia';
-    return `<div class="item ${resuelta?'done':''}" id="item-${secId}-${itemId}" style="flex-wrap:wrap;align-items:stretch">
-      <div class="item-with-photo" style="flex:2;min-width:280px">
-        ${buildPhotoHtml(secId,itemId,item,canEdit)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          ${resuelta?`<div class="mod-badge" style="background:var(--green-bg);color:var(--green-text)">✓ Resuelta</div>`:''}
-          <div style="margin-top:8px">
-            <div class="diseno-field-label">Qué hay que mejorar</div>
-            ${canEdit
-              ? `<textarea class="mod-textarea" placeholder="Detalle de la mejora..." onblur="saveMejoraNota('${secId}','${itemId}',this)">${item.mejora_nota||''}</textarea>`
-              : `<div style="font-size:12px;color:var(--text2);margin-top:4px">${item.mejora_nota||'—'}</div>`}
-          </div>
-          <div style="margin-top:8px">
-            <div class="diseno-field-label">Foto del problema</div>
-            <div class="diseno-fotos-grid" style="margin-top:6px">
-              ${Object.entries(item.mejora_fotos||{}).map(([fotoId,url])=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')">${canFotoMej?`<button class="diseno-foto-del" onclick="deleteMejoraFoto('${secId}','${itemId}','${fotoId}')">×</button>`:''}</div>`).join('')}
-              ${(!item.mejora_fotos&&item.mejora_foto)?`<div class="diseno-foto-item"><img src="${item.mejora_foto}" onclick="openPhotoModal('${item.mejora_foto}')"></div>`:''}
-              ${canFotoMej?`<div class="diseno-add-foto" onclick="triggerMejoraFotoUpload('${secId}','${itemId}')" title="Agregar foto">📷</div>`:''}
-            </div>
-          </div>
-          ${buildMejoraGaleriaHtml(secId,itemId,item,canFotoMej,'prueba','Foto de la prueba (cómo quedó)')}
-          ${buildMejoraGaleriaHtml(secId,itemId,item,canFotoMej,'produccion','Foto de producción')}
-          <div class="modelista-row">
-            <span class="modelista-label">Modificación:</span>
-            <select class="modelista-select" ${canEdit?'':'disabled'} onchange="saveMejoraTipo('${secId}','${itemId}',this.value)">
-              <option value="">— Elegir —</option>
-              <option value="Molde" ${item.mejora_tipo==='Molde'?'selected':''}>Molde</option>
-              <option value="Ficha" ${item.mejora_tipo==='Ficha'?'selected':''}>Ficha</option>
-              <option value="Otro" ${item.mejora_tipo==='Otro'?'selected':''}>Otro</option>
-            </select>
-          </div>
-          <div class="modelista-row">
-            <span class="modelista-label">¿Necesita muestra nueva?</span>
-            ${canEdit?`<button class="radio-btn ${necesitaMuestra===true?'selected':''}" onclick="setNecesitaMuestra('${secId}','${itemId}',true)">Sí</button>
-            <button class="radio-btn ${necesitaMuestra===false?'selected':''}" onclick="setNecesitaMuestra('${secId}','${itemId}',false)">No</button>`
-            :`<span style="font-size:12px;color:var(--text2)">${necesitaMuestra===true?'Sí':necesitaMuestra===false?'No':'— Sin definir —'}</span>`}
-          </div>
-          <div class="item-actions">
-            ${(necesitaMuestra===true&&!resuelta&&canEdit)?`<button class="btn-advance" onclick="enviarMejoraANuevosDesarrollos('${secId}','${itemId}')">📤 Mandar a Nuevos Desarrollos</button>`:''}
-            ${(!resuelta&&canEdit)?`<button class="btn-sm" onclick="toggleMejoraResuelta('${secId}','${itemId}')">✅ Marcar resuelta</button>`:''}
-            ${(resuelta&&canEdit)?`<button class="btn-approve" onclick="marcarProductoPerfecto('${secId}','${itemId}')">✅ Pasar a Producto Perfecto</button>`:''}
-            ${(resuelta&&canEdit)?`<button class="btn-sm" onclick="toggleMejoraResuelta('${secId}','${itemId}')">↩ Reabrir</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-      ${buildDemoraPanelHtml(sec,item,secId)}
-    </div>`;
-  }
-
-  // --- PRODUCTOS PERFECTOS: archivo, ciclo cerrado ---
-  if(tipo==='producto_perfecto'){
-    return `<div class="item">
-      <div class="item-with-photo">
-        ${buildPhotoHtml(secId,itemId,item,canEditFotoRevision)}
-        <div class="item-body">
-          ${buildCodeHtml(secId,itemId,item,canEdit)}
-          ${buildNameHtml(secId,itemId,item,canEdit)}
-          ${buildTelaBaseLineHtml(item)}
-          ${procesoInfoHtml(item,secId,itemId)}
-          ${item.numero_corte?`<div style="font-size:11px;color:var(--text2);margin-top:2px">🔢 N° de corte: <strong>${item.numero_corte}</strong></div>`:''}
-          ${canEdit?buildMarcaHtml(secId,itemId,item):(item.marca?`<div style="font-size:11px;color:var(--text2)">Marca: <strong>${item.marca}</strong></div>`:'')}
-          ${item.modelista?`<div style="font-size:11px;color:var(--text2);margin-top:2px">🧵 Moldería: <strong>${item.modelista}</strong></div>`:''}
-          <div class="listo-badge">✅ Producto perfecto${item.fecha_perfecto?` — ${fmtFecha(item.fecha_perfecto)}`:''}</div>
-          ${buildRefLinkHtml(secId,itemId,item,canEdit)}
-          ${buildNotasHtml(secId,itemId,item,canEdit,'Nota:')}
-          <div class="item-actions">
-            ${canEdit?`<button class="btn-sm" onclick="openEditModal('${secId}','${itemId}')">✏️ Editar</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-sm" style="border-color:var(--warn-text);color:var(--warn-text)" onclick="volverAMejora('${secId}','${itemId}')">↩ Volver a Mejora</button>`:''}
-            ${currentUser==='ariel'?`<button class="btn-sm" style="border-color:#2563eb;color:#2563eb" onclick="forzarApareceEnConteo('${secId}','${itemId}')">📦 Forzar aparición en conteo</button>`:''}
-            ${(currentUser==='ariel'||currentUser==='stef')?`<button class="btn-danger" onclick="deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}
-          </div>
-        </div>
-      </div>
-    </div>`;
-  }
 
   // Secciones normales
   const avios=Object.entries(item.avios||{});
@@ -14775,7 +13938,7 @@ function colAplicarStock(item,usos){
 // En "Cortes próximos a sacar" cada artículo se muestra limpio: qué es, en qué paso está y UN botón
 // con lo que hay que hacer ahora. Todo lo demás (datos editables, recorrido, notas) está en "Ver ficha completa".
 const fichaCompletaAbierta=new Set();
-function fichaToggleCompleta(itemId,abrir){ if(abrir) fichaCompletaAbierta.add(itemId); else fichaCompletaAbierta.delete(itemId); renderSections('fabrica'); }
+function fichaToggleCompleta(itemId,abrir){ if(abrir) fichaCompletaAbierta.add(itemId); else { fichaCompletaAbierta.delete(itemId); fichaEditarTodo.delete(itemId); } renderSections('fabrica'); }
 function fichaMenuToggle(btn){ const m=btn.nextElementSibling; if(m) m.style.display=m.style.display==='block'?'none':'block'; }
 const FICHA_SECS=['s3','s4','s5','s6','sLT','sFIN'];
 function fichaEtapaMacro(secId,item,sec){
@@ -14865,7 +14028,7 @@ function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
         <span style="position:relative"><button class="btn-sm" style="border-radius:40px;padding:6px 12px" onclick="event.stopPropagation();fichaMenuToggle(this)">⋯</button><div style="display:none;position:absolute;right:0;top:110%;z-index:50;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.1);min-width:170px;padding:4px">${menu}</div></span></div>
     </div>
     ${completa?fichaCorteSeccionesHtml(secId,itemId,item,sec):''}
-    <div style="margin-top:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',${completa?'false':'true'})">${completa?'▴ Ocultar detalle':'▸ Ver ficha completa (datos, ficha técnica, corte, recorrido)'}</button></div>
+    <div style="margin-top:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',${completa?'false':'true'})">${completa?'▴ Ocultar detalle':'▸ Ver ficha completa (datos, ficha técnica, corte, recorrido)'}</button><button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaEditarTodoToggle('${itemId}')">${fichaEditarTodo.has(itemId)?'✓ Listo':'✏️ Editar todo'}</button></div>
   </div>`;
 }
 // Ficha completa ordenada: cada bloque plegable con un resumen en la línea, así se lee de un vistazo
@@ -14878,7 +14041,7 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
   const canEdit=(currentUser==='ariel'||currentUser==='stef'||currentUser==='noelia'||currentUser==='peque');
   const canCortar=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron';
   const bloque=(k,titulo,resumen,cuerpo,abiertoPorDefecto)=>{
-    const key=itemId+'|'+k, open=fichaSecAbiertas.has(key)||(abiertoPorDefecto&&!fichaSecAbiertas.has(key+'|cerrado'));
+    const key=itemId+'|'+k, open=fichaEditarTodo.has(itemId)||fichaSecAbiertas.has(key)||(abiertoPorDefecto&&!fichaSecAbiertas.has(key+'|cerrado'));
     return `<details ${open?'open':''} ontoggle="fichaSecToggle('${key}',this.open);if(!this.open)fichaSecAbiertas.add('${key}|cerrado');else fichaSecAbiertas.delete('${key}|cerrado')" style="border-top:1px solid var(--border);padding:10px 0" onclick="event.stopPropagation()">
       <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:10px;align-items:baseline"><span style="font-weight:700;font-size:13px;letter-spacing:.4px;text-transform:uppercase">${titulo}</span><span style="font-size:14px;color:var(--text);text-align:right">${resumen}</span></summary>
       <div style="padding-top:8px">${cuerpo}</div></details>`;
@@ -14946,8 +14109,258 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
     ${mover||currentUser==='ariel'?`<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;border-top:1px solid var(--border);padding-top:10px" onclick="event.stopPropagation()">${mover}${currentUser==='ariel'?`<button class="btn-sm" style="color:#b91c1c" onclick="event.stopPropagation();deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}</div>`:''}
   </div>`;
 }
+// ===== Ficha nueva para Diseño/muestras, Terminación, Estampado, Revisión, Mejora y Perfectos (nov 2026) =====
+// Misma idea que la ficha de corte: arriba qué es, en qué paso está y el botón de lo que hay que hacer;
+// abajo los bloques plegables con todo lo editable. "✏️ Editar todo" abre todos los bloques juntos.
+const FICHA_TIPOS=['muestra_prep','muestra_molderia','muestra_pend','muestra_cort','muestra_lista','muestra_en_taller','muestra_diseno','muestra_cancelada','en_estampado_taller','en_terminacion','revision_final','mejora','producto_perfecto'];
+const fichaEditarTodo=new Set(), fichaCompletaCerrada=new Set();
+function fichaRerender(){ try{ renderAllBoards(); }catch(e){} try{ if(document.getElementById('sections-container-talleres')&&document.getElementById('tab-talleres')&&document.getElementById('tab-talleres').style.display!=='none') renderSections('talleres'); }catch(e){} }
+function fichaMuestraToggle(itemId,abrir){ if(abrir){ fichaCompletaAbierta.add(itemId); fichaCompletaCerrada.delete(itemId); } else { fichaCompletaAbierta.delete(itemId); fichaCompletaCerrada.add(itemId); fichaEditarTodo.delete(itemId); } fichaRerender(); }
+function fichaEditarTodoToggle(itemId){ if(fichaEditarTodo.has(itemId)) fichaEditarTodo.delete(itemId); else { fichaEditarTodo.add(itemId); fichaCompletaAbierta.add(itemId); fichaCompletaCerrada.delete(itemId); } fichaRerender(); }
+function fichaMuestraHtml(secId,itemId,item,sec){
+  const e=utEsc, tipo=sec.tipo||'', cu=currentUser, esAdm=(cu==='ariel'||cu==='stef');
+  const canEdit=esAdm||cu==='peque'||(cu==='arimoron'&&secId===SEC_PEND);
+  const canCheck=esAdm||cu==='peque'||cu==='emir';
+  const canEditFoto=canEdit||(cu==='noelia'&&(tipo==='revision_final'||tipo==='producto_perfecto'));
+  const canRevisarFinal=canEdit||(cu==='noelia'&&tipo==='revision_final');
+  const canStef=esAdm||esMinisurPeque(item), canPeque=(cu==='ariel'||cu==='peque');
+  const canDesign=esAdm||cu==='peque', canFotoMej=canEdit||cu==='noelia';
+  const esPrep=tipo==='muestra_prep', sinRec=!!window.__sinRecorrido;
+  const completa=sinRec||fichaCompletaAbierta.has(itemId)||(esPrep&&!fichaCompletaCerrada.has(itemId));
+  const todo=fichaEditarTodo.has(itemId);
+  const btnP=(txt,fn,sec2,dis,tit)=>`<button class="btn-sm" ${dis?'disabled':''} ${tit?`title="${e(tit)}"`:''} style="border-radius:40px;padding:6px 14px;${dis?'opacity:.5;':''}${sec2?'border:1px solid #416096;color:#416096;background:#fff':'background:#416096;color:#fff;border:1px solid #416096;font-weight:600'}" onclick="event.stopPropagation();${fn}">${txt}</button>`;
+  const chk=(on,fn,lbl,puede)=>`<button class="btn-sm" style="border-radius:40px;padding:4px 10px;${on?'background:#eaf3de;color:#27500a;border-color:#27500a':''}" ${puede?'':'disabled'} onclick="event.stopPropagation();${fn}">${on?'✓ ':''}${lbl}</button>`;
+  const siNo=(val,fn,puede)=>puede?`${chk(val===true,fn+',true)','Sí',true)} ${chk(val===false,fn+',false)','No',true)}`:(val===true?'Sí':val===false?'No':'Sin definir');
+  const vacio='<span style="color:#9B5C6B">Sin cargar</span>';
+  const fila=(l,v,b)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px dashed var(--border);font-size:13px;flex-wrap:wrap"><span style="color:var(--text2)">${l}</span><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${v}${b||''}</span></div>`;
+  const ed=(fn,lbl,puede)=>puede?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();${fn}('${secId}','${itemId}')">${lbl||'✏️'}</button>`:'';
+  const link=(u,t)=>u?`<a href="${e(u)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#416096">${t||'Abrir ↗'}</a>`:vacio;
+  const fotosGrid=(arr,del,add)=>`<div class="diseno-fotos-grid" style="margin-top:6px">${arr.map(([id,url])=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')">${del?`<button class="diseno-foto-del" onclick="event.stopPropagation();${del}('${secId}','${itemId}','${id}')">×</button>`:''}</div>`).join('')}${add?`<div class="diseno-add-foto" onclick="event.stopPropagation();${add}('${secId}','${itemId}')" title="Agregar foto">📷</div>`:''}</div>`;
+  const bloque=(k,titulo,resumen,cuerpo,abierto)=>{
+    if(!cuerpo) return '';
+    const key=itemId+'|'+k, open=todo||fichaSecAbiertas.has(key)||(abierto&&!fichaSecAbiertas.has(key+'|cerrado'));
+    return `<details ${open?'open':''} ontoggle="fichaSecToggle('${key}',this.open);if(!this.open)fichaSecAbiertas.add('${key}|cerrado');else fichaSecAbiertas.delete('${key}|cerrado')" style="border-top:1px solid var(--border);padding:10px 0" onclick="event.stopPropagation()">
+      <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:10px;align-items:baseline"><span style="font-weight:700;font-size:13px;letter-spacing:.4px;text-transform:uppercase">${titulo}</span><span style="font-size:14px;color:var(--text);text-align:right">${resumen||''}</span></summary>
+      <div style="padding-top:8px">${cuerpo}</div></details>`;
+  };
+  const ffs=(n)=>{ try{ return n(); }catch(err){ console.error('ficha',tipo,err); return ''; } };
+  // ---- Estado: barra de pasos ----
+  const MUESTRA=['muestra_prep','muestra_molderia','muestra_pend','muestra_cort','muestra_lista','muestra_en_taller','muestra_diseno'];
+  let pasos=[], actual=-1;
+  if(MUESTRA.includes(tipo)){ pasos=['Alta','Moldería','Corte','Taller','Probar','Aprobada']; actual={muestra_prep:0,muestra_molderia:1,muestra_pend:2,muestra_cort:2,muestra_lista:3,muestra_en_taller:3,muestra_diseno:4}[tipo]; }
+  else if(tipo!=='muestra_cancelada'){ pasos=['Terminación','Estampado','Revisión',tipo==='mejora'?'Mejora':'Perfecto']; actual={en_terminacion:0,en_estampado_taller:1,revision_final:2,mejora:3,producto_perfecto:4}[tipo]; }
+  // ---- Próximo paso y botón principal ----
+  let quien=getResponsable(sec,item,secId)||'', que=getProximaAccion(sec,item,secId)||'', acc='';
+  const avs=Object.entries(item.avios||{}).filter(([,a])=>a&&a.nombre), avPend=avs.filter(([,a])=>!a.recibido);
+  const canPedirAv=esAdm||cu==='peque', canRecibirAv=(tipo==='en_terminacion')?(esAdm||cu==='emir'||cu==='peque'):puedeRecibirAvio();
+  const accAvio=()=>{ const [aid,a]=avPend[0]; return !a.fecha_pedido?(canPedirAv?btnP(`📅 Pedido hoy: ${e(a.nombre)}`,`marcarAvioPedidoHoy('${secId}','${itemId}','${aid}')`):''):(canRecibirAv?btnP(`✓ Recibido: ${e(a.nombre)}`,`marcarRecibido('${secId}','${itemId}','${aid}')`):''); };
+  const fichaModPend=item.ficha_estado==='modificar';
+  const ctrlOk=!!(item.control_ariel||item.control_stef||item.control_noelia);
+  if(tipo==='muestra_pend'){
+    const ok=item.color&&item.talle;
+    if(!ok&&canCheck) acc=(!item.color?btnP('+ Color',`editColorPrompt('${secId}','${itemId}')`):'')+(!item.talle?btnP('+ Talle',`editTallePrompt('${secId}','${itemId}')`):'');
+    if(canEdit||cu==='emir') acc+=btnP('✂️ Marcar cortada',`moverACortada('${secId}','${itemId}')`,!ok,!ok,'Falta cargar Color y/o Talle');
+  }
+  else if(tipo==='muestra_cort'){
+    if(item.lleva_avios===undefined||item.lleva_avios===null){ if(canCheck) acc=`<span style="font-size:13px">¿Lleva avíos?</span> ${siNo(undefined,`setLlevaAvios('${secId}','${itemId}'`,true)}`; }
+    else if(item.lleva_avios===true&&avPend.length) acc=accAvio();
+    else if(!item.ficha&&canCheck) acc=btnP('✓ Ficha producto lista',`toggleFicha('${secId}','${itemId}')`);
+  }
+  else if(tipo==='muestra_lista'){
+    const aviosPend=item.lleva_avios===true&&avs.length>0&&avPend.length>0;
+    if(!item.taller_elegido){ if(canEdit) acc=`<span onclick="event.stopPropagation()"><select class="move-select" id="taller-sel-${itemId}"><option value="">Elegir taller...</option>${TALLERISTAS_MUESTRA.map(t=>`<option value="${e(t)}">${e(t)}</option>`).join('')}<option value="__nuevo__">+ Otro...</option></select></span>`+btnP('Elegir taller',`confirmarEleccionTaller('${secId}','${itemId}')`); }
+    else if(canEdit||cu==='emir'){
+      if(!aviosPend) acc=btnP(`✅ Enviado a ${e(item.taller_elegido)}`,`marcarEnviadoTaller('${secId}','${itemId}')`);
+      else if(esAdm){ if(item.pedido_sin_avio){ quien='Ariel'; que=`Autorizar enviar sin avío (lo pidió ${USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por||'alguien'})`; acc=btnP('✅ Autorizar y enviar',`autorizarEnviarMuestraSinAvio('${secId}','${itemId}')`)+btnP('✕ Rechazar',`rechazarSinAvio('${secId}','${itemId}')`,true); } else acc=accAvio(); }
+      else acc=item.pedido_sin_avio?'<span style="font-size:12px;color:#9B5C6B">🔔 Esperando autorización de Ariel</span>':accAvio()+btnP('🔔 Pedir enviar sin avío',`pedirAutorizacionSinAvio('${secId}','${itemId}')`,true);
+    }
+  }
+  else if(tipo==='muestra_en_taller'){ if(canEdit) acc=btnP('✅ Entregada (con ficha y muestra)',`marcarEntregada('${secId}','${itemId}')`)+btnP('↩ Taller no puede armarla',`volverAMolderiaDesdeTaller('${secId}','${itemId}')`,true); }
+  else if(tipo==='muestra_cancelada'){ quien='Cancelada'; que=item.motivo_cancelacion?String(item.motivo_cancelacion).slice(0,80):'Sin motivo cargado'; if(canEdit) acc=btnP('↩ Reactivar',`reactivarMuestra('${secId}','${itemId}')`); }
+  else if(esPrep){
+    const esAdela=item.modelista==='Adela', ninox=!!item.en_ninox;
+    const baseOk=!!(item.name&&item.name.trim())&&!!(item.code&&item.code.trim())&&!!item.ficha_link&&ninox&&ctrlOk&&!!(item.base_ref_id||item.base_ref_manual);
+    const puede=item.base_aprobada?baseOk:!!(item.code&&item.code.trim())&&!!item.ficha_link&&aviosDefinidosNuevoDesarrollo(item)&&!fichaModPend&&!!item.color_muestra&&!!item.modelista&&(!esAdela||!!item.tela_entregada);
+    const tit=puede?'':(item.base_aprobada?'Falta código nuevo, ficha técnica, Ninox, control de ficha o elegir de qué base sale':(esAdela&&!item.tela_entregada&&item.code&&item.ficha_link&&item.color_muestra&&item.modelista&&!fichaModPend?'Falta tildar Tela separada':(!item.color_muestra?'Falta elegir el color de la muestra':'Falta código, link de ficha o modelista')));
+    if(fichaModPend&&canPeque) acc=btnP('✅ Ya corregí la ficha',`marcarFichaCorregida('${secId}','${itemId}')`);
+    if(canPeque) acc+=btnP(item.base_aprobada?'🧵 A Pendiente armar tizada':'🧵 Enviar a moldería',item.base_aprobada?`pasarABaseAprobada('${secId}','${itemId}')`:`pasarAMolderia('${secId}','${itemId}')`,!!acc,!puede,tit);
+  }
+  else if(tipo==='muestra_molderia'){
+    if(item.estado==='modificaciones'&&canEdit) acc=btnP('🔧 Molde corregido → ir a corte',`corregirFichaYEnviarCorte('${secId}','${itemId}')`,false,!item.foto_drive_ok,item.foto_drive_ok?'':'Falta cargar la foto en Drive')+btnP('↩ Deshacer modificación',`deshacerModificacionMolderia('${secId}','${itemId}')`,true);
+    else if(canEdit&&!item.entregada_modelista) acc=btnP('✓ La modelista entregó',`toggleEntregaModelista('${secId}','${itemId}')`);
+    else if(canEdit&&!item.foto_drive_ok) acc=btnP('✓ Foto en Drive',`toggleFotoDriveOk('${secId}','${itemId}')`);
+  }
+  else if(tipo==='muestra_diseno'){
+    const nf=Object.keys(item.fotos_prueba||{}).length;
+    if(canDesign){ acc=(nf?'':btnP('📷 Subir foto puesta',`triggerFotoPruebaUpload('${secId}','${itemId}')`))+btnP('✅ Aprobar muestra',`marcarAprobada('${secId}','${itemId}')`,!!nf?false:true,!nf,nf?'':'Cargá al menos una foto de cómo queda puesta')+btnP('🔁 Nueva muestra',`marcarRevision('${secId}','${itemId}')`,true)+btnP('🔧 Corregir sin muestra',`marcarCorregirSinMuestra('${secId}','${itemId}')`,true); }
+  }
+  else if(tipo==='en_estampado_taller'){ if(canEdit) acc=btnP('✅ Estampado entregado → Revisión',`marcarEntregadoEstampadoTaller('${secId}','${itemId}')`); }
+  else if(tipo==='en_terminacion'){
+    const pp=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho);
+    const est=item.estampado_dtf&&!item.estampado_taller_entregado;
+    const bloq=pp.length||(est?tieneMovimientosAbiertos(item):tieneMovimientosSinContar(item));
+    if(avPend.length&&canRecibirAv) acc=accAvio();
+    if(canEdit) acc+=btnP(`✅ Entregado → ${est?'Estampado':'Revisión'}`,`marcarEntregadoTerminacion('${secId}','${itemId}')`,!!acc,false,bloq?'Faltan pasos o movimientos por cerrar':'');
+  }
+  else if(tipo==='revision_final'){ if(canRevisarFinal) acc=btnP('✅ Producto perfecto',`marcarProductoPerfecto('${secId}','${itemId}')`)+btnP('🔧 Necesita mejora',`marcarNecesitaMejora('${secId}','${itemId}')`,true); }
+  else if(tipo==='mejora'){
+    const res=!!item.mejora_resuelta;
+    if(canEdit){ if(!res&&item.necesita_muestra===true) acc=btnP('📤 Mandar a Nuevos desarrollos',`enviarMejoraANuevosDesarrollos('${secId}','${itemId}')`);
+      acc+=res?btnP('✅ Pasar a Producto perfecto',`marcarProductoPerfecto('${secId}','${itemId}')`):btnP('✅ Marcar resuelta',`toggleMejoraResuelta('${secId}','${itemId}')`,!!acc); }
+  }
+  else if(tipo==='producto_perfecto'){ quien='Listo'; que='Producto perfecto'+(item.fecha_perfecto?' · '+fmtFecha(item.fecha_perfecto):''); }
+  if(!que) que=tipo==='en_terminacion'?'Terminar los pasos y entregar':acc?'Listo para avanzar':'Sin pendientes';
+  // ---- Bloques ----
+  const marcaEd=(p)=>p?buildMarcaHtml(secId,itemId,item):(item.marca?fila('Marca',e(item.marca)):'');
+  const colorTalle=()=>fila('Color',item.color?e(item.color):vacio,ed('editColorPrompt','✏️',canCheck))+fila('Talle',item.talle?e(item.talle):vacio,ed('editTallePrompt','✏️',canCheck));
+  let datos='';
+  if(esPrep) datos=ffs(()=>`${item.origen_mejora?`<div style="font-size:12px;background:#fbeef1;color:#9B5C6B;border-radius:8px;padding:5px 9px;margin-bottom:6px">🔧 Viene de una mejora: ${e(item.origen_mejora)}</div>`:''}
+    ${fila('Nombre',buildNameHtml(secId,itemId,item,canStef||cu==='peque'))}
+    ${buildTipoDesarrolloHtml(secId,itemId,item,canStef)}
+    ${item.base_aprobada?buildBaseTizadaHtml(secId,itemId,item,canPeque):((item.name&&item.name.trim())?buildBaseTizadaHtml(secId,itemId,item,canPeque||canStef,'nd'):'')}
+    <div style="display:flex;gap:10px;align-items:flex-start;margin:6px 0">${item.foto_tela?`<img src="${item.foto_tela}" onclick="openPhotoModal('${item.foto_tela}')" style="width:44px;height:44px;object-fit:cover;border-radius:8px;cursor:zoom-in">`:''}${canStef?`<button class="btn-sm" onclick="event.stopPropagation();triggerFotoTelaUpload('${secId}','${itemId}')">🧵 ${item.foto_tela?'Cambiar':'Foto de'} tela</button>`:''}</div>
+    ${fila('Tela base',buildTelaBaseHtml(secId,itemId,item,canStef))}${fila('Proveedor',buildProveedorTelaHtml(secId,itemId,item,canStef))}
+    ${canStef?buildMarcaHtml(secId,itemId,item)+buildCategoriaHtml(secId,itemId,item)+buildTemporadaHtml(secId,itemId,item):fila('Marca · categoría · temporada',[item.marca,item.categoria,item.temporada].filter(Boolean).map(e).join(' · ')||'—')}
+    ${buildFechaObjetivoRecibirHtml(secId,itemId,item,canStef)}
+    ${canStef?buildColorMuestraHtml(secId,itemId,item):fila('Color de la muestra',item.color_muestra?e(item.color_muestra):vacio)}
+    ${fila('Link de referencia',link(item.ref_link,'🔗 Ver'),ed('editRefLink',item.ref_link?'✏️':'+ Link',canStef))}
+    ${fila(item.base_aprobada?'Código nuevo':'Código',item.code?`<b>${e(item.code)}</b>`:vacio,ed('editCodigoPrompt','✏️',canPeque||usuarioLogueado==='noelia'))}
+    ${fila('Cargado en Ninox',chk(!!item.en_ninox,`toggleNinox('${secId}','${itemId}')`,item.en_ninox?'Sí':'Marcar',canPeque||usuarioLogueado==='noelia'))}
+    ${procesoInfoHtml(item,secId,itemId)}`);
+  else datos=ffs(()=>`${fila('Código',canEdit?buildCodeHtml(secId,itemId,item,true):(item.code?`<b>${e(item.code)}</b>`:'—'))}
+    ${fila('Nombre',buildNameHtml(secId,itemId,item,canEdit))}
+    ${item.numero_corte?fila('N° de corte',`<b style="color:#416096">${e(item.numero_corte)}</b>`):''}
+    ${tipo==='muestra_pend'?fila('Tela',item.tela_nombre?`<b>${e(item.tela_nombre)}</b>${item.tela_proveedor?` <small style="color:var(--text3)">· ${e(item.tela_proveedor)}</small>`:''}`:vacio,ed('editTelaPendPrompt',item.tela_nombre?'✏️':'+ Tela',canCheck)):buildTelaBaseLineHtml(item)}
+    ${(tipo==='muestra_molderia'&&(item.base_ref_id||item.base_ref_manual))?buildBaseTizadaHtml(secId,itemId,item,false,'nd'):''}
+    ${marcaEd(tipo==='muestra_molderia'?canStef:canEdit)}
+    ${['muestra_pend','muestra_cort','muestra_en_taller','muestra_diseno'].includes(tipo)?colorTalle():''}
+    ${tipo==='muestra_cort'?fila('✂️ Cortado',item.fecha_corte?e(item.fecha_corte):'—',ed('editFechaCorteMuestra','✏️',canCheck)):''}
+    ${tipo==='producto_perfecto'&&item.modelista?fila('Moldería',e(item.modelista)):''}
+    ${tipo!=='muestra_cancelada'?buildRefLinkHtml(secId,itemId,item,tipo==='muestra_molderia'?canStef:canEdit):''}
+    ${procesoInfoHtml(item,secId,itemId)}`);
+  // Ficha técnica
+  let ficha='', fichaRes=item.ficha_link?'Cargada ✓':'<span style="color:#9B5C6B">Falta la ficha</span>';
+  if(tipo!=='muestra_cancelada') ficha=fila('Ficha producto',link(item.ficha_link),ed('editFichaLink',item.ficha_link?'✏️':'+ Link',esPrep?canPeque:(tipo==='revision_final'||tipo==='producto_perfecto'||tipo==='mejora'?false:canCheck)));
+  if(tipo==='muestra_cort') ficha+=fila('Ficha producto lista',chk(!!item.ficha,`toggleFicha('${secId}','${itemId}')`,item.ficha?'Lista':'Marcar',canCheck));
+  if(esPrep){
+    const canControl=esAdm, corrEsp=item.ficha_estado==='modificada'&&!ctrlOk;
+    const lbl=fichaModPend?'🔁 Pendiente modificar ficha':corrEsp?'🔄 Corregida — esperando control':ctrlOk?(item.ficha_estado==='modificada'?'✅ Modificada':'✅ Aprobada'):'Pendiente';
+    fichaRes=!item.ficha_link?'<span style="color:#9B5C6B">Falta la ficha</span>':(fichaModPend||corrEsp||!ctrlOk)?`<span style="color:#9B5C6B">${lbl}</span>`:lbl;
+    ficha+=fila('Control de ficha',`<b style="color:${(fichaModPend||corrEsp||!ctrlOk)?'#9B5C6B':'#416096'}">${lbl}</b>`,(canControl&&item.ficha_link&&!fichaModPend)?['ariel','stef','noelia'].map(u=>chk(!!item['control_'+u],`toggleControlFicha('${secId}','${itemId}','control_${u}')`,USER_DISPLAY[u]||u,true)).join('')+(!corrEsp?btnP('🔧 Pedir modificación',`pedirModificacionFicha('${secId}','${itemId}')`,true):''):(canControl&&!item.ficha_link?'<small style="color:var(--text3)">Cargá la ficha primero</small>':''));
+    const mf=Object.entries(item.mod_fotos||{}), grid=fotosGrid(mf,canControl?'deleteModFoto':'',canControl?'triggerModFotoUpload':'');
+    if(fichaModPend) ficha+=`<div class="mod-ref-box"><div class="mod-ref-title">🔧 Modificación pedida${item.ficha_mod_por?` por ${e(item.ficha_mod_por)}`:''}:</div><div>${e(item.ficha_mod_notas||'')}</div>${grid}<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${canPeque?btnP('✅ Ya corregí la ficha',`marcarFichaCorregida('${secId}','${itemId}')`):''}${canControl?btnP('↩ Deshacer pedido',`deshacerPedidoModificacion('${secId}','${itemId}')`,true):''}</div></div>`;
+    else if(corrEsp) ficha+=`<div class="mod-ref-box" style="background:#f4f6fa;color:#416096"><div class="mod-ref-title">🔄 Ficha corregida — falta volver a controlarla</div><div style="color:var(--text)">Se había pedido${item.ficha_mod_por?` por ${e(item.ficha_mod_por)}`:''}: ${e(item.ficha_mod_notas||'')}</div>${grid}${canPeque?`<div style="margin-top:8px">${btnP('↩ Todavía no está corregida',`deshacerFichaCorregida('${secId}','${itemId}')`,true)}</div>`:''}</div>`;
+  }
+  if(tipo==='muestra_diseno'){
+    if(item.ficha_ajuste_pendiente){ fichaRes='<span style="color:#9B5C6B">Falta ajustar</span>'; ficha+=`<div style="background:#fbeef1;border-radius:8px;padding:8px 10px;margin-top:6px"><div style="font-size:12px;color:#9B5C6B;font-weight:600">📋 Falta que Peque ajuste la ficha</div>${(item.ficha_ajuste_nota_actual||item.nota)?`<div style="font-size:12px;color:var(--text2);white-space:pre-line;margin:4px 0">${e(item.ficha_ajuste_nota_actual||String(item.nota).split('\n').slice(-1)[0])}</div>`:''}${canDesign?btnP('✓ Ficha ya ajustada',`marcarFichaAjustada('${secId}','${itemId}')`):''} ${esAdm?btnP('✏️ Editar pedido',`editarAjusteFichaDiseno('${secId}','${itemId}')`,true):''}</div>`; }
+    else if(item.ficha_control_pendiente){ fichaRes='<span style="color:#9B5C6B">Falta control</span>'; ficha+=fila('Ficha corregida: control',esAdm?['ariel','stef','noelia'].map(u=>chk(!!item['control_ficha_corregida_'+u],`toggleControlFichaCorregida('${secId}','${itemId}','control_ficha_corregida_${u}')`,USER_DISPLAY[u]||u,true)).join(''):'Pendiente'); }
+    else if(item.ficha_confirmada_ok){ fichaRes='OK ✓'; ficha+=fila('Ficha OK',`<span style="color:#416096">Confirmada${item.ficha_confirmada_por?` por ${e(item.ficha_confirmada_por)}`:''}</span>`,esAdm?btnP('↩ Deshacer',`deshacerFichaOkDiseno('${secId}','${itemId}')`,true):''); }
+    else if(esAdm) ficha+=fila('¿La ficha está bien?',btnP('✅ Ficha OK',`marcarFichaOkDiseno('${secId}','${itemId}')`,true)+btnP('⚠️ Necesita modificación',`pedirAjusteFichaDiseno('${secId}','${itemId}')`,true));
+  }
+  // Moldería
+  let mold='', moldRes='';
+  const adela=(p)=>`<div style="margin:6px 0">${fila('📏 Tela a separar',item.tela_cantidad_adela?`<b>${e(item.tela_cantidad_adela)}</b>`:vacio,ed('editTelaCantidadAdela','✏️',p))}${fila('Tela separada (corta ella directo)',chk(!!item.tela_entregada,`toggleTelaEntregada('${secId}','${itemId}')`,item.tela_entregada?'Sí':'Marcar',p))}${fila('Avíos entregados con la tela',chk(!!item.avios_entregados_adela,`toggleAviosEntregadosAdela('${secId}','${itemId}')`,item.avios_entregados_adela?'Sí':'Marcar',p))}</div>`;
+  if(esPrep){ moldRes=item.base_aprobada?'No aplica':(item.modelista?e(item.modelista):'<span style="color:#9B5C6B">Sin asignar</span>');
+    mold=ffs(()=>(item.base_aprobada?fila('Modelista','No aplica — base ya aprobada'):(canStef?buildModelistaHtml(secId,itemId,item,!(item.en_ninox&&ctrlOk)||fichaModPend,fichaModPend?'Falta corregir y volver a controlar la ficha':'Falta tildar Ninox y el control de ficha'):fila('Modelista',e(item.modelista||'— Sin asignar —'))))+(item.modelista==='Adela'?adela(canPeque):'')); }
+  if(tipo==='muestra_molderia'){ moldRes=e(item.modelista||'')+(item.estado==='modificaciones'?' · <span style="color:#9B5C6B">con cambios</span>':'');
+    mold=ffs(()=>buildModelistaHtml(secId,itemId,item)+(item.modelista==='Adela'?'<div style="font-size:12px;color:#416096;margin:4px 0">🧵✂️ Moldería + muestra: lo hace Adela junto</div>'+adela(canEdit):'')
+      +fila(`Modelista entregó <small style="color:var(--text3)">(${item.modelista==='Adela'?'pasa a Probar muestra':'pasa a corte'})</small>`,chk(!!item.entregada_modelista,`toggleEntregaModelista('${secId}','${itemId}')`,item.entregada_modelista?'Sí':'Marcar',canEdit))
+      +fila('Foto en Drive con nombre y código',chk(!!item.foto_drive_ok,`toggleFotoDriveOk('${secId}','${itemId}')`,item.foto_drive_ok?'Sí':'Marcar',canEdit))
+      +(item.estado==='modificaciones'?`<div class="mod-ref-box"><div class="mod-ref-title">🔁 Modificaciones pedidas:</div><div>${e(item.modificaciones||'(sin detalle)')}</div>${fotosGrid(Object.entries(item.fotos_prueba||{}),'','')}</div>`:'')); }
+  // Avíos
+  let av='', avRes='';
+  const filaAv=([aid,a])=>fila(e(a.nombre)+(a.tenido?' <small style="color:#7c3aed">🎨 teñido</small>':'')+(a.proveedor?` <small style="color:var(--text3)">· ${e(a.proveedor)}</small>`:''),
+    a.recibido?'<span style="color:#27500a">Recibido ✓</span>':a.fecha_pedido?`<span style="color:#c08a2b">Pedido ${e(a.fecha_pedido)}</span>`:'<span style="color:#9B5C6B">Sin pedir</span>',
+    (!a.recibido&&!a.fecha_pedido&&canPedirAv?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();marcarAvioPedidoHoy('${secId}','${itemId}','${aid}')">Pedido hoy</button>`:'')
+    +(!a.recibido&&a.fecha_pedido&&canPedirAv?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();desmarcarAvioPedido('${secId}','${itemId}','${aid}')">↩ pedido</button>`:'')
+    +(canRecibirAv?(a.recibido?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();desmarcarRecibido('${secId}','${itemId}','${aid}')">↩</button>`:`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();marcarRecibido('${secId}','${itemId}','${aid}')">Recibido</button>`):''));
+  const llevaFn={muestra_cort:'setLlevaAvios',muestra_lista:'setLlevaAviosLista',muestra_prep:'setLlevaAviosLista'}[tipo];
+  if(llevaFn||avs.length||['muestra_molderia','en_terminacion'].includes(tipo)){
+    const puedeLleva=esPrep?canPeque:canCheck;
+    av=(llevaFn?fila('¿Lleva avíos?'+(esPrep&&!item.base_aprobada?' <small style="color:var(--text3)">(se define con la ficha)</small>':''),siNo(item.lleva_avios,`${llevaFn}('${secId}','${itemId}'`,puedeLleva)):'')
+      +((item.lleva_avios!==false||!llevaFn)?avs.map(filaAv).join(''):'')
+      +(((esPrep?canPeque:canEdit)&&item.lleva_avios!==false)?`<div style="margin-top:6px">${btnP(avs.length?'✏️ Editar avíos':'+ Cargar avíos',`openEditModal('${secId}','${itemId}')`,true)}</div>`:'');
+    avRes=item.lleva_avios===false?'No lleva':!avs.length?(item.lleva_avios===true?'<span style="color:#9B5C6B">Falta cargarlos</span>':'—'):avPend.length?`<span style="color:#9B5C6B">${avPend.length} pendiente${avPend.length!==1?'s':''}</span>`:'Todos recibidos ✓';
+    if(item.pedido_sin_avio) av+=`<div style="font-size:12px;margin-top:6px;padding:6px 10px;background:#fff7e6;border-radius:8px">🔔 ${e(USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por||'')} pidió enviar sin esperar el avío — ${fmtTime(item.pedido_sin_avio.fecha)}</div>`;
+  }
+  // Taller / terminación
+  let tall='', tallRes='';
+  if(tipo==='muestra_lista'){ tallRes=item.taller_elegido?e(item.taller_elegido):'<span style="color:#9B5C6B">Sin elegir</span>'; tall=fila('Taller elegido',item.taller_elegido?`<b>${e(item.taller_elegido)}</b>`:vacio); }
+  if(tipo==='muestra_en_taller'){ const d=diasDesde(item.fecha_envio_taller); tallRes=e(item.tallerista||''); tall=fila('Taller',e(item.tallerista||'—'))+fila('Enviada',fmtFecha(item.fecha_envio_taller))+fila('Días sin entregar',`<b style="color:${d>=7?'#b91c1c':d>=3?'#9B5C6B':'inherit'}">${d} día${d!==1?'s':''}</b>`)+'<div style="font-size:12px;color:#9B5C6B;margin-top:4px">Se entrega con ficha y muestra.</div>'; }
+  if(tipo==='en_estampado_taller'){ tallRes='Plancha Nina'; tall=fila('Estampado','En taller de estampado (Plancha Nina)')+(item.fecha_entregado?fila('Entregado por costura',e(item.fecha_entregado)):'')+ffs(()=>buildMovimientosExtraHtml(secId,itemId,item)); }
+  if(tipo==='en_terminacion'){ const pp=Object.values(item.pasos_extra||{}).filter(p=>!p.hecho).length; tallRes=pp?`<span style="color:#9B5C6B">${pp} paso${pp!==1?'s':''} pendiente${pp!==1?'s':''}</span>`:'';
+    tall=(item.fecha_entregado?fila('Salió del taller de armado',e(item.fecha_entregado)):'')+fila('🧺 Salió a plancha',chk(!!item.salio_plancha,`toggleSalioPlancha('${secId}','${itemId}')`,item.salio_plancha?(item.fecha_salio_plancha||'Sí'):'Marcar',canEdit),item.salio_plancha?ed('editFechaSalioPlancha','✏️ fecha',canEdit):'')+ffs(()=>buildPasosExtraHtml(secId,itemId,item,canEdit))+(sinRec?'':ffs(()=>buildRecorridoHtml(secId,itemId,item))); }
+  if(tipo==='revision_final'||tipo==='mejora') tall=item.fecha_entregado?fila('Entregado',e(item.fecha_entregado)):'';
+  // Prueba (Diseño)
+  let prueba='';
+  if(tipo==='muestra_diseno'){ const nf=Object.keys(item.fotos_prueba||{}).length; prueba=`<div style="font-size:12px;color:var(--text2)">Fotos de cómo queda puesta</div>${fotosGrid(Object.entries(item.fotos_prueba||{}),canDesign?'deleteFotoPrueba':'',canDesign?'triggerFotoPruebaUpload':'')}<div style="font-size:12px;color:var(--text2);margin-top:10px">Modificaciones a pedir</div>${canDesign?`<textarea class="mod-textarea" placeholder="Anotá los cambios a pedir..." onclick="event.stopPropagation()" onblur="saveModificaciones('${secId}','${itemId}',this)">${e(item.modificaciones||'')}</textarea>`:`<div style="font-size:13px">${e(item.modificaciones||'—')}</div>`}`; prueba={c:prueba,r:nf?`${nf} foto${nf!==1?'s':''}`:'<span style="color:#9B5C6B">Sin fotos</span>'}; }
+  // Mejora
+  let mej='';
+  if(tipo==='mejora'){ const fotos=Object.entries(item.mejora_fotos||{}); if(!fotos.length&&item.mejora_foto) fotos.push(['_v',item.mejora_foto]);
+    mej=`<div style="font-size:12px;color:var(--text2)">Qué hay que mejorar</div>${canEdit?`<textarea class="mod-textarea" placeholder="Detalle de la mejora..." onclick="event.stopPropagation()" onblur="saveMejoraNota('${secId}','${itemId}',this)">${e(item.mejora_nota||'')}</textarea>`:`<div style="font-size:13px">${e(item.mejora_nota||'—')}</div>`}
+      <div style="font-size:12px;color:var(--text2);margin-top:10px">Foto del problema</div>${fotosGrid(fotos.filter(([id])=>id!=='_v'),canFotoMej?'deleteMejoraFoto':'',canFotoMej?'triggerMejoraFotoUpload':'')}${fotos.some(([id])=>id==='_v')?fotosGrid([['_v',item.mejora_foto]],'',''):''}
+      ${ffs(()=>buildMejoraGaleriaHtml(secId,itemId,item,canFotoMej,'prueba','Foto de la prueba (cómo quedó)')+buildMejoraGaleriaHtml(secId,itemId,item,canFotoMej,'produccion','Foto de producción'))}
+      ${fila('Modificación',`<select class="modelista-select" ${canEdit?'':'disabled'} onclick="event.stopPropagation()" onchange="saveMejoraTipo('${secId}','${itemId}',this.value)"><option value="">— Elegir —</option>${['Molde','Ficha','Otro'].map(o=>`<option ${item.mejora_tipo===o?'selected':''}>${o}</option>`).join('')}</select>`)}
+      ${fila('¿Necesita muestra nueva?',siNo(item.necesita_muestra,`setNecesitaMuestra('${secId}','${itemId}'`,canEdit))}
+      ${item.mejora_resuelta&&canEdit?`<div style="margin-top:6px">${btnP('↩ Reabrir',`toggleMejoraResuelta('${secId}','${itemId}')`,true)}</div>`:''}`;
+    mej={c:mej,r:item.mejora_resuelta?'Resuelta ✓':e(item.mejora_tipo||'')}; }
+  // Cancelación
+  const canc=tipo==='muestra_cancelada'?fila('Estaba en',e(item.cancelada_desde||'—'))+(item.fecha_cancelacion?fila('Cancelada',fmtFecha(item.fecha_cancelacion)):'')+`<div style="font-size:13px;background:var(--surface2);border-radius:8px;padding:6px 9px;margin-top:6px;white-space:pre-wrap">${e(item.motivo_cancelacion||'Sin motivo cargado')}</div>`:'';
+  // Tiempos, notas, complementos
+  const tiempos=tipo==='muestra_cancelada'||tipo==='producto_perfecto'?'':ffs(()=>esPrep?buildPasosPanelHtml(item,secId,itemId):buildDemoraPanelHtml(sec,item,secId));
+  const notas=tipo==='muestra_cancelada'?'':ffs(()=>buildNotasHtml(secId,itemId,item,tipo==='muestra_diseno'?canDesign:canEdit,tipo==='producto_perfecto'?'Nota:':undefined));
+  const extra=ffs(()=>cmpStripHtml(secId,itemId,item,sec)+colStripHtml(secId,itemId,item,sec));
+  const mover=buildMoveOptsForItem(secId,itemId)||'';
+  const puedeCancelar=esAdm&&(MUESTRA.includes(tipo)||tipo==='revision_final');
+  const bloques=`<div style="margin-top:12px">
+    ${bloque('datos','Datos del artículo',[item.marca,item.categoria,item.color||item.color_muestra,item.tela_nombre].filter(Boolean).map(e).join(' · ')||'',datos,esPrep)}
+    ${bloque('ficha','Ficha técnica',fichaRes,ficha,esPrep||fichaModPend||!!item.ficha_ajuste_pendiente||!!item.ficha_control_pendiente)}
+    ${bloque('mold','Moldería',moldRes,mold,tipo==='muestra_molderia')}
+    ${bloque('avios','Avíos',avRes,av,avPend.length>0&&['muestra_cort','muestra_lista','en_terminacion'].includes(tipo))}
+    ${bloque('taller',tipo==='en_terminacion'?'Terminación':tipo==='en_estampado_taller'?'Estampado':'Taller',tallRes,tall,['en_terminacion','en_estampado_taller','muestra_en_taller'].includes(tipo))}
+    ${prueba?bloque('prueba','Prueba de la muestra',prueba.r,prueba.c,true):''}
+    ${mej?bloque('mejora','Mejora',mej.r,mej.c,true):''}
+    ${bloque('canc','Cancelación','',canc,true)}
+    ${bloque('tiempos','Tiempos','',tiempos,false)}
+    ${bloque('cmp','Complementos y colores','',extra,false)}
+    ${bloque('notas','Notas',item.nota?e(String(item.nota).slice(0,50)):'—',notas,false)}
+    ${(mover||puedeCancelar||esAdm||canEdit)?`<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;border-top:1px solid var(--border);padding-top:10px;flex-wrap:wrap" onclick="event.stopPropagation()">${canEdit&&!['muestra_cancelada','mejora'].includes(tipo)?`<button class="btn-sm" onclick="event.stopPropagation();openEditModal('${secId}','${itemId}')">✏️ Editar (avíos y más)</button>`:''}${tipo==='producto_perfecto'&&esAdm?`<button class="btn-sm" style="color:#9B5C6B" onclick="event.stopPropagation();volverAMejora('${secId}','${itemId}')">↩ Volver a Mejora</button>`:''}${tipo==='producto_perfecto'&&cu==='ariel'?`<button class="btn-sm" onclick="event.stopPropagation();forzarApareceEnConteo('${secId}','${itemId}')">📦 Forzar aparición en conteo</button>`:''}${mover}${puedeCancelar?`<button class="btn-sm" style="color:#9B5C6B" onclick="event.stopPropagation();cancelarMuestra('${secId}','${itemId}')">🚫 Cancelar muestra</button>`:''}${esAdm?`<button class="btn-sm" style="color:#b91c1c" onclick="event.stopPropagation();deleteItem('${secId}','${itemId}')">${tipo==='muestra_cancelada'?'Eliminar definitivo':'Eliminar'}</button>`:''}</div>`:''}
+  </div>`;
+  const proximo=`<div style="background:#f4f6fa;border-radius:12px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap" onclick="event.stopPropagation()">
+      <div><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Próximo paso${quien?' · '+e(quien):''}</div><div style="font-weight:600;font-size:15px;margin-top:2px">${e(que)}</div></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${acc}</div></div>`;
+  if(sinRec) return `<div onclick="event.stopPropagation()">${proximo}${bloques}</div>`;
+  const dias=item.fecha_etapa?diasEntre(item.fecha_etapa):null;
+  const chip=(t,st)=>`<span style="font-size:11px;padding:2px 9px;border-radius:40px;${st||'border:1px solid var(--border);color:var(--text2)'}">${t}</span>`;
+  const sub=[item.numero_corte?'Corte N° '+e(item.numero_corte):'',item.marca,item.tela_nombre,item.color||item.color_muestra,item.talle,item.modelista&&MUESTRA.includes(tipo)?'Moldería: '+item.modelista:''].filter(Boolean).map(x=>String(x).startsWith('Corte N°')?x:e(x)).join(' · ');
+  const barra=pasos.length?`<div style="display:flex;margin:14px 0 4px">${pasos.map((l,i)=>{ const hecho=i<actual, act=i===actual; return `<div style="flex:1;text-align:center;min-width:0"><div style="height:4px;border-radius:4px;background:${hecho?'#416096':act?'#9B5C6B':'#e5e5e5'}"></div><div style="margin-top:5px;font-size:13px;${act?'color:#9B5C6B;font-weight:700':hecho?'color:#416096':'color:#999'}">${l}</div></div>`; }).join('<div style="width:6px"></div>')}</div>`:'';
+  const puedeFoto=esPrep?canStef:canEditFoto;
+  const foto=`<div style="position:relative;width:64px;height:64px">${item.foto?`<img src="${item.foto}" loading="lazy" title="Ver foto grande" onclick="event.stopPropagation();openPhotoModal('${item.foto}')" style="width:64px;height:64px;object-fit:cover;border-radius:10px;cursor:zoom-in">`:`<div style="width:64px;height:64px;border-radius:10px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;${puedeFoto?'cursor:pointer':''}" ${puedeFoto?`onclick="event.stopPropagation();triggerPhotoUpload('${secId}','${itemId}')" title="Agregar foto"`:''}>${puedeFoto?'📷':''}</div>`}${item.foto&&puedeFoto?`<button title="Cambiar foto" onclick="event.stopPropagation();triggerPhotoUpload('${secId}','${itemId}')" style="position:absolute;right:-6px;bottom:-6px;border:1px solid var(--border);background:#fff;border-radius:40px;font-size:11px;padding:2px 5px;cursor:pointer">✏️</button>`:''}</div>`;
+  return `<div class="item${tipo==='mejora'&&item.mejora_resuelta?' done':''}" id="item-${secId}-${itemId}" data-item="${itemId}" style="display:block;border:1px solid var(--border);border-radius:14px;padding:14px;margin:8px 0;background:#fff" onclick="event.stopPropagation()">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <div style="flex-shrink:0;width:64px">${foto}</div>
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
+          <div style="font-weight:700;font-size:14px">${e(item.code||'')} ${e(item.name||'(sin nombre)')}</div>
+          <div style="display:flex;gap:6px">${dias!=null&&tipo!=='producto_perfecto'&&tipo!=='muestra_cancelada'?chip(dias===0?'hoy':`hace ${dias} día${dias!==1?'s':''}`,dias>=7?'background:#9B5C6B;color:#fff':'background:var(--surface2);color:var(--text2)'):''}${tipo==='muestra_cancelada'?chip('Cancelada','background:#9B5C6B;color:#fff'):''}</div>
+        </div>
+        ${sub?`<div style="font-size:12px;color:var(--text2);margin-top:2px">${sub}</div>`:''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${tipo!=='muestra_cancelada'?(item.ficha_link?chip('Ficha ✓'):chip('Sin ficha','background:#fbeef1;color:#9B5C6B')):''}${fichaModPend?chip('🔁 Modificar ficha','background:#fbeef1;color:#9B5C6B'):''}${avPend.length?chip(`Avíos pendientes: ${avPend.length}`,'background:#fbeef1;color:#9B5C6B'):''}${item.estado==='modificaciones'?chip('🔁 Con modificaciones','background:#fbeef1;color:#9B5C6B'):''}${item.nota?chip('📝 '+e(String(item.nota).slice(0,40))):''}</div>
+      </div></div>
+    ${barra}
+    ${proximo}
+    ${completa?bloques:''}
+    <div style="margin-top:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap" onclick="event.stopPropagation()">
+      <button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaMuestraToggle('${itemId}',${completa?'false':'true'})">${completa?'▴ Ocultar detalle':'▸ Ver ficha completa'}</button>
+      ${(canEdit||canEditFoto||cu==='emir')?`<button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaEditarTodoToggle('${itemId}')">${todo?'✓ Listo':'✏️ Editar todo'}</button>`:''}
+    </div>
+  </div>`;
+}
 function buildItem(secId,itemId,item,sec,idx,total){
   const secX=sectionsData[secId]||{};
+  if(sec&&FICHA_TIPOS.includes(sec.tipo)){
+    try{ return fichaMuestraHtml(secId,itemId,item,sec); }catch(err){ console.error('ficha',sec.tipo,err); return `<div class="item" id="item-${secId}-${itemId}">${utEsc(item.code||'')} ${utEsc(item.name||'')} <small style="color:#b91c1c">(no se pudo mostrar la ficha)</small></div>`; }
+  }
   if(item&&item.numero_corte&&(FICHA_SECS.includes(secId)||(secX.title||'').trim()==='Pendiente armar tizada')){
     // Dentro de la tarjeta de Talleres (que ya tiene encabezado y acciones) van directo los bloques ordenados.
     if(window.__sinRecorrido){ try{ return `<div onclick="event.stopPropagation()">${fichaCorteSeccionesHtml(secId,itemId,item,sec)}</div>`; }catch(err){ console.error('ficha en taller',err); } }

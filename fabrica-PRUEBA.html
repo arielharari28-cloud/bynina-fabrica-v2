@@ -15427,7 +15427,7 @@ function colAplicarStock(item,usos){
 const fichaCompletaAbierta=new Set();
 function fichaToggleCompleta(itemId,abrir){ if(abrir) fichaCompletaAbierta.add(itemId); else fichaCompletaAbierta.delete(itemId); renderSections('fabrica'); }
 function fichaMenuToggle(btn){ const m=btn.nextElementSibling; if(m) m.style.display=m.style.display==='block'?'none':'block'; }
-function fichaCorteResumenHtml(secId,itemId,item,sec){
+function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
   const e=utEsc, g=grupoCorteOf(item)||{}, yo=quienSoy();
   const otros=otrosDelMismoCorte(secId,itemId,item)||[];
   const dias=item.fecha_etapa?diasEntre(item.fecha_etapa):null;
@@ -15472,14 +15472,67 @@ function fichaCorteResumenHtml(secId,itemId,item,sec){
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${acciones}
         <span style="position:relative"><button class="btn-sm" style="border-radius:40px;padding:6px 12px" onclick="event.stopPropagation();fichaMenuToggle(this)">⋯</button><div style="display:none;position:absolute;right:0;top:110%;z-index:50;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 20px rgba(0,0,0,.1);min-width:170px;padding:4px">${menu}</div></span></div>
     </div>
-    <div style="margin-top:10px"><button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',true)">▸ Ver ficha completa (datos, recorrido, complementos)</button></div>
+    ${completa?fichaCorteSeccionesHtml(secId,itemId,item,sec):''}
+    <div style="margin-top:10px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',${completa?'false':'true'})">${completa?'▴ Ocultar detalle':'▸ Ver ficha completa (datos, ficha técnica, corte, recorrido)'}</button>${completa?`<button class="btn-sm" style="border:none;background:none;color:var(--text3);padding:0;font-size:11px" onclick="event.stopPropagation();fichaVistaVieja('${itemId}')">Vista anterior</button>`:''}</div>
+  </div>`;
+}
+// Ficha completa ordenada: cada bloque plegable con un resumen en la línea, así se lee de un vistazo
+// y solo se abre lo que hay que tocar. Usa los mismos controles de siempre (no cambia cómo se guardan los datos).
+const fichaVistaViejaSet=new Set(), fichaSecAbiertas=new Set();
+function fichaVistaVieja(itemId){ fichaVistaViejaSet.add(itemId); renderSections('fabrica'); }
+function fichaSecToggle(k,abrir){ if(abrir) fichaSecAbiertas.add(k); else fichaSecAbiertas.delete(k); }
+function fichaCorteSeccionesHtml(secId,itemId,item,sec){
+  const e=utEsc, g=grupoCorteOf(item)||{};
+  const pesoEf=getPesoMetroEfectivo(item), largoEf=getLargoCapaEfectivo(item);
+  const canEdit=(currentUser==='ariel'||currentUser==='stef'||currentUser==='noelia'||currentUser==='peque');
+  const canCortar=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque'||currentUser==='arimoron';
+  const bloque=(k,titulo,resumen,cuerpo,abiertoPorDefecto)=>{
+    const key=itemId+'|'+k, open=fichaSecAbiertas.has(key)||(abiertoPorDefecto&&!fichaSecAbiertas.has(key+'|cerrado'));
+    return `<details ${open?'open':''} ontoggle="fichaSecToggle('${key}',this.open);if(!this.open)fichaSecAbiertas.add('${key}|cerrado');else fichaSecAbiertas.delete('${key}|cerrado')" style="border-top:1px solid var(--border);padding:10px 0" onclick="event.stopPropagation()">
+      <summary style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:10px;align-items:baseline"><span style="font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase">${titulo}</span><span style="font-size:12px;color:var(--text2);text-align:right">${resumen}</span></summary>
+      <div style="padding-top:8px">${cuerpo}</div></details>`;
+  };
+  const fila=(l,v,btn)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px dashed var(--border);font-size:13px"><span style="color:var(--text2)">${l}</span><span style="display:flex;gap:8px;align-items:center">${v}${btn||''}</span></div>`;
+  const ed=(fn,lbl)=>canEdit?`<button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();${fn}('${secId}','${itemId}')">${lbl||'✏️'}</button>`:'';
+  const vacio='<span style="color:#9B5C6B">Sin cargar</span>';
+  // 1. Datos del artículo
+  const datosRes=[item.marca,item.categoria,item.temporada,item.tela||item.tela_nombre,item.proveedor||item.tela_proveedor].filter(Boolean).map(e).join(' · ')||'<span style="color:#9B5C6B">Faltan datos</span>';
+  const datosCuerpo=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:2px 16px">${buildMarcaHtml(secId,itemId,item)}${buildCategoriaHtml(secId,itemId,item)}${buildTemporadaHtml(secId,itemId,item)}${buildTelaHtml(secId,itemId,item)}${buildProveedorHtml(secId,itemId,item)}</div>
+    <div style="margin-top:8px">${buildRefLinkHtml(secId,itemId,item,canEdit)}</div>`;
+  // 2. Ficha técnica
+  const falta=[!item.ficha_link&&'ficha',!item.curva&&'curva',!item.ancho&&'ancho',!pesoEf&&'peso x m',!largoEf&&'largo de capa'].filter(Boolean);
+  const fichaCuerpo=fila('Ficha producto',item.ficha_link?`<a href="${e(item.ficha_link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#416096">Abrir ↗</a>`:vacio,ed('editFichaLink'))
+    +fila('Curva',item.curva?e(item.curva):vacio,ed('editCurvaPrompt'))
+    +fila('Ancho',item.ancho?e(item.ancho):vacio,ed('editAnchoPrompt'))
+    +fila('Peso x metro <small style="color:var(--text3)">(todo el corte)</small>',pesoEf?e(pesoEf):vacio,ed('editPesoMetroPrompt'))
+    +fila('Largo de capa <small style="color:var(--text3)">(todo el corte)</small>',largoEf?e(largoEf):vacio,ed('editLargoCapaPrompt'))
+    +((pesoEf&&largoEf)?fila('Peso de capa',(numAr(pesoEf)*numAr(largoEf)).toFixed(3)):'');
+  // 3. Corte: orden, rollos, encimado (bloque compartido por todo el N° de corte)
+  const corteRes=[ordenCargadaGrupo(item)?'Orden ✓':'Sin orden',g.tiza_impresa?'Tiza ✓':'',encimadoTerminadoGrupo(item)?'Encimado ✓':''].filter(Boolean).join(' · ');
+  let corteCuerpo=''; try{ corteCuerpo=buildFlujoPreCorte(secId,itemId,item,canCortar); }catch(err){ corteCuerpo='<div style="font-size:12px;color:var(--text3)">Abrí la vista anterior para cargar la orden y los rollos.</div>'; }
+  // 4. Recorrido
+  let recCuerpo=''; try{ recCuerpo=buildRecorridoHtml(secId,itemId,item); }catch(err){}
+  const pasosR=Object.values(item.recorrido||item.pasos_recorrido||{}).length;
+  // 5. Complementos y colores
+  let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec)+colStripHtml(secId,itemId,item,sec); }catch(err){}
+  // 6. Notas
+  let notas=''; try{ notas=buildNotasHtml(secId,itemId,item,canEdit,'Notas:'); }catch(err){}
+  const mover=(typeof buildMoveOptsForItem==='function'?buildMoveOptsForItem(secId,itemId):buildMoveOpts(secId))||'';
+  return `<div style="margin-top:12px">
+    ${bloque('datos','Datos del artículo',datosRes,datosCuerpo,false)}
+    ${bloque('ficha','Ficha técnica',falta.length?`<span style="color:#9B5C6B">Falta ${falta.join(', ')}</span>`:'Completa ✓',fichaCuerpo,falta.length>0)}
+    ${bloque('corte','Corte: orden, rollos y encimado',corteRes,corteCuerpo,!item.sin_confirmar)}
+    ${recCuerpo?bloque('rec','Recorrido','',recCuerpo,false):''}
+    ${extra?bloque('cmp','Complementos y colores','',extra,false):''}
+    ${bloque('notas','Notas',item.nota?e(String(item.nota).slice(0,50)):'—',notas||'',false)}
+    ${mover||currentUser==='ariel'?`<div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;border-top:1px solid var(--border);padding-top:10px" onclick="event.stopPropagation()">${mover}${currentUser==='ariel'?`<button class="btn-sm" style="color:#b91c1c" onclick="event.stopPropagation();deleteItem('${secId}','${itemId}')">Eliminar</button>`:''}</div>`:''}
   </div>`;
 }
 function buildItem(secId,itemId,item,sec,idx,total){
-  if(secId==='s3'&&item&&item.numero_corte&&!fichaCompletaAbierta.has(itemId)){
-    try{ return fichaCorteResumenHtml(secId,itemId,item,sec); }catch(err){ console.error('ficha resumida',err); }
+  if(secId==='s3'&&item&&item.numero_corte&&!fichaVistaViejaSet.has(itemId)){
+    try{ return fichaCorteResumenHtml(secId,itemId,item,sec,fichaCompletaAbierta.has(itemId)); }catch(err){ console.error('ficha de corte',err); }
   }
-  const volver=(secId==='s3'&&fichaCompletaAbierta.has(itemId))?`<div style="margin:4px 0 -4px"><button class="btn-sm" style="border:none;background:none;color:#416096;font-size:12px" onclick="event.stopPropagation();fichaToggleCompleta('${itemId}',false)">▾ Volver a la ficha resumida</button></div>`:'';
+  const volver=(secId==='s3'&&fichaVistaViejaSet.has(itemId))?`<div style="margin:4px 0 -4px"><button class="btn-sm" style="border:none;background:none;color:#416096;font-size:12px" onclick="event.stopPropagation();fichaVistaViejaSet.delete('${itemId}');renderSections('fabrica')">▾ Volver a la ficha nueva</button></div>`:'';
   const html=volver+buildItemBase(secId,itemId,item,sec,idx,total);
   let extra=''; try{ extra=cmpStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }
   try{ extra+=colStripHtml(secId,itemId,item,sec); }catch(e){ console.error(e); }

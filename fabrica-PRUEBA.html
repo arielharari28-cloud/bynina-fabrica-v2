@@ -7728,7 +7728,7 @@ function buildColaPorCorteHtml(secId,items,sec,enPausa){
     const ref=conFecha||g.items[0];
     return `<div class="cmp-row ${abierto?'cmp-open':''}" onclick="toggleCompactItem('${secId}','cola:${g.ck}')">
       <div style="display:flex;gap:3px;flex-shrink:0">${fotos}</div>
-      <div class="cmp-txt"><b>${fit.numero_corte?'Corte N° '+fit.numero_corte:(fit.code||'')+' '+(fit.name||'')}</b><small>${g.items.length>1?g.items.length+' artículos · ':''}${nombres}</small></div>
+      <div class="cmp-txt"><b>${fit.numero_corte?'Corte N° '+fit.numero_corte:(fit.code||'')+' '+(fit.name||'')}</b><small>${g.items.length>1?g.items.length+' artículos · ':''}${nombres}</small>${ccChipsHtml(fit)?`<div style="margin-top:3px">${ccChipsHtml(fit)}</div>`:''}</div>
       ${enPausa?(puede?`<span class="cmp-chip">⏸ desde ${fmtFecha(fit.pausado_fecha||Date.now())}</span><button class="btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();pausarCorte('${secId}','${fid}',false)">▶ Reactivar</button><button class="btn-sm" style="flex-shrink:0;color:var(--danger-text,#b91c1c)" onclick="event.stopPropagation();cancelarCortePausado('${secId}','${fid}')">✕ Cancelar</button>`:`<span class="cmp-chip">⏸ en pausa</span>`):''}
       ${enPausa?'':(puede?`<button class="btn-sm" title="Pausar: la decisión de este corte queda frenada" style="flex-shrink:0" onclick="event.stopPropagation();pausarCorte('${secId}','${fid}',true)">⏸</button>`:'')}
       ${enPausa?'':(puede?fechaObjetivoInputHtml(secId,ref[0],ref[1],sec,false)+`<button class="btn-sm" style="flex-shrink:0;background:var(--accent);color:#fff;border-color:var(--accent)" onclick="event.stopPropagation();confirmarCorteCompleto('${secId}','${ref[0]}')">✅ Confirmar</button>`
@@ -7815,7 +7815,7 @@ function s3FilaCorteHtml(secId,g,sec,drag){
   return `<div class="cmp-row s3d-row ${abierto?'cmp-open':''}" ${dragAttrs} onclick="toggleCompactItem('${secId}','${k}')">
     ${drag?'<span class="s3d-grip" title="Arrastrá a otro día">⠿</span>':''}
     <div style="display:flex;gap:3px;flex-shrink:0">${fotos}</div>
-    <div class="cmp-txt"><b>${titulo}${marca}</b><small>${sub}</small>${comps?`<div>${comps}</div>`:''}</div>
+    <div class="cmp-txt"><b>${titulo}${marca}</b><small>${sub}</small>${(comps||(!g.esComp&&ccChipsHtml(fit,{soloCol:true})))?`<div>${comps}${g.esComp?'':ccChipsHtml(fit,{soloCol:true})}</div>`:''}</div>
     <span class="cmp-chip">${g.etapa}</span>
     ${fecha}${s3AtrasoHtml(g.ts)}
     <span style="color:var(--text2);font-size:12px;flex-shrink:0">${abierto?'▲':'▼'}</span>
@@ -7903,6 +7903,7 @@ function buildCompactRowsHtml(secId,items,sec){
       ${item.foto?`<img class="cmp-img" src="${item.foto}" loading="lazy">`:`<div class="cmp-img"></div>`}
       ${prio?`<span title="Prioridad para armar la tizada" style="flex-shrink:0;min-width:30px;text-align:center;font-size:12px;font-weight:800;background:#ede9fe;color:#5b21b6;border-radius:8px;padding:4px 6px">⭐${prio}</span>`:''}
       <div class="cmp-txt"><b>${item.es_complemento&&item.complemento_de?`${cmpEsc(item.complemento_de.que||'Complemento')} — ${cmpEsc(cmpArticulosTxt(item))}`:`${item.code?item.code+' ':''}${item.name||'(sin nombre)'}`}</b>${sub?`<small>${sub}</small>`:''}</div>
+      ${item.es_complemento?'':ccChipsHtml(item)}
       ${chip?`<span class="cmp-chip">${chip}</span>`:''}
       ${(secId==='s3'&&!item.sin_confirmar&&puedeFechaObjetivoCorte())?fechaObjetivoInputHtml(secId,itemId,item,sec,true):(()=>{ const fl=fechaLimiteTarea(sec,item,secId); if(!fl) return '';
         const bg=fl.aviso.color==='#dc2626'?'#fee2e2':fl.aviso.venceHoy?'#fef3c7':'var(--surface2)';
@@ -13941,6 +13942,61 @@ function colAplicarStock(item,usos){
     upd[`rollos/${id}/usos/${ctx}`]=uso; upd[`rollos/${id}/restante`]=rest; upd[`rollos/${id}/estado`]=tsEstadoDe(nr,rest); if(!r.cargadoComo) upd[`rollos/${id}/cargadoComo`]='entero'; });
   if(Object.keys(upd).length) db.ref('fabrica_v5/telas_stock').update(upd);
 }
+// ===== Complemento / collareta a la vista (nov 2026) =====
+// Peque define si el corte lleva complemento o collareta. Si lleva, se muestra destacado en la fila y en la
+// tarjeta para que Noelia se lo aclare al cortador. Si no lleva, no se muestra nada.
+// "Lleva" sale de lo ya cargado (complementos del corte / collareta). "No lleva" lo marca Peque: item.cc_def={valor:'no',por,ts}.
+// Mientras no esté definido, a Peque le queda en su Mi día.
+function ccInfo(item){
+  if(!item||item.es_complemento) return null;
+  const arts=item.numero_corte?cmpArticulosDeCorte(item.numero_corte).map(a=>a.item):[];
+  if(!arts.includes(item)) arts.push(item);
+  const comps={}; arts.forEach(it=>Object.values(it.complementos||{}).forEach(c=>{ if(c&&c.numero) comps[c.numero]=c; }));
+  const cols=arts.filter(it=>it.collareta).map(it=>({code:it.code||'',c:it.collareta}));
+  const lleva=Object.keys(comps).length>0||cols.length>0, noLleva=arts.some(it=>it.cc_def&&it.cc_def.valor==='no');
+  return {comps:Object.values(comps),cols,lleva,noLleva:!lleva&&noLleva,definido:lleva||noLleva,varios:arts.length>1};
+}
+function ccModoTxt(d){ if(!d) return ''; if(d.modo!=='comb') return 'a tono';
+  const m=Object.values(d.mapa||{}).filter(x=>x&&x.base&&x.color).map(x=>`${x.base} → ${x.color}`);
+  return 'combinado'+(m.length?' ('+m.join(', ')+')':''); }
+function ccChipsHtml(item,opt){ const i=ccInfo(item); if(!i||!i.lleva) return ''; opt=opt||{};
+  const ch=t=>`<span class="cmp-chip" style="background:#9B5C6B;color:#fff;max-width:none;font-weight:600">${t}</span>`;
+  return (opt.soloCol?'':i.comps.map(c=>ch('+ '+utEsc(c.que||'Complemento')+' '+utEsc(c.numero))).join(''))+(i.cols.length?ch('+ Collareta'):''); }
+function ccBannerHtml(item){ const i=ccInfo(item); if(!i||!i.lleva) return ''; const e=utEsc, filas=[];
+  i.comps.forEach(c=>{ const f=cmpFind(c.numero), comb=f&&f.item.combinacion;
+    filas.push(['Complemento',`${e(c.que||'Complemento')} · corte ${e(c.numero)}${comb?' · '+e(ccModoTxt(comb)):''} · se corta después del ${e(item.numero_corte||'corte base')}`]); });
+  i.cols.forEach(x=>filas.push([`Collareta${i.varios&&x.code?' '+e(x.code):''}`,`${x.c.tela?e(x.c.tela):'tela sin definir'} · ${e(ccModoTxt(x.c))}`]));
+  return `<div style="margin-top:10px;border:1.5px solid #9B5C6B;border-radius:10px;background:#fbeef1;padding:10px 12px">
+    <div style="font-size:11px;letter-spacing:.5px;color:#9B5C6B;font-weight:700">ACLARAR AL CORTADOR · LO DEFINE PEQUE</div>
+    <div style="font-size:13px;margin-top:6px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;color:#3F2A2F">${filas.map(([l,v])=>`<b>${l}</b><span>${v}</span>`).join('')}</div></div>`; }
+function ccPuedeDefinir(){ return ['ariel','peque'].includes(quienSoy()); }
+function ccEnEtapa(secId,sec){ return secId==='s3'||((sec&&sec.title)||'').trim()==='Pendiente armar tizada'; }
+function ccDefinirHtml(secId,itemId,item,sec){
+  const i=ccInfo(item); if(!i||!ccPuedeDefinir()||!ccEnEtapa(secId,sec)) return '';
+  const b=(t,fn,gris)=>`<button class="btn-sm" style="border-radius:40px;padding:5px 12px;background:#fff;${gris?'border:1px solid #ccc;color:#666':'border:1px solid #416096;color:#416096'}" onclick="event.stopPropagation();${fn}">${t}</button>`;
+  if(i.noLleva) return `<div style="margin-top:8px;font-size:12px;color:var(--text2)">Sin complemento ni collareta (lo definió Peque) · <button class="btn-sm" style="border:none;background:none;color:#416096;padding:0;font-size:12px" onclick="event.stopPropagation();ccDeshacer('${secId}','${itemId}')">cambiar</button></div>`;
+  if(i.definido) return '';
+  return `<div style="margin-top:10px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap" onclick="event.stopPropagation()">
+    <div style="font-size:13px"><b>¿Lleva complemento o collareta?</b> <span style="color:var(--text2)">· responsable Peque</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${b('+ Complemento',`ccAgregarComp('${secId}','${itemId}')`)}${b('+ Collareta',`colActivar('${secId}','${itemId}')`)}${b('No lleva',`ccNoLleva('${secId}','${itemId}')`,true)}</div></div>`;
+}
+function ccAgregarComp(secId,itemId){ const it=(sectionsData[secId]&&sectionsData[secId].items||{})[itemId];
+  if(!it||!it.numero_corte){ showToast('Primero tiene que tener N° de corte para crear el complemento'); return; } cmpCrear(secId,itemId); }
+function ccNoLleva(secId,itemId){ if(!ccPuedeDefinir()) return; const it=sectionsData[secId].items[itemId];
+  colRef(secId,itemId).child('cc_def').set({valor:'no',por:currentUser,ts:Date.now()});
+  logActivity('Sin complemento ni collareta',`${it.numero_corte?'Corte '+it.numero_corte:it.code||''}`); }
+function ccDeshacer(secId,itemId){ if(!ccPuedeDefinir()) return; const it=sectionsData[secId].items[itemId];
+  const arts=it.numero_corte?cmpArticulosDeCorte(it.numero_corte):[]; const up={};
+  arts.forEach(a=>{ if(a.item.cc_def) up[`fabrica_v5/sections/${a.secId}/items/${a.itemId}/cc_def`]=null; });
+  up[`fabrica_v5/sections/${secId}/items/${itemId}/cc_def`]=null; db.ref().update(up); }
+// Para el Mi día de Peque: un renglón por corte que todavía no dice si lleva.
+function ccPendientesPeque(){ const l=[], vistos=new Set();
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{ if(!ccEnEtapa(secId,sec)) return;
+    Object.entries((sec&&sec.items)||{}).forEach(([itemId,item])=>{ if(!item||item.done||item.es_complemento) return;
+      const k=item.numero_corte?corteKeyFrom(String(item.numero_corte)):'_'+itemId; if(vistos.has(k)) return;
+      const i=ccInfo(item); if(!i||i.definido) return; vistos.add(k);
+      l.push({secId,itemId,item,texto:'Definir si lleva complemento o collareta'}); }); });
+  return l; }
 // ---- Ficha de corte resumida (nov 2026) ----
 // En "Cortes próximos a sacar" cada artículo se muestra limpio: qué es, en qué paso está y UN botón
 // con lo que hay que hacer ahora. Todo lo demás (datos editables, recorrido, notas) está en "Ver ficha completa".
@@ -14028,6 +14084,7 @@ function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
         <div style="font-size:12px;color:var(--text2);margin-top:2px">Corte N° ${e(item.numero_corte||'—')}${datos?' · '+datos:''}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">${falta.length?chip('Ficha: falta '+falta.join(', '),'background:#fbeef1;color:#9B5C6B'):chip('Ficha completa ✓')}${otros.length?chip(`Corte compartido con ${otros.length} más`):''}${!esS3&&item.taller_corte?chip('🧵 '+e(item.taller_corte)):''}${avPend.length?chip(`Avíos pendientes: ${avPend.length}`,'background:#fbeef1;color:#9B5C6B'):''}${item.nota?chip('📝 '+e(String(item.nota).slice(0,40))):''}</div>
       </div></div>
+    ${ccBannerHtml(item)}${ccDefinirHtml(secId,itemId,item,sec)}
     <div style="display:flex;margin:14px 0 4px">${barra}</div>
     <div style="background:#f4f6fa;border-radius:12px;padding:10px 12px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <div><div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px">Próximo paso · ${e(quien)}</div><div style="font-weight:600;font-size:15px;margin-top:2px">${e(que)}</div></div>
@@ -15787,6 +15844,7 @@ function renderTableroPeque(){
   const mejoras=pqMejoras();
   const sinPedir=avios.filter(x=>/sin pedir/.test(x.texto)).length, sinPrecio=avios.length-sinPedir;
   const grupos=[
+    {k:'ccdef',t:'Complemento / collareta',sub:'Cortes que todavía no dicen si llevan complemento o collareta',l:ccPendientesPeque()},
     {k:'tizadas',t:'Tizadas por prioridad',sub:'Pendiente armar tizada, en el orden en que van',l:tizadas},
     {k:'fichas',t:'Fichas',sub:'Falta cargar ficha, curva, ancho o control de piezas',l:fichas},
     {k:'moldes',t:'Moldes',sub:'Digitalizar y progresiones de Mini Sur',l:moldes},

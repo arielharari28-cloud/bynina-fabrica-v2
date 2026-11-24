@@ -984,7 +984,7 @@
     <div class="login-title">Fábrica</div>
     <div class="login-sub">¿Quién sos?</div>
     <button class="user-btn" id="btn-ariel"><div class="user-avatar" style="background:#2d6a4f">A</div><div><div class="uname">Ariel</div><div class="urole">Administrador — acceso total</div></div></button>
-    <button class="user-btn" id="btn-stef"><div class="user-avatar" style="background:#9d174d">S</div><div><div class="uname">Stefany</div><div class="urole">Diseño — acceso total</div></div></button>
+    <button class="user-btn" id="btn-stef"><div class="user-avatar" style="background:#9d174d">S</div><div><div class="uname">Stefany</div><div class="urole">Cortes y estampas</div></div></button>
     <button class="user-btn" id="btn-peque"><div class="user-avatar" style="background:#5b21b6">P</div><div><div class="uname">Peque</div><div class="urole">Fábrica — acciones registradas</div></div></button>
     <button class="user-btn" id="btn-emir"><div class="user-avatar" style="background:#b45309">E</div><div><div class="uname">Emir</div><div class="urole">Depósito — recepción de avíos</div></div></button>
     <button class="user-btn" id="btn-arimoron"><div class="user-avatar" style="background:#0e7490">AM</div><div><div class="uname">Ari Morón</div><div class="urole">Cortador — Cortes a sacar</div></div></button>
@@ -3560,7 +3560,7 @@ function showToast(msg){
 // LOGIN
 document.getElementById('btn-ariel').onclick=()=>attemptLogin('ariel');
 document.getElementById('btn-stef').onclick=()=>attemptLogin('stef');
-document.getElementById('btn-stef').style.display='none'; // Stef dejó la empresa (nov 2026)
+// Nov 2026: Stef vuelve con usuario acotado — solo ve Cortes y Estampas (ver TAB_VISIBILITY.stef).
 document.getElementById('btn-peque').onclick=()=>attemptLogin('peque');
 document.getElementById('btn-emir').onclick=()=>attemptLogin('emir');
 document.getElementById('btn-arimoron').onclick=()=>attemptLogin('arimoron');
@@ -3592,7 +3592,7 @@ function doLogin(user){
       renderMisPendientesBadge();
     });
   }
-  if(user==='ariel'||user==='stef'){
+  if(user==='ariel'){
     document.getElementById('backup-btn').classList.remove('hidden');
     document.getElementById('pins-btn').classList.remove('hidden');
     document.getElementById('colores-tela-btn').classList.remove('hidden');
@@ -3611,6 +3611,8 @@ function doLogin(user){
     if(!ing&&quienSoy()==='peque'){ const bn=document.getElementById('logi-btn-nueva-entrega'); if(bn) bn.classList.remove('hidden'); } // Peque: entregas de Mini Sur
     actualizarBadgeTablero();
   }
+  // Stef (nov 2026): usuario acotado a Cortes y Estampas — sin buscador global (abre Diseño/Fábrica/Talleres).
+  document.getElementById('global-search-btn').classList.toggle('hidden',user==='stef');
   applyTabVisibility(user);
   applyTabOrder();
   if(user==='ariel') pqVerPersona='ariel';
@@ -3647,6 +3649,8 @@ function doLogout(){
   document.getElementById('backup-btn').classList.add('hidden');
   document.getElementById('pins-btn').classList.add('hidden');
   document.getElementById('pins-panel').classList.add('hidden');
+  document.getElementById('colores-tela-btn').classList.add('hidden');
+  document.getElementById('accesos-btn').classList.add('hidden');
   document.getElementById('add-sec-btn-diseno').classList.add('hidden');
   document.getElementById('add-sec-btn-fabrica').classList.add('hidden');
 }
@@ -11653,6 +11657,8 @@ TAB_VISIBILITY.arimoron=['tab-btn-fabrica'];
 if(!TAB_VISIBILITY.noelia.includes('tab-btn-histart')) TAB_VISIBILITY.noelia.push('tab-btn-histart');
 // Emir (nov 2026): pidió quedarse solo con Logística — la tiza la imprime Noelia y ella habla con los talleres.
 TAB_VISIBILITY.emir=['tab-btn-logistica'];
+// Stef (nov 2026): vuelve solo para Cortes y Estampas — no ve nada más de la app.
+TAB_VISIBILITY.stef=['tab-btn-cortes','tab-btn-estampas'];
 const ARIMORON_SECCIONES=['s3','muestra_pendiente'];
 function tabPrincipales(user){ const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT; const pr=TAB_PRINCIPALES[user]; return pr?pr.filter(t=>allowed.includes(t)):allowed; }
 function tabMas(user){ const allowed=TAB_VISIBILITY[user]||TAB_ORDER_DEFAULT, pr=tabPrincipales(user); return TAB_ORDER_DEFAULT.filter(t=>allowed.includes(t)&&!pr.includes(t)); }
@@ -16078,6 +16084,7 @@ function irAItem(secId,itemId,foco){
   const sec=sectionsData[secId];
   if(!sec) return;
   const board=getBoard(sec);
+  if(quienSoy()==='stef'){ showToast('Ese corte se sigue en Fábrica/Talleres — no tenés acceso a esa pestaña'); return; }
   const itemIr=(sec.items||{})[itemId]||{};
   // sFIN vive en las dos pestañas: sin retirar está en Fábrica, retirado en Talleres.
   const enPipeline=board==='fabrica'&&PIPELINE_TALLERES_SECS.includes(secId);

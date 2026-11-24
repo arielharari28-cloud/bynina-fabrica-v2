@@ -14977,7 +14977,40 @@ function tbHoyTienePasar(){
 // Agenda de la semana (nov 2026): lo mismo que "Hoy tiene que pasar" pero separado por día.
 // Lo pendiente con fecha anterior a hoy va a la columna "Atrasado" (solo en la semana actual).
 let tbSemanaOffset=0;
-function tbSemanaMover(n){ tbSemanaOffset=n===0?0:tbSemanaOffset+n; renderPendientes(); }
+function tbSemanaMover(n){ tbSemanaOffset=n===0?0:tbSemanaOffset+n; renderPendientes(); try{ renderTableroPeque(); }catch(e){} }
+// Agenda de la semana dentro del Mi día de Noelia (nov 2026): la misma del Tablero, para que vea
+// qué avíos, entregas, cortes y retiros caen cada día sin ir a Más ▸ Pendientes.
+function tdAgendaHoyResumen(){
+  const off=tbSemanaOffset; tbSemanaOffset=0;
+  let s; try{ s=tbAgendaSemana(); } finally { tbSemanaOffset=off; }
+  const hoyC=s.cols.find(c=>c.hoy), atr=s.cols.find(c=>c.atrasado);
+  return {hoy:hoyC?hoyC.filas.length:0, atrasados:atr?atr.filas.length:0};
+}
+function tdIrAgenda(){ const d=document.querySelector('#td-agenda details'); if(!d) return; d.open=true; d.scrollIntoView({behavior:'smooth',block:'start'}); }
+function tdAgendaSemanaHtml(){
+  const e=etEsc;
+  const chipT={ok:['var(--green-bg)','var(--green-text)'],pend:['var(--surface2)','var(--text2)'],tarde:['var(--danger-bg)','var(--danger)']};
+  const sem=tbAgendaSemana();
+  const titSem=tbSemanaOffset===0?'Esta semana':tbSemanaOffset===1?'Semana que viene':tbSemanaOffset===-1?'Semana pasada':`Semana del ${tbFmtIso(sem.desde)}`;
+  const total=sem.cols.reduce((a,c)=>a+c.filas.length,0);
+  const atr=(sem.cols.find(c=>c.atrasado)||{filas:[]}).filas.length;
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+    <b style="font-size:13px">${titSem} · ${tbFmtIso(sem.desde)} al ${tbFmtIso(sem.hasta)}</b>
+    <span style="display:flex;gap:6px"><button class="btn-sm" onclick="tbSemanaMover(-1)">‹</button>${tbSemanaOffset!==0?`<button class="btn-sm" onclick="tbSemanaMover(0)">Hoy</button>`:''}<button class="btn-sm" onclick="tbSemanaMover(1)">›</button></span></div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:8px">🔘 Avío que llega · 🧵 Entrega de taller · ✂️ Corte · 🚚 Retiro de taller</div>
+    <div class="tb-hoy tb-sem">`;
+  sem.cols.forEach(g=>{
+    const tStyle=g.atrasado?'color:var(--danger)':g.hoy?'color:var(--text)':'';
+    h+=`<div class="tb-hoy-col" style="${g.hoy?'outline:2px solid var(--accent);':''}${g.pasado?'opacity:.75;':''}"><div class="tb-hoy-t"><span style="${tStyle}">${g.titulo}${g.hoy?' · hoy':''} ${g.sub?`<span style="font-weight:500;color:var(--text2)">${g.sub}</span>`:''}</span><b>${g.filas.length}</b></div>`;
+    if(!g.filas.length) h+=`<div class="tb-vacio">${g.atrasado?'Nada atrasado':'Nada'}</div>`;
+    g.filas.slice(0,10).forEach(f=>{ const [bg,c]=chipT[f.tipo]||chipT.pend;
+      h+=`<div class="tb-hoy-f" onclick="cerrarMisPendientesYIr('${f.secId}','${f.itemId}',false)"><div><b>${f.ico} ${e(f.que)}</b><span>${e(f.detalle)}</span></div><span class="tb-chip" style="background:${bg};color:${c}">${e(f.estado)}</span></div>`; });
+    if(g.filas.length>10) h+=`<div class="tb-vacio">y ${g.filas.length-10} más</div>`;
+    h+=`</div>`;
+  });
+  h+=`</div>`;
+  return `<div id="td-agenda">${tdBloque('Agenda de la semana',total,h,atr>0)}</div>`;
+}
 function tbAgendaSemana(){
   const hoy=tbHoyIso(); const hoyAr=fmtFecha(Date.now());
   const base=new Date(); base.setHours(0,0,0,0);
@@ -15805,8 +15838,9 @@ function renderTableroNoelia(cont){
   const ir=x=>`cerrarMisPendientesYIr('${x.secId}','${x.itemId}',false)`;
   cont.innerHTML=`<div class="pq-wrap">
     <div class="pq-head"><div><div class="pq-h1">${currentUser==='noelia'?'Mi día':'Día de Noelia'}</div><div class="pq-sub">${e(fechaTxt)}</div></div>${pqSelectorHtml()}</div>
-    <div class="pq-ks">${kpi(cl.length,'cortes para cargar',true)}${kpi(ingresos.length,'ingresos para cargar',true)}${kpi(fichas.length,'fichas para controlar')}${kpi(revision.length,'revisión final')}${kpi(equipo.filter(f=>f.atrasado).length,'atrasados del equipo')}</div>
+    <div class="pq-ks">${kpi(cl.length,'cortes para cargar',true)}${kpi(ingresos.length,'ingresos para cargar',true)}${kpi(fichas.length,'fichas para controlar')}${kpi(revision.length,'revisión final')}${kpi(equipo.filter(f=>f.atrasado).length,'atrasados del equipo')}${(()=>{ let r={hoy:0,atrasados:0}; try{ r=tdAgendaHoyResumen(); }catch(err){} return `<div class="pq-k ${r.atrasados?'pq-k-a':''}" style="cursor:pointer;outline:2px solid var(--accent)" onclick="tdIrAgenda()"><b>${r.hoy}</b><span>llega hoy${r.atrasados?' · '+r.atrasados+' atrasado'+(r.atrasados!==1?'s':''):''}</span></div>`; })()}</div>
     ${bloque('Cortes para cargar',cl.length,cl.length?cl.map(x=>fila(foto(x.it),`Corte ${e(tdNumCorte(x.it.numero_corte))} · ${e(x.arts.filter(Boolean).join(' · '))}`,`falta: ${e(x.falta)}`,'<button class="btn-sm">Abrir</button>',`cerrarMisPendientesYIr('s3','${x.itemId}',false)`)).join(''):vacio('No hay cortes para cargar.'),true)}
+    ${(()=>{ try{ return tdAgendaSemanaHtml(); }catch(err){ console.warn('agenda',err); return ''; } })()}
     ${bloque('Ingresos para cargar · avisó Emir',ingresos.length,ingresos.length?ingresos.map(a=>fila('<div class="pq-img"></div>',`${e(a.tipo||'Mercadería')}${a.proveedor?' · '+e(a.proveedor):''}`,`${e(a.nota||'')} · avisó ${e(USER_DISPLAY[a.por]||a.por||'')} ${e(cuandoAviso(a.ts))}`,
       `<div style="display:flex;gap:6px">${a.secId&&a.itemId?`<button class="btn-sm" onclick="event.stopPropagation();irAItem('${a.secId}','${a.itemId}')">Ver</button>`:''}<button class="btn-sm em-pri" onclick="event.stopPropagation();resolverAvisoLlegada('${a.id}')">✓ Cargado</button></div>`,'')).join(''):vacio('No hay avisos de mercadería.'),true)}
     ${bloque('Fichas para controlar · corrigió Peque',fichas.length,fichas.length?fichas.map(x=>fila(foto(x.item),`${x.item.code?e(x.item.code)+' · ':''}${e(x.item.name||'')}`,e(x.texto||''),'<button class="btn-sm">Controlar</button>',ir(x))).join(''):vacio('Nada para controlar.'))}

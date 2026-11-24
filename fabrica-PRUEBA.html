@@ -3205,8 +3205,7 @@ function getResponsable(sec,item,secId){
   if(secId==='sLT') return 'Noelia';
   if(secId==='sFIN') return 'Noelia';
   if(!tipo){
-    if((sec.title||'').trim()==='Pendiente armar tizada'&&faltantesNoeliaTizada(item).length) return 'Noelia';
-    return 'Peque'; // secciones custom tipo "Pendiente armar tizada": resto es tarea de Peque
+    return 'Peque'; // nov 2026: en "Pendiente armar tizada" todo (también código, nombre, marca, tela, proveedor y Ninox) lo carga Peque, en Nina y Mini Sur. Secciones custom tipo "Pendiente armar tizada": resto es tarea de Peque
   }
   return null;
 }
@@ -6174,7 +6173,7 @@ function diasEntreTs(a,b){
 // Criterio único de "¿ya completó lo suyo?" para Stef y Peque en Nuevos Desarrollos —
 // usado por el panel de pasos, los backfills y la pestaña Pendientes, para que todos
 // coincidan siempre (antes cada uno tenía su propia copia y se desincronizaban).
-// "Pendiente armar tizada": datos que carga Noelia (código, nombre, marca, tela, proveedor y Ninox).
+// "Pendiente armar tizada": datos de la tiza (código, nombre, marca, tela, proveedor y Ninox). Nov 2026: los carga Peque (Nina y Mini Sur).
 // Lo de Peque (ficha, curva, ancho, control de piezas) va aparte.
 function faltantesNoeliaTizada(item){
   const vacio=v=>!(v&&String(v).trim());
@@ -8521,7 +8520,8 @@ function buildItemBase(secId,itemId,item,sec,idx,total){
           const faltantes=[!item.ficha_link?'Ficha':null,!item.curva?'Curva':null,!item.ancho?'Ancho':null,!item.control_piezas_link?'Control de piezas':null];
           if(item.ficha_ajuste_pendiente) faltantes.push('Ajustar ficha técnica pedida');
           const list=faltantes.filter(Boolean);
-          const listNoe=esArmarTizada?faltantesNoeliaTizada(item):[];
+          if(esArmarTizada) list.unshift(...faltantesNoeliaTizada(item)); // nov 2026: los datos de tiza los carga Peque
+          const listNoe=[];
           if(item.ficha_control_pendiente&&!item.ficha_ajuste_pendiente) listNoe.push('Control de ficha corregida');
           const caja=(quien,l)=>`<div style="font-size:11px;color:var(--warn-text);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin:2px 0 6px">⚠️ Pendiente completar ${quien}: falta ${l.join(', ')} antes de pasar a Cortes próximos a sacar</div>`;
           return (listNoe.length?caja('Noelia',listNoe):'')+(list.length?caja('Peque',list):'');
@@ -12019,6 +12019,7 @@ function getMisPendientesNoelia(){
   const list=[];
   const destId=getSectionIdByTitleExact('Pendiente armar tizada');
   Object.entries((destId&&sectionsData[destId]?.items)||{}).forEach(([itemId,item])=>{
+    return; // nov 2026: los datos de "Pendiente armar tizada" los carga Peque, no le aparecen a Noelia
     const f=faltantesNoeliaTizada(item);
     if(f.length) list.push({secId:destId,itemId,item,grupo:'Pendiente armar tizada',texto:(item.origen_reposicion?'🔁 Reposición pedida desde el Dashboard · ':'')+'Falta '+f.join(', '),ts:item.fecha_etapa||item.fecha_ingreso||0});
   });
@@ -15872,7 +15873,7 @@ function renderTableroPeque(){
   const {moldes,otras:otras0,minisur}=pqTareas();
   // Nov 2026: Pendiente armar tizada, en el orden de prioridad (sale de esa sección, no de "otras").
   const tizId=getSectionIdByTitleExact('Pendiente armar tizada');
-  const tizadas=tizId?getSortedItems(sectionsData[tizId]||{}).filter(([,it])=>it&&!it.done).map(([itemId,item],i)=>({secId:tizId,itemId,item,texto:`${item.origen_reposicion?'🔁 Reposición pedida desde el Dashboard · ':''}Prioridad ${i+1}${(()=>{ try{ const f=faltantesNoeliaTizada(item); return f.length?' · Noelia todavía no cargó: '+f.join(', '):''; }catch(err){ return ''; } })()}`,ts:item.fecha_etapa||0})):[];
+  const tizadas=tizId?getSortedItems(sectionsData[tizId]||{}).filter(([,it])=>it&&!it.done).map(([itemId,item],i)=>({secId:tizId,itemId,item,texto:`${item.origen_reposicion?'🔁 Reposición pedida desde el Dashboard · ':''}Prioridad ${i+1}${(()=>{ try{ const f=faltantesNoeliaTizada(item); return f.length?' · Falta cargar: '+f.join(', '):''; }catch(err){ return ''; } })()}`,ts:item.fecha_etapa||0})):[];
   const mejSecs=new Set(Object.entries(sectionsData||{}).filter(([,sc])=>sc&&sc.tipo==='mejora').map(([id])=>id));
   const otras=otras0.filter(x=>x.secId!==tizId&&!mejSecs.has(x.secId));
   const mejoras=pqMejoras();

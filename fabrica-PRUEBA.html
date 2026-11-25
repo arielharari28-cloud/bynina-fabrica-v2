@@ -3139,6 +3139,7 @@ function setFiltroMarca(marca){
   renderSections('fabrica');
   renderSections('talleres');
   if(!document.getElementById('tab-pendientes').classList.contains('hidden')) renderPendientes();
+  if(typeof renderCosteoTab==='function') renderCosteoTab();
 }
 
 function onSearchInput(board,value){
@@ -20180,6 +20181,10 @@ function renderCosteoTab(){
     const filas=arts.map((a,i)=>({i,r:costeoArtCalc({...e,articulos:arts},i,mapa)}));
     return {key,e,filas};
   });
+  // Marca del corte: la del artículo en fábrica; si es manual, la guardada en Costeo; si no, la primera marca
+  const marcaDe=g=>(g.filas.map(f=>f.r.fab&&f.r.fab.item&&f.r.fab.item.marca).find(Boolean))||g.e.marca||marcasList[0]||'By Nina';
+  grupos.forEach(g=>{g.marca=marcaDe(g);});
+  if(filtroMarca) grupos=grupos.filter(g=>g.marca===filtroMarca);
   const q=(costeoSearch||'').trim().toLowerCase();
   if(q) grupos=grupos.map(g=>{
     if(String(g.e.numero_corte||'').toLowerCase().includes(q)) return g;
@@ -20219,11 +20224,12 @@ function renderCosteoTab(){
         <option value="corte" ${costeoOrdenPor==='corte'?'selected':''}>N° de corte</option>
       </select>
     </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><span style="font-size:12px;color:var(--text2);margin-right:2px">Marca</span>${['',...marcasList].map(m=>`<button class="radio-btn${filtroMarca===m?' selected':''}" onclick="setFiltroMarca('${m.replace(/'/g,"\\'")}')">${m===''?'Todas':costeoEsc(m)}</button>`).join('')}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${chipF('todos','Todos',total)}${chipF('pendiente','Costo pendiente',nPend)}${chipF('costo','Con costo',nCosto)}${chipF('sinctrl','Cortes con rollos sin controlar',nSinCtrl)}</div>`;
   if(!todas.length){ cont.innerHTML=cab+'<div class="empty-state">Todavía no se marcó ningún corte como realizado</div>'; return; }
   const th=(t,x='')=>`<th style="padding:8px;font-size:11px;color:var(--text2);text-align:left;font-weight:600;white-space:nowrap;${x}">${t}</th>`;
   const td=(t,x='')=>`<td style="padding:8px;${x}">${t}</td>`;
-  const filasHtml=grupos.map(({key,e,filas})=>{
+  const filasHtml=grupos.map(({key,e,filas,marca:marcaG})=>{
     const tela=e.tela||'';
     const nArts=(e.articulos||[]).length;
     const kgCorte=filas[0]?filas[0].r.kgCorte:0;
@@ -20231,7 +20237,7 @@ function renderCosteoTab(){
     const grp=cmpDe?`<tr style="background:var(--surface2)"><td colspan="7" style="padding:5px 8px 5px 26px;font-size:11px;color:var(--text3)">
       ↳ <b style="color:var(--text2);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b> · complemento del ${costeoEsc(cmpDe)}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''} ${costeoCtrlChip(key,e)}</td></tr>`
     :`<tr style="background:var(--surface2)"><td colspan="7" style="padding:6px 8px;font-size:11px;color:var(--text2)">
-      <b style="color:var(--text);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b> · ${nArts} artículo${nArts!==1?'s':''}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''} ${costeoCtrlChip(key,e)}</td></tr>`;
+      <b style="color:var(--text);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b>${!filtroMarca&&marcasList.length>1?' · '+costeoEsc(marcaG):''} · ${nArts} artículo${nArts!==1?'s':''}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''} ${costeoCtrlChip(key,e)}</td></tr>`;
     return grp+filas.map(({i,r})=>{
       const est=costeoEtapaArt(e,r);
       const cmpTxt=(r.cmps||[]).map(c=>c.pendiente&&!c.monto?`<div style="font-size:11px;color:var(--warn-text)">falta costo del ${costeoEsc(c.numero)}</div>`:`<div style="font-size:11px;color:#166534">incl. ${costeoEsc(c.numero)} ${costeoPesos(r.piezas?c.monto/r.piezas:0)}</div>`).join('');

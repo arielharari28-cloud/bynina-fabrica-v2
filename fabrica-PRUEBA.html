@@ -20229,6 +20229,12 @@ function renderCosteoTab(){
   if(!todas.length){ cont.innerHTML=cab+'<div class="empty-state">Todavía no se marcó ningún corte como realizado</div>'; return; }
   const th=(t,x='')=>`<th style="padding:8px;font-size:11px;color:var(--text2);text-align:left;font-weight:600;white-space:nowrap;${x}">${t}</th>`;
   const td=(t,x='')=>`<td style="padding:8px;${x}">${t}</td>`;
+  // Foto chica por artículo: la del ítem de fábrica; si no hay, la de cualquier ítem con el mismo código
+  const fotoCod={};
+  Object.values(sectionsData||{}).forEach(sec=>Object.values(sec.items||{}).forEach(it=>{ if(it&&it.foto&&it.code&&!fotoCod[it.code]) fotoCod[it.code]=it.foto; }));
+  Object.values(logiItemsData||{}).forEach(it=>{ if(it&&it.foto&&it.code&&!fotoCod[it.code]) fotoCod[it.code]=it.foto; });
+  const fotoArt=r=>(r.fab&&r.fab.item&&r.fab.item.foto)||r.a.foto||fotoCod[r.a.code]||'';
+  const fotoMini=r=>{ const u=fotoArt(r); return u?`<img src="${costeoEsc(u)}" loading="lazy" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover;object-position:top center;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)">`:`<div style="width:36px;height:36px;border-radius:8px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)"></div>`; };
   const filasHtml=grupos.map(({key,e,filas,marca:marcaG})=>{
     const tela=e.tela||'';
     const nArts=(e.articulos||[]).length;
@@ -20249,7 +20255,7 @@ function renderCosteoTab(){
       return `<tr style="border-bottom:1px solid var(--border);cursor:pointer${r.cmpDe?';color:var(--text2)':''}" onclick="costeoDetailArt=${i};openCosteoDetail('${key}')">
         ${td(costeoEsc(e.numero_corte||'—'),r.cmpDe?'padding-left:14px':'font-weight:700;color:var(--accent)')}
         ${td(costeoEsc(r.a.code||'—'))}
-        ${td(costeoEsc(r.a.name||''),'max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap')}
+        ${td(`<div style="display:flex;align-items:center;gap:10px;min-width:0">${fotoMini(r)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${costeoEsc(r.a.name||'')}</span></div>`,'max-width:360px;padding-top:6px;padding-bottom:6px')}
         ${td(costeoEsc(costeoFechaCorteCorta(e.fecha_corte))||'—')}
         ${td(r.finalizadoTs?costeoFechaCorta(r.finalizadoTs):'<span style="color:var(--text3)">—</span>')}
         ${td(costeoChip(est))}

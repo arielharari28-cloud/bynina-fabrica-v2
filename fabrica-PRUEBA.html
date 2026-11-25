@@ -20234,15 +20234,15 @@ function renderCosteoTab(){
   Object.values(sectionsData||{}).forEach(sec=>Object.values(sec.items||{}).forEach(it=>{ if(it&&it.foto&&it.code&&!fotoCod[it.code]) fotoCod[it.code]=it.foto; }));
   Object.values(logiItemsData||{}).forEach(it=>{ if(it&&it.foto&&it.code&&!fotoCod[it.code]) fotoCod[it.code]=it.foto; });
   const fotoArt=r=>(r.fab&&r.fab.item&&r.fab.item.foto)||r.a.foto||fotoCod[r.a.code]||'';
-  const fotoMini=r=>{ const u=fotoArt(r); return u?`<img src="${costeoEsc(u)}" loading="lazy" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover;object-position:top center;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)">`:`<div style="width:36px;height:36px;border-radius:8px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)"></div>`; };
+  const fotoMini=r=>{ const u=fotoArt(r); return u?`<img src="${costeoEsc(u)}" loading="lazy" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;object-position:top center;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)">`:`<div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)"></div>`; };
   const filasHtml=grupos.map(({key,e,filas,marca:marcaG})=>{
     const tela=e.tela||'';
     const nArts=(e.articulos||[]).length;
     const kgCorte=filas[0]?filas[0].r.kgCorte:0;
     const cmpDe=filas[0]&&filas[0].r.cmpDe;
-    const grp=cmpDe?`<tr style="background:var(--surface2)"><td colspan="6" style="padding:5px 8px 5px 26px;font-size:11px;color:var(--text3)">
+    const grp=cmpDe?`<tr style="background:var(--surface2)"><td colspan="7" style="padding:5px 8px 5px 26px;font-size:11px;color:var(--text3)">
       ↳ <b style="color:var(--text2);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b> · complemento del ${costeoEsc(cmpDe)}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''} ${costeoCtrlChip(key,e)}</td></tr>`
-    :`<tr style="background:var(--surface2)"><td colspan="6" style="padding:6px 8px;font-size:11px;color:var(--text2)">
+    :`<tr style="background:var(--surface2)"><td colspan="7" style="padding:6px 8px;font-size:11px;color:var(--text2)">
       <b style="color:var(--text);font-size:12px">Corte ${costeoEsc(e.numero_corte||'—')}</b>${!filtroMarca&&marcasList.length>1?' · '+costeoEsc(marcaG):''} · ${nArts} artículo${nArts!==1?'s':''}${tela?' · '+costeoEsc(tela):''}${kgCorte?' · '+costeoKg(kgCorte,1)+' kg':''} ${costeoCtrlChip(key,e)}</td></tr>`;
     return grp+filas.map(({i,r})=>{
       const est=costeoEtapaArt(e,r);
@@ -20253,8 +20253,9 @@ function renderCosteoTab(){
         ?`<div style="font-weight:700">${costeoPesos(r.costoU)} /u</div><div style="font-size:11px;color:var(--text2)">${r.consumoU?costeoKg(r.consumoU,3)+' kg/u':''}</div>${cmpTxt}`
         :`<div>${r.consumoU?costeoKg(r.consumoU,3)+' kg/u':'—'}</div><div style="font-size:11px;color:var(--warn-text)">${r.precioKg?'faltan prendas':'falta precio x kg'}</div>`;
       return `<tr style="border-bottom:1px solid var(--border);cursor:pointer${r.cmpDe?';color:var(--text2)':''}" onclick="costeoDetailArt=${i};openCosteoDetail('${key}')">
-        ${td(costeoEsc(e.numero_corte||'—'),r.cmpDe?'padding-left:14px':'font-weight:700;color:var(--accent)')}
-        ${td(`<div style="display:flex;align-items:center;gap:10px;min-width:0">${fotoMini(r)}<div style="min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${costeoEsc(r.a.name||'')}</div><div style="font-size:11px;color:var(--text2)">${costeoEsc(r.a.code||'—')}</div></div></div>`,'padding-top:6px;padding-bottom:6px;overflow:hidden')}
+        ${td(`<span title="${costeoEsc(e.numero_corte||'')}">${costeoEsc(e.numero_corte||'—')}</span>`,(r.cmpDe?'padding-left:14px;':'font-weight:700;color:var(--accent);')+'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')}
+        ${td(`<div style="display:flex;align-items:center;gap:10px;min-width:0">${fotoMini(r)}<div style="min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Poppins',sans-serif;font-size:14px;font-weight:500">${costeoEsc(r.a.name||'')}</div><div style="font-size:12px;color:var(--text2)">${costeoEsc(r.a.code||'—')}</div></div></div>`,'padding-top:6px;padding-bottom:6px;overflow:hidden')}
+        ${td(r.piezas?`<b style="font-size:13px">${Number(r.piezas).toLocaleString('es-AR')}</b> <span style="font-size:11px;color:var(--text2)">u</span>`:'<span style="color:var(--text3)">—</span>','text-align:right;white-space:nowrap')}
         ${td(costeoEsc(costeoFechaCorteCorta(e.fecha_corte))||'—')}
         ${td(r.finalizadoTs?costeoFechaCorta(r.finalizadoTs):'<span style="color:var(--text3)">—</span>')}
         ${td(costeoChip(est))}
@@ -20264,8 +20265,8 @@ function renderCosteoTab(){
   }).join('');
   cont.innerHTML=cab+(grupos.length?`<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto">
     <table style="width:100%;min-width:720px;border-collapse:collapse;font-size:12px;table-layout:fixed">
-      <colgroup><col style="width:64px"><col><col style="width:76px"><col style="width:86px"><col style="width:170px"><col style="width:120px"></colgroup>
-      <thead><tr style="border-bottom:2px solid var(--border)">${th('Corte')}${th('Artículo')}${th('Cortado')}${th('Finalizado')}${th('Etapa')}${th('Costo / consumo','text-align:right')}</tr></thead>
+      <colgroup><col style="width:64px"><col><col style="width:90px"><col style="width:76px"><col style="width:86px"><col style="width:170px"><col style="width:120px"></colgroup>
+      <thead><tr style="border-bottom:2px solid var(--border)">${th('Corte')}${th('Artículo')}${th('Cantidad','text-align:right')}${th('Cortado')}${th('Finalizado')}${th('Etapa')}${th('Costo / consumo','text-align:right')}</tr></thead>
       <tbody>${filasHtml}</tbody></table></div>`:'<div class="empty-state">Ningún artículo coincide</div>');
   if(hadFocus){ const n=document.getElementById('costeo-search-input'); if(n){ n.focus(); if(selStart!=null) n.setSelectionRange(selStart,selStart); } }
 }

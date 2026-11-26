@@ -6670,7 +6670,8 @@ function reprogramarAvioFecha(secId,itemId,avioId,iso){
   logActivity('Avío reprogramado',`${av.nombre||'Avío'} — ${item.code||''}: no cumplió ${vig?fmtIsoCorta(vig.fecha):'—'} → nueva ${fmtIsoCorta(iso)}`);
   showToast(`📅 ${av.nombre||'Avío'}: nueva fecha ${fmtIsoCorta(iso)} (la anterior quedó guardada)`);
 }
-function utPuedeEditarTaller(){ return currentUser==='ariel'||currentUser==='stef'||esTalleres(); }
+// Nov 2026: asignar taller / marcar retiro lo hacen Ariel, Noelia y Peque (se sacó a Emir y Stef).
+function utPuedeEditarTaller(){ return currentUser==='ariel'||['noelia','peque'].includes(quienSoy()); }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
 function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }

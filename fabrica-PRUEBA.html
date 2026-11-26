@@ -5399,7 +5399,7 @@ function tcFoldToggle(k,open){ if(open) tcFoldAbierto.add(k); else tcFoldAbierto
 function buildTallerCardHtml(f,idx,total,queFalta){
   const {secId,itemId,item:it,sec}=f;
   const k=secId+'/'+itemId;
-  const puedeT=utPuedeEditarTaller();
+  const puedeT=utPuedeEditarTaller(it);
   const canEdit=(currentUser==='ariel'||currentUser==='stef')||currentUser==='peque';
   const fotos=it.fotos_prueba&&Object.keys(it.fotos_prueba).length?`<div class="diseno-fotos-grid" style="margin-top:6px">${Object.values(it.fotos_prueba).map(url=>`<div class="diseno-foto-item"><img src="${url}" onclick="openPhotoModal('${url}')"></div>`).join('')}</div>`:'';
   const nFotos=it.fotos_prueba?Object.keys(it.fotos_prueba).length:0;
@@ -6546,7 +6546,7 @@ function utComplementosHtml(it){
     let est,bg,fg,acc='';
     if(!f||f.secId==='s3'||!cmpCortado(f)){ est='sin cortar'; bg='#fee2e2'; fg='#991b1b'; }
     else if(f.secId==='sFIN'&&!f.item.retirado_taller){ est='pendiente retiro'; bg='#ffedd5'; fg='#9a3412';
-      if(utPuedeEditarTaller()) acc=` onclick="event.stopPropagation();if(confirm('¿${utEsc(it.taller_corte||'El taller').replace(/'/g,'')} ya retiró el ${utEsc(que).replace(/'/g,'')} ${utEsc(c.numero)}?'))confirmarRetiroTaller('${f.secId}','${f.itemId}')" style="cursor:pointer"`; }
+      if(utPuedeEditarTaller(f.item)) acc=` onclick="event.stopPropagation();if(confirm('¿${utEsc(it.taller_corte||'El taller').replace(/'/g,'')} ya retiró el ${utEsc(que).replace(/'/g,'')} ${utEsc(c.numero)}?'))confirmarRetiroTaller('${f.secId}','${f.itemId}')" style="cursor:pointer"`; }
     else if(f.secId==='sFIN'||f.secId==='s6'||TALLERES_TAB_SECS.includes(f.secId)){ est='retirado'; bg='#eaf3de'; fg='#27500a'; }
     else { est='en fábrica'; bg='#fef3c7'; fg='#92400e'; }
     const tip=`${que} ${c.numero} · ${est} · ${comb}${est==='pendiente retiro'&&acc?' · tocá para confirmar el retiro':''}`;
@@ -6670,8 +6670,9 @@ function reprogramarAvioFecha(secId,itemId,avioId,iso){
   logActivity('Avío reprogramado',`${av.nombre||'Avío'} — ${item.code||''}: no cumplió ${vig?fmtIsoCorta(vig.fecha):'—'} → nueva ${fmtIsoCorta(iso)}`);
   showToast(`📅 ${av.nombre||'Avío'}: nueva fecha ${fmtIsoCorta(iso)} (la anterior quedó guardada)`);
 }
-// Nov 2026: asignar taller / marcar retiro lo hacen Ariel, Noelia y Peque (se sacó a Emir y Stef).
-function utPuedeEditarTaller(){ return currentUser==='ariel'||['noelia','peque'].includes(quienSoy()); }
+// Nov 2026: asignar taller / marcar retiro lo hacen Ariel y Noelia; Peque solo en cortes de Mini Sur (se sacó a Emir y Stef).
+// Sin item (ej. precio en recorrido/lista) Peque queda afuera.
+function utPuedeEditarTaller(item){ if(currentUser==='ariel'||quienSoy()==='noelia') return true; return quienSoy()==='peque'&&!!item&&esMinisur(item); }
 function utEstadoInfo(id){ return UT_ESTADOS.find(e=>e.id===id)||UT_ESTADOS[0]; }
 function utDot(c,s){ return `<span style="display:inline-block;width:${s||9}px;height:${s||9}px;border-radius:50%;background:${c};flex-shrink:0"></span>`; }
 function setUtFiltro(f){ utFiltro=(utFiltro===f&&f!=='todos')?'todos':f; renderSections('talleres'); }
@@ -6730,7 +6731,7 @@ function utGaleriaHtml(vis){
 function utChecklistRetiroHtml(f){
   const it=f.item;
   if(f.estado!=='retiro'||it.es_complemento) return null;
-  const puede=utPuedeEditarTaller()||['ariel','stef','peque','emir','noelia'].includes(currentUser)||quienSoy()==='noelia';
+  const puede=utPuedeEditarTaller(it)||['ariel','stef','peque','emir','noelia'].includes(currentUser)||quienSoy()==='noelia';
   const ck=(campo,txt)=>{ const ok=!!it[campo];
     return `<button class="ut-ck${ok?' ok':''}" ${puede?`onclick="event.stopPropagation();toggleChecklistTaller('${f.secId}','${f.itemId}','${campo}')"`:'onclick="event.stopPropagation()" disabled'} title="${ok?'Hecho':'Falta'} — ${txt}">${ok?'✓':'○'} ${txt}</button>`; };
   const html=`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">${ck('taller_muestra_entregada','Muestra')}${ck('taller_ficha_entregada','Ficha')}${ck('taller_ninox_salida','Ninox')}</div>`;
@@ -6975,8 +6976,8 @@ function renderResumenPipelineTalleres(){
       <div class="c-prendas">${f.cantidad}<div class="ut-muted" style="font-size:12px">prendas</div></div>
       <div class="c-info">${tallerTxt?`<div>${tallerTxt}</div>`:''}${avisoRetiro}${diasTallerHtml}${entregaResumen}${infoSimple}${chkR?`<div style="margin-top:4px" onclick="event.stopPropagation()">${chkR.html}</div>`:''}</div>
       <div class="c-estado" style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="ut-pill ut-estado" style="background:${e.bg};color:${e.fg};border-color:${e.dot}">${utDot(e.dot,7)}${e.label}<span style="font-size:10px">${abierto?'▲':'▼'}</span></span>${
-        (f.secId==='sLT'&&it.taller_corte&&utPuedeEditarTaller())?`<button class="ut-go" onclick="event.stopPropagation();sacarATaller('${f.secId}','${f.itemId}',{auto:true})">→ Pendiente retiro</button>`
-        :(chkR&&chkR.completo&&utPuedeEditarTaller())?`<button class="ut-go" onclick="event.stopPropagation();confirmarRetiroTaller('${f.secId}','${f.itemId}')">✓ ${utEsc(it.taller_corte||'El taller')} lo retiró</button>`:''}</div>
+        (f.secId==='sLT'&&it.taller_corte&&utPuedeEditarTaller(it))?`<button class="ut-go" onclick="event.stopPropagation();sacarATaller('${f.secId}','${f.itemId}',{auto:true})">→ Pendiente retiro</button>`
+        :(chkR&&chkR.completo&&utPuedeEditarTaller(it))?`<button class="ut-go" onclick="event.stopPropagation();confirmarRetiroTaller('${f.secId}','${f.itemId}')">✓ ${utEsc(it.taller_corte||'El taller')} lo retiró</button>`:''}</div>
     </div>${abierto?`<div class="ut-exp" onclick="event.stopPropagation()">${f.estado==='parcial'?utSaldoDetalleHtml(f):buildTallerCardHtml(f,idx,vis.length,queFalta)}</div>`:''}`;
   }).join('');
   const ordenBtn=(o,t)=>`<button class="ut-orden${utOrden===o?' on':''}" onclick="setUtOrden('${o}')">${t}</button>`;
@@ -14058,12 +14059,12 @@ function fichaCorteResumenHtml(secId,itemId,item,sec,completa){
       if(avPend.length>1) acciones+=btnP(`Ver los ${avPend.length} avíos`,`fichaToggleCompleta('${itemId}',true)`,true);
     }
     else if(secId==='sLT'){
-      if(!item.taller_corte&&utPuedeEditarTaller()) acciones=`<span onclick="event.stopPropagation()">${buildTallerCorteHtml(secId,itemId,item)}</span>`;
-      else if(utPuedeEditarTaller()) acciones=btnP('→ Pendiente retiro',`sacarATaller('${secId}','${itemId}',{auto:true})`);
+      if(!item.taller_corte&&utPuedeEditarTaller(item)) acciones=`<span onclick="event.stopPropagation()">${buildTallerCorteHtml(secId,itemId,item)}</span>`;
+      else if(utPuedeEditarTaller(item)) acciones=btnP('→ Pendiente retiro',`sacarATaller('${secId}','${itemId}',{auto:true})`);
     }
     else if(secId==='sFIN'&&!item.retirado_taller){
       const ck=[['taller_muestra_entregada','Muestra'],['taller_ficha_entregada','Ficha'],['taller_ninox_salida','Ninox']];
-      if(utPuedeEditarTaller()) acciones=ck.map(([c,l])=>`<button class="btn-sm" style="border-radius:40px;padding:5px 10px;${item[c]?'background:#eaf3de;color:#27500a;border-color:#27500a':''}" onclick="event.stopPropagation();toggleChecklistTaller('${secId}','${itemId}','${c}')">${item[c]?'✓ ':''}${l}</button>`).join('')+(ck.every(([c])=>item[c])?btnP(`✓ ${e(item.taller_corte||'El taller')} lo retiró`,`confirmarRetiroTaller('${secId}','${itemId}')`):'');
+      if(utPuedeEditarTaller(item)) acciones=ck.map(([c,l])=>`<button class="btn-sm" style="border-radius:40px;padding:5px 10px;${item[c]?'background:#eaf3de;color:#27500a;border-color:#27500a':''}" onclick="event.stopPropagation();toggleChecklistTaller('${secId}','${itemId}','${c}')">${item[c]?'✓ ':''}${l}</button>`).join('')+(ck.every(([c])=>item[c])?btnP(`✓ ${e(item.taller_corte||'El taller')} lo retiró`,`confirmarRetiroTaller('${secId}','${itemId}')`):'');
     }
     else if((secId==='sFIN'||secId==='s6')&&puedeCargarEntregaTaller(item)) acciones=btnP('📦 Marcar entrega del taller',`marcarEntregadoCorte('${secId}','${itemId}')`);
   }
@@ -14158,11 +14159,11 @@ function fichaCorteSeccionesHtml(secId,itemId,item,sec){
   let sinAvio='';
   if(['s4','s5'].includes(secId)&&avPend.length){
     if(item.pedido_sin_avio) sinAvio=`<div style="font-size:12px;margin-top:8px;padding:6px 10px;background:#fff7e6;border-radius:8px">🔔 ${e(USER_DISPLAY[item.pedido_sin_avio.por]||item.pedido_sin_avio.por||'')} pidió sacar a taller sin avío ${(yo2==='ariel'||yo2==='stef')?`<button class="btn-sm" style="padding:2px 8px;margin-left:6px" onclick="event.stopPropagation();autorizarSacarSinAvio('${secId}','${itemId}')">✅ Autorizar</button><button class="btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();rechazarSinAvio('${secId}','${itemId}')">✕ Rechazar</button>`:''}</div>`;
-    else if(utPuedeEditarTaller()||yo2==='peque') sinAvio=`<div style="margin-top:8px"><button class="btn-sm" onclick="event.stopPropagation();pedirAutorizacionSinAvio('${secId}','${itemId}')">🔔 Pedir autorización para sacar sin avío</button></div>`;
+    else if(utPuedeEditarTaller(item)||yo2==='peque') sinAvio=`<div style="margin-top:8px"><button class="btn-sm" onclick="event.stopPropagation();pedirAutorizacionSinAvio('${secId}','${itemId}')">🔔 Pedir autorización para sacar sin avío</button></div>`;
   }
   // Taller
   const enTallerSecs=['sLT','sFIN','s6','s4','s5'];
-  const tallerCuerpo=enTallerSecs.includes(secId)?`<div onclick="event.stopPropagation()">${utPuedeEditarTaller()?buildTallerCorteHtml(secId,itemId,item):fila('Taller',e(item.taller_corte||'—'))}</div>`
+  const tallerCuerpo=enTallerSecs.includes(secId)?`<div onclick="event.stopPropagation()">${utPuedeEditarTaller(item)?buildTallerCorteHtml(secId,itemId,item):fila('Taller',e(item.taller_corte||'—'))}</div>`
     +fila('Precio de taller',item.precio_taller?'$ '+Number(item.precio_taller).toLocaleString('es-AR'):'<span style="color:#9B5C6B">Sin cargar</span>')
     +(item.retirado_taller?fila('Retiró',item.fecha_retiro_confirmado?fmtFecha(item.fecha_retiro_confirmado):'✓'):'')
     +fila('Entrega del taller',item.fecha_estimada_entrega_taller?e(item.fecha_estimada_entrega_taller.split('-').reverse().join('/')):'<span style="color:#9B5C6B">Sin fecha</span>')

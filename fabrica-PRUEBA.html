@@ -15289,6 +15289,61 @@ function pqPaseAAdela(secId,itemId,clave){
   showToast('📤 Solicitado a Adela — queda esperando que entregue la muestra');
 }
 // Nov 2026: mejoras pedidas en Revisión final (Noelia) que Peque tiene que resolver.
+// ---- Avíos sin cargar (nov 2026) ----
+// Cortes en talleres (pendiente retiro, en taller, estampado, terminación) o finalizados hace 15 días
+// o menos a los que les falta cargar avíos (ninguno, o alguno sin cantidad o sin precio). Si el corte
+// no lleva avíos, Peque lo marca "No lleva" (lleva_avios=false) y sale de la lista.
+let pqAvMarca='todas';
+const PQ_AV_SECS_TALLER=['sFIN','s6',SEC_ESTAMPADO_TALLER,SEC_TALLER_TERMINACION];
+function pqAviosSinCargar(){
+  const out=[], hoy=Date.now(), LIM=15*86400000;
+  let mapa=null; try{ mapa=costeoMapaFabrica(); }catch(err){}
+  Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
+    if(!sec) return;
+    const enTaller=PQ_AV_SECS_TALLER.includes(secId);
+    const fin=CORTES_EST_FINAL.includes(sec.tipo);
+    if(!enTaller&&!fin) return;
+    Object.entries(sec.items||{}).forEach(([itemId,item])=>{
+      if(!item||!item.numero_corte||item.es_complemento||item.lleva_avios===false) return;
+      if(fin){ const tf=item.fecha_entregado_revision||0; if(!tf||hoy-tf>LIM) return; }
+      // Avíos del ítem + los del Costeo para ese artículo (el precio puede salir de la compra del corte).
+      const ck=corteKeyFrom(item.numero_corte);
+      let lista=Object.values(item.avios||{}).filter(a=>a&&String(a.nombre||'').trim()).map(a=>({nombre:a.nombre,cant:numAr2(a.cantidad),precio:numAr2(a.precio)}));
+      try{
+        const e=ck&&costeosData&&costeosData[ck];
+        if(e&&Array.isArray(e.articulos)){
+          const i=e.articulos.findIndex(x=>x&&x.code===item.code);
+          if(i>=0){ const r=costeoArtCalc(e,i,mapa);
+            (r.avios||[]).forEach(x=>{ const n=costeoNormTxt(x.av.nombre); if(!n) return;
+              const j=lista.findIndex(l=>costeoNormTxt(l.nombre)===n);
+              const v={nombre:x.av.nombre,cant:numAr2(x.av.cantidad),precio:x.precioEf||0};
+              if(j<0) lista.push(v); else { if(!lista[j].cant) lista[j].cant=v.cant; if(!lista[j].precio) lista[j].precio=v.precio; } }); }
+        }
+      }catch(err){}
+      let falta='';
+      if(!lista.length) falta='Sin avíos cargados';
+      else {
+        const sinCant=lista.filter(a=>!a.cant).map(a=>a.nombre), sinPrecio=lista.filter(a=>!a.precio).map(a=>a.nombre);
+        if(!sinCant.length&&!sinPrecio.length) return;
+        falta=[sinCant.length?'Falta cantidad: '+sinCant.join(', '):'',sinPrecio.length?'Falta precio: '+sinPrecio.join(', '):''].filter(Boolean).join(' · ');
+      }
+      let etapa;
+      if(fin) etapa='Finalizado'+(item.fecha_entregado_revision?' '+fmtFecha(item.fecha_entregado_revision):'');
+      else { try{ etapa=(cortesTabEstado(secId,sec,item)||{}).label; }catch(err){} if(secId==='sFIN'&&!item.retirado_taller) etapa='Pendiente retiro'+(item.taller_corte?' · '+item.taller_corte:''); }
+      const ts=fechaCorteTs(item)||item.fecha_etapa||0;
+      out.push({secId,itemId,item,falta,sinAvios:!lista.length,etapa:etapa||sec.title||'',ts,ms:esMinisur(item)});
+    });
+  });
+  return out.sort((a,b)=>(a.ts||0)-(b.ts||0));
+}
+function pqAvSetMarca(m){ pqAvMarca=m; renderTableroPeque(); }
+function pqAvNoLleva(secId,itemId){
+  const it=sectionsData[secId]&&sectionsData[secId].items&&sectionsData[secId].items[itemId]; if(!it) return;
+  if(!confirm(`¿El corte ${String(it.numero_corte||'').replace(/^corte\s*/i,'')} · ${it.code||''} no lleva avíos?`)) return;
+  db.ref(`fabrica_v5/sections/${secId}/items/${itemId}/lleva_avios`).set(false);
+  logActivity('Lleva avíos: No',`${it.code||''} (desde Avíos sin cargar)`);
+  showToast('Marcado: no lleva avíos');
+}
 function pqMejoras(){
   const list=[];
   Object.entries(sectionsData||{}).forEach(([secId,sec])=>{
@@ -15889,6 +15944,8 @@ function renderTableroPeque(){
   const mejSecs=new Set(Object.entries(sectionsData||{}).filter(([,sc])=>sc&&sc.tipo==='mejora').map(([id])=>id));
   const otras=otras0.filter(x=>x.secId!==tizId&&!mejSecs.has(x.secId));
   const mejoras=pqMejoras();
+  const avSC=pqAviosSinCargar();
+  const avVis=avSC.filter(x=>pqAvMarca==='todas'||(pqAvMarca==='mini'?x.ms:!x.ms));
   const sinPedir=avios.filter(x=>/sin pedir/.test(x.texto)).length, sinPrecio=avios.length-sinPedir;
   const grupos=[
     {k:'ccdef',t:'Complemento / collareta',sub:'Cortes que todavía no dicen si llevan complemento o collareta',l:ccPendientesPeque()},
@@ -15913,7 +15970,7 @@ function renderTableroPeque(){
   cont.innerHTML=`<div class="pq-wrap">
     <div class="pq-head"><div><div class="pq-h1">${currentUser==='peque'?'Mi día':'Día de Peque'}</div><div class="pq-sub">${currentUser==='peque'?'':'Peque · '}${e(fechaTxt)}</div></div>
       <div style="display:flex;gap:6px;align-items:center">${pqSelectorHtml()}<button class="btn-sm" onclick="pqMover(-1)" aria-label="Día anterior">‹</button><button class="btn-sm" onclick="pqIrHoy()">Hoy</button><button class="btn-sm" onclick="pqMover(1)" aria-label="Día siguiente">›</button></div></div>
-    <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(mejoras.length,'Mejoras',true)}${kpi(tizadas.length,'Tizadas')}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
+    <div class="pq-ks">${kpi(pedidos.length,'Pedidos',true)}${kpi(mejoras.length,'Mejoras',true)}${kpi(avSC.length,'Avíos sin cargar',true)}${kpi(tizadas.length,'Tizadas')}${kpi(fichas.length,'Fichas')}${kpi(moldes.length,'Moldes')}${kpi(avios.length,'Avíos')}${kpi(minisur.length,'Mini Sur')}</div>
     <div class="pq-lab">Pedidos de modificación ${pedidos.length?`<span class="pq-n pq-n-a">${pedidos.length} sin resolver</span>`:''}</div>
     <div class="pq-card">${pedidos.length?pedidos.map(filaPedido).join(''):'<div class="pq-vacio">No hay pedidos sin resolver.</div>'}</div>
     <div class="pq-lab">Mejoras pedidas ${mejoras.length?`<span class="pq-n pq-n-a">${mejoras.length} sin resolver</span>`:''}</div>
@@ -15924,6 +15981,13 @@ function renderTableroPeque(){
         ${m.fotos.length?`<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${m.fotos.slice(0,4).map(u=>`<img src="${e(u)}" loading="lazy" style="width:34px;height:34px;border-radius:6px;object-fit:cover;cursor:zoom-in" onclick="event.stopPropagation();openPhotoModal('${e(u)}')">`).join('')}</div>`:''}
         <div class="pq-meta"><span class="pq-pill" style="background:var(--warn-bg);color:var(--warn-text)">Mejora${m.item.mejora_tipo?' · '+e(m.item.mejora_tipo):''}</span><span class="pq-sub">${por?e(por)+' · ':''}${e(pqCuando(m.ts))}</span>${m.fotos.length?'':'<span class="pq-pill" style="background:var(--danger-bg);color:var(--danger)">sin foto</span>'}</div></div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0"><button class="btn-sm" style="border-color:var(--green-text);color:var(--green-text)" onclick="event.stopPropagation();pqResolverMejora('${m.secId}','${m.itemId}')">✓ Resuelta</button><button class="btn-sm">Abrir</button></div></div>`; }).join(''):'<div class="pq-vacio">No hay mejoras sin resolver.</div>'}</div>
+    <div class="pq-lab">Avíos sin cargar ${avSC.length?`<span class="pq-n pq-n-a">${avSC.length}</span>`:''}<span class="pq-sub" style="font-weight:400">En talleres o finalizados hace 15 días o menos</span></div>
+    <div style="display:flex;gap:6px;margin:-2px 0 8px">${[['todas','Todas'],['nina','By Nina'],['mini','Mini Sur']].map(([k,t])=>`<button class="btn-sm" style="border-radius:40px;${pqAvMarca===k?'background:#416096;color:#fff;border-color:#416096':'border-color:#416096;color:#416096'}" onclick="pqAvSetMarca('${k}')">${t}</button>`).join('')}</div>
+    <div class="pq-card">${avVis.length?avVis.map(x=>{ const d=x.ts?Math.max(0,Math.floor((Date.now()-x.ts)/86400000)):null;
+      return `<div class="pq-f pq-click" onclick="openEditModal('${x.secId}','${x.itemId}')">${foto(x.item)}
+      <div class="pq-b"><div class="pq-art">${nombreArt(x.item)}</div>
+        <div class="pq-meta"><span class="pq-pill" style="background:var(--danger-bg);color:var(--danger);white-space:normal">${e(x.falta)}</span><span class="pq-pill" style="background:#E6F1FB;color:#0C447C">${e(x.etapa)}</span>${d!==null?`<span class="pq-sub">cortado hace ${d} día${d!==1?'s':''}</span>`:''}</div></div>
+      <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">${x.sinAvios?`<button class="btn-sm" onclick="event.stopPropagation();pqAvNoLleva('${x.secId}','${x.itemId}')">No lleva</button>`:''}<button class="btn-sm">Cargar</button></div></div>`; }).join(''):'<div class="pq-vacio">No falta cargar avíos.</div>'}</div>
     ${(()=>{ // Nov 2026: modificaciones ya solicitadas a Adela, esperando que entregue la muestra.
       const esp=[]; Object.entries((sectionsData[SEC_MOLD]||{}).items||{}).forEach(([itemId,item])=>{
         if(!item||item.estado!=='modificaciones'||item.entregada_modelista) return;

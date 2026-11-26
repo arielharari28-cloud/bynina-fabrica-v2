@@ -16715,7 +16715,7 @@ function listaEntHtml(ctx){
         <div class="le-sub">${it.proceso==='estampado'?'🎨':it.proceso==='terminacion'?'🧺':'🧵'} ${esc(listaEntDestino(it))}${it.proceso_detalle?' ('+esc(it.proceso_detalle)+')':''}${it.numero_corte?' · Corte '+esc(it.numero_corte):''}</div>
         <div class="le-nums">${nums}</div>
         ${solHtml}
-        <div class="le-bot"><span style="display:flex;gap:6px;flex-wrap:wrap"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${logiEsMinisur(it)?'<span class="le-est" style="background:var(--surface2);color:var(--text2)">Mini Sur · va al cliente</span>':''}${it.mandada_plancha?`<span class="le-est" style="background:#ede9fe;color:#5b21b6">Sigue a plancha · ${esc(it.mandada_plancha.taller||'')}</span>`:''}</span>${facHtml}</div>
+        <div class="le-bot"><span style="display:flex;gap:6px;flex-wrap:wrap"><span class="le-est le-est-${col}">${LISTA_ENT_EST_LABEL[col]||col}</span>${logiEsMinisur(it)?'<span class="le-est" style="background:var(--surface2);color:var(--text2)">Mini Sur · va al cliente</span>':''}${it.mandada_plancha?`<span class="le-est" style="background:#ede9fe;color:#5b21b6">Sigue a ${it.mandada_plancha.tipo==='estampado'?'estampado':'plancha'} · ${esc(it.mandada_plancha.taller||'')}</span>`:''}</span>${facHtml}</div>
       </div>
     </div>`;
   });
@@ -18911,7 +18911,7 @@ function logiPlanchaHtml(id,it){
   if(!it||!it.numero_corte||it.origen==='proveedor') return '';
   if(it.mandada_plancha){
     const mp=it.mandada_plancha;
-    return `<div style="text-align:center;font-size:12px;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:8px;padding:6px 8px;margin-bottom:10px">🧺 Mandada a plancha · ${utEsc(mp.taller||'')}${mp.detalle?' ('+utEsc(mp.detalle)+')':''}</div>`;
+    return `<div style="text-align:center;font-size:12px;font-weight:700;color:#5b21b6;background:#ede9fe;border-radius:8px;padding:6px 8px;margin-bottom:10px">${mp.tipo==='estampado'?'🎨 Mandada a estampado':'🧺 Mandada a plancha'} · ${utEsc(mp.taller||'')}${mp.detalle?' ('+utEsc(mp.detalle)+')':''}</div>`;
   }
   if(!logiPuedeMandarPlancha(it)||it.etapa_tipo==='plancha') return '';
   const lista=(talleresCorteList||[]).filter(t=>t!==TALLER_INTERNO);
@@ -18926,14 +18926,30 @@ function logiPlanchaHtml(id,it){
       <select id="logi-plancha-taller" class="filtro-corte-select">${opciones}</select>
       <input id="logi-plancha-detalle" type="text" placeholder="Detalle: ojal + botón" style="flex:1;min-width:150px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
       <button class="btn-sm" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="logiMandarAPlancha('${id}')">Mandar a plancha</button>
+    </div></div>`+logiEstampaHtml(id,it,lista2);
+}
+// Nov 2026: mandar a estampado (taller externo) desde Logística — misma mecánica que plancha.
+// Lo pueden hacer Ariel, Noelia y Peque en Mini Sur. El DTF de Nina sigue yendo por Estampas.
+function logiEstampaHtml(id,it,lista){
+  const opciones=(lista||[]).map(t=>`<option value="${utEsc(t)}">${utEsc(t)}</option>`).join('');
+  return `<div style="background:var(--bg);border-radius:8px;padding:10px;margin-bottom:10px">
+    <div style="font-weight:700;font-size:12px;margin-bottom:8px">🎨 Mandar a estampado</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="logi-estampa-taller" class="filtro-corte-select"><option value="">Elegí el taller…</option>${opciones}<option value="__nuevo__">+ Otro taller…</option></select>
+      <input id="logi-estampa-detalle" type="text" placeholder="Detalle: estampa frente" style="flex:1;min-width:150px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px">
+      <button class="btn-sm" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="logiMandarAPlancha('${id}','estampado')">Mandar a estampado</button>
     </div></div>`;
 }
-function logiMandarAPlancha(id){
+function logiMandarAPlancha(id,tipo){
+  tipo=tipo==='estampado'?'estampado':'plancha';
+  const pref=tipo==='estampado'?'logi-estampa':'logi-plancha';
+  const nomTipo=tipo==='estampado'?'estampado':'plancha';
   const it=logiItemsData[id];
   if(!logiPuedeMandarPlancha(it)){ showToast('Esto lo hacen Ariel o Noelia (Mini Sur también Peque)'); return; }
   if(!it||it.mandada_plancha) return;
-  const taller=((document.getElementById('logi-plancha-taller')||{}).value||'').trim();
-  const detalle=((document.getElementById('logi-plancha-detalle')||{}).value||'').trim();
+  let taller=((document.getElementById(pref+'-taller')||{}).value||'').trim();
+  const detalle=((document.getElementById(pref+'-detalle')||{}).value||'').trim();
+  if(taller==='__nuevo__'){ taller=((prompt('Nombre del taller:')||'')).trim(); }
   if(!taller){ showToast('Elegí el taller'); return; }
   const av=it.avance_pendiente;
   const retenida=!!(av&&!av.avanzado&&av.item_snapshot);
@@ -18941,16 +18957,16 @@ function logiMandarAPlancha(id){
   const item=retenida?av.item_snapshot:(f&&f.item);
   if(!item){ showToast('No encontré el corte en la app — avisale a Ariel'); return; }
   if(tieneMovimientosAbiertos(item)){ showToast(`⏳ Falta cerrar: ${nombresMovimientosAbiertos(item)}`); return; }
-  if(!confirm(`¿Mandar ${it.name||it.code||'esta entrega'} (corte ${it.numero_corte}) a plancha con ${taller}?`)) return;
+  if(!confirm(`¿Mandar ${it.name||it.code||'esta entrega'} (corte ${it.numero_corte}) a ${nomTipo} con ${taller}?`)) return;
   const etapaId='e'+Date.now();
-  const etapa={tipo:'plancha',momento:'despues',taller,detalle:detalle||null,factura:tallerFactura(taller),orden:Date.now(),estado:'pendiente',creado_por:currentUser,entrega_id:id};
-  const label=`Terminación (Plancha · ${taller})`;
+  const etapa={tipo,momento:'despues',taller,detalle:detalle||null,factura:tallerFactura(taller),orden:Date.now(),estado:'pendiente',creado_por:currentUser,entrega_id:id};
+  const label=`Terminación (${tipo==='estampado'?'Estampado':'Plancha'} · ${taller})`;
   const upd={};
   const key=sanitizeStr(taller);
   if(!talleresConfigData[key]||talleresConfigData[key].factura==null) upd[`fabrica_v5/talleres_config/${key}`]={nombre:taller,factura:etapa.factura};
   if(!(talleresCorteList||[]).includes(taller)){ talleresCorteList=[...(talleresCorteList||[]),taller]; upd['fabrica_v5/talleres_corte']=talleresCorteList; }
   const base=`fabrica_v5/logistica/items/${id}`;
-  upd[`${base}/mandada_plancha`]={taller,detalle:detalle||null,etapa_id:etapaId,fecha:Date.now(),por:currentUser};
+  upd[`${base}/mandada_plancha`]={tipo,taller,detalle:detalle||null,etapa_id:etapaId,fecha:Date.now(),por:currentUser};
   if(it.estado==='cerrado'||it.estado==='pendiente_dividir'){
     upd[`${base}/estado`]='cerrado';
     upd[`${base}/sigue_a_estampado`]=true;
@@ -18970,8 +18986,8 @@ function logiMandarAPlancha(id){
     } else moveItemUndoable(f.secId,f.itemId,SEC_TALLER_TERMINACION,nuevo);
     db.ref().update(upd);
   }
-  logActivity('Mandó a plancha desde Logística',`${it.code||''} — Corte ${it.numero_corte||'?'} · ${taller}${detalle?' ('+detalle+')':''}`);
-  showToast(`🧺 Mandada a plancha con ${taller} — ya está en Talleres`);
+  logActivity(`Mandó a ${nomTipo} desde Logística`,`${it.code||''} — Corte ${it.numero_corte||'?'} · ${taller}${detalle?' ('+detalle+')':''}`);
+  showToast(`${tipo==='estampado'?'🎨':'🧺'} Mandada a ${nomTipo} con ${taller} — ya está en Talleres`);
 }
 // ===== Pasar a liso desde Logística (nov 2026) =====
 // Un corte que iba a estampado puede salir (todo o en parte) como prenda lisa, con otro código
@@ -19181,7 +19197,7 @@ function logiCorteFabricaDe(it){
 function logiSigueA(it){
   if(!it) return null;
   if(it.liso_de) return null; // entrega liso: va directo a dividir
-  if(it.mandada_plancha) return `Terminación (Plancha · ${it.mandada_plancha.taller||'taller'})`;
+  if(it.mandada_plancha) return `Terminación (${it.mandada_plancha.tipo==='estampado'?'Estampado':'Plancha'} · ${it.mandada_plancha.taller||'taller'})`;
   const av=it.avance_pendiente;
   if(av&&!av.avanzado) return av.destino_tipo==='en_estampado_taller'?'Estampado':null;
   if(it.proceso==='estampado') return null;

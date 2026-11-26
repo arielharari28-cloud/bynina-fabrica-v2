@@ -6894,8 +6894,18 @@ function renderResumenPipelineTalleres(){
     const stop='onclick="event.stopPropagation()"';
     let precioHtml='';
     const actual=utEtapaActual(f.secId,it);
+    const pqMS=!puede&&currentUser==='peque'&&!it.es_complemento&&esMinisur(it); // nov 2026: Peque ve el precio en Mini Sur
     if(f.estado==='parcial'){
       precioHtml=it.precio_taller?`<span style="color:var(--text2)">$ ${utEsc(it.precio_taller)}</span>`:'';
+    } else if(pqMS){
+      // Peque en Mini Sur: si está vacío lo carga; si ya hay precio lo ve y para cambiarlo le pide a Ariel.
+      const etapaFact=actual&&actual.tipo==='etapa'&&actual.e.factura;
+      const val=etapaFact?actual.e.precio:it.precio_taller;
+      const onch=etapaFact?`etapaPrecio('${f.secId}','${f.itemId}','${actual.id}',this.value)`:`setPrecioTallerCorte('${f.secId}','${f.itemId}',this.value)`;
+      const lbl=etapaFact?`<span style="font-size:10.5px;color:var(--text2);display:block">${utEsc(actual.taller||'Terminación')}</span>`:'';
+      precioHtml=val
+        ? `${lbl}<span><b>$ ${Number(val).toLocaleString('es-AR')}</b> / u. <small style="color:var(--text2)">· para cambiarlo pedile a Ariel</small></span>`
+        : `${lbl}<span style="color:var(--danger);font-weight:700;font-size:10.5px;display:block">Falta precio</span>$ <input class="ut-in falta" ${stop} type="number" min="0" value="" placeholder="/u" style="width:62px" onchange="${onch}">`;
     } else if(puede&&!it.es_complemento&&actual&&actual.tipo==='etapa'&&actual.e.factura){
       const tieneE=!!actual.e.precio;
       precioHtml=`<span style="${tieneE?'font-size:10.5px;color:var(--text2);display:block':'color:var(--danger);font-weight:700;font-size:10.5px;display:block'}">${tieneE?utEsc(actual.taller||'Terminación'):'Falta precio '+utEsc(actual.taller||'')}</span>$ <input class="ut-in${tieneE?'':' falta'}" ${stop} type="number" min="0" value="${actual.e.precio||''}" placeholder="/u" style="width:62px" onchange="etapaPrecio('${f.secId}','${f.itemId}','${actual.id}',this.value)">`
@@ -18103,7 +18113,20 @@ async function logiConfirmarProveedor(){
 // Detalle de entrega (rediseño): pendientes como botones, Plata (solo Ariel y Meli) y Web resumido.
 function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   const pend=document.getElementById('logi-detail-pend'), plata=document.getElementById('logi-detail-plata'), web=document.getElementById('logi-detail-web');
-  if(!cerrado){ pend.innerHTML=''; plata.innerHTML=''; web.innerHTML=''; return; }
+  if(!cerrado){
+    pend.innerHTML=''; web.innerHTML='';
+    // Nov 2026: Peque ve el precio del taller en las entregas de Mini Sur desde que se abren
+    // (antes solo al cerrar, y Mini Sur sale de Logística al terminar el control).
+    if(!logiPequeMS(it)){ plata.innerHTML=''; return; }
+    const u0=totalOk+totalDetalle;
+    plata.innerHTML=`<div class="ld-card"><div class="ld-title">Plata</div>
+      <div class="ld-row"><span>Precio taller</span><span>${it.precio_taller
+        ? `<b>$ ${Number(it.precio_taller).toLocaleString('es-AR')}</b> / u. ${it.facturado_cta_cte?'':(it.precio_solicitud?`<small style="color:#b8860b">⏳ pediste $${Number(it.precio_solicitud.valor).toLocaleString('es-AR')}</small>`:`<button class="btn-sm" onclick="listaEntEditarPrecio('logistica','${id}');setTimeout(()=>logiRenderDetail('${id}'),400)">📝 Pedir cambio</button>`)}`
+        : `$ <input type="number" value="" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.`}</span></div>
+      <div class="ld-row"><span>Se le debe al taller</span><b style="color:var(--accent)">${it.precio_taller&&u0?'$ '+(it.precio_taller*u0).toLocaleString('es-AR')+' ('+u0+' u.)':'—'}</b></div>
+    </div>`;
+    return;
+  }
   const quien=(u)=>u&&USER_DISPLAY[u]?' — '+USER_DISPLAY[u]:'';
   const btn=(ok,txt,okTxt,fn)=>`<button class="ld-pbtn ${ok?'ok':''}" onclick="${fn}">${ok?'✓ '+okTxt:'☐ '+txt}</button>`;
   const botones=[];

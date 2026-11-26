@@ -16441,6 +16441,7 @@ db.ref('fabrica_v5/logistica/items').on('value', snap=>{
   try{ rdBadge(); rdRefrescar(); }catch(e){}
   cmpIntentarLimpieza();
   logiBackfillFechaEntrega();
+  logiMigrarPrepTransf2611();
   if(typeof sectionsData!=='undefined'&&sectionsData) renderSections('fabrica');
   if(!document.getElementById('tab-cortes').classList.contains('hidden')) renderCortesTab();
   if(!document.getElementById('tab-comerc').classList.contains('hidden')) renderComercializarTab();
@@ -19351,14 +19352,14 @@ function logiDivReabrir(itemId){
 function logiCerrarDividido(itemId,como){
   const up={}, b=`fabrica_v5/logistica/items/${itemId}`;
   up[b+'/dividido']=true; up[b+'/estado']='cerrado'; up[b+'/fecha_cerrado']=Date.now(); up[b+'/cerrado_por']=currentUser;
-  if(como==='ninox'){ up[b+'/transferencia_ninox']=true; up[b+'/transferencia_ninox_por']=currentUser; up[b+'/transferencia_ninox_fecha']=Date.now(); }
+  if(como==='ninox'){ up[b+'/transferencia_ninox']=true; up[b+'/transferencia_ninox_por']=currentUser; up[b+'/transferencia_ninox_fecha']=Date.now(); up[b+'/preparar_transf']=true; }
   db.ref().update(up);
   logActivity(como==='ninox'?'Hizo la transferencia en Ninox — pasa a Finalizado':'Marcó dividido — pasa a Finalizado',logiItemsData[itemId]?.code||itemId);
   showToast('✅ Pasó a Finalizados');
 }
 function logiTransferenciaHecha(itemId){
   if(!['emir','ariel'].includes(quienSoy())){ showToast('La transferencia la marca Emir'); return; }
-  if(!confirm('¿Ya hiciste la transferencia en Ninox? El corte pasa a Finalizado.')) return;
+  if(!confirm('¿Ya hiciste la transferencia en Ninox? El corte pasa a Finalizado y te queda arriba en "Preparar transferencia" para separarla y marcar lo recibido.')) return;
   logiCerrarDividido(itemId,'ninox');
 }
 function logiDivDetalleTexto(it){
@@ -19396,7 +19397,8 @@ function logiRenderTransferencias(){
   if(!['emir','ariel'].includes(yo)){ el.innerHTML=''; return; }
   const lista=Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.estado==='pendiente_dividir'&&it.division_confirmada&&!it.dividido)
     .sort((a,b)=>(a[1].division_confirmada_fecha||0)-(b[1].division_confirmada_fecha||0));
-  if(!lista.length){ el.innerHTML=''; return; }
+  const prepHtml=logiPrepararTransfHtml();
+  if(!lista.length){ el.innerHTML=prepHtml; return; }
   const e=utEsc, hoy=new Date(); hoy.setHours(0,0,0,0);
   el.innerHTML=`<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;background:#fff">
     <div style="font-weight:700;font-size:13px;margin-bottom:6px">🔁 Transferencias a hacer en Ninox (${lista.length}) <span style="font-weight:400;color:var(--text2)">· Depósito → Avellaneda</span></div>
@@ -19406,7 +19408,63 @@ function logiRenderTransferencias(){
         <div><b>${e(it.code||'')} ${e(it.name||'')}</b>${it.numero_corte?` · C${e(it.numero_corte)}`:''} <span style="font-size:11px;padding:1px 8px;border-radius:40px;${d>=2?'background:#9B5C6B;color:#fff':'border:1px solid #416096;color:#416096'}">${d===0?'hoy':d===1?'ayer':'hace '+d+' días'}</span>
           <div style="font-size:12px;color:var(--text2);margin:2px 0">Avellaneda: <b style="color:#111">${t.av}</b></div>
           <div style="font-size:12px;line-height:1.6">${logiDivDetalleTexto(it).map(e).join('<br>')}</div></div>
-        <button class="btn-sm" style="background:#416096;color:#fff;border-color:#416096" onclick="logiTransferenciaHecha('${id}')">✓ Hecha en Ninox</button></div>`; }).join('')}</div>`;
+        <button class="btn-sm" style="background:#416096;color:#fff;border-color:#416096" onclick="logiTransferenciaHecha('${id}')">✓ Hecha en Ninox</button></div>`; }).join('')}</div>`+prepHtml;
+}
+// Preparar transferencia (nov 2026, pedido de Emir): una vez hecha en Ninox, Emir separa la
+// mercadería físicamente y marca él lo recibido en Avellaneda y en Depósito (deja de ser tarea
+// de Ariel). Solo los cortes marcados en Ninox desde este cambio (preparar_transf), no los viejos.
+function logiPrepararTransfHtml(){
+  const lista=Object.entries(logiItemsData||{}).filter(([,it])=>it&&it.preparar_transf&&logiPrepDestinos(it).some(([k])=>!it['recibido_'+k]))
+    .sort((a,b)=>(a[1].transferencia_ninox_fecha||0)-(b[1].transferencia_ninox_fecha||0));
+  if(!lista.length) return '';
+  const e=utEsc, dias=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  const fecha=ts=>{ const d=new Date(ts); return `${dias[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; };
+  const bt=(id,dest,n,ok)=>ok?`<span style="font-size:12px;color:#15803d;font-weight:600">✓ Recibido en ${dest==='avellaneda'?'Avellaneda':'Depósito'}</span>`
+    :`<button class="btn-sm" style="background:#fff;color:#416096;border:1px solid #416096;border-radius:40px" onclick="logiPrepRecibido('${id}','${dest}')">Recibido en ${dest==='avellaneda'?'Avellaneda':'Depósito'}${n?` (${n})`:''}</button>`;
+  return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;background:#fff">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px">📦 Preparar transferencia (${lista.length}) <span style="font-weight:400;color:var(--text2)">· separar la mercadería y marcar lo recibido</span></div>
+    ${lista.map(([id,it])=>{ const d=Math.max(0,Math.round((Date.now()-(it.transferencia_ninox_fecha||Date.now()))/864e5));
+      return `<div style="border-top:1px solid var(--border);padding:8px 0;display:flex;gap:10px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap">
+        <div><b>${e(it.code||'')} ${e(it.name||'')}</b>${it.numero_corte?` · C${e(it.numero_corte)}`:''} <span style="font-size:11px;padding:1px 8px;border-radius:40px;${d>=2?'background:#9B5C6B;color:#fff':'border:1px solid #416096;color:#416096'}">${d===0?'hoy':d===1?'ayer':'hace '+d+' días'}</span>
+          <div style="font-size:12px;color:var(--text2);margin:2px 0">Hecha en Ninox: ${it.transferencia_ninox_fecha?fecha(it.transferencia_ninox_fecha):'—'} · ${it.division_avellaneda==null&&it.division_deposito==null?'Sin división cargada':`Avellaneda <b style="color:#111">${it.division_avellaneda||0}</b> · Depósito <b style="color:#111">${it.division_deposito||0}</b>`}</div>
+          <div style="font-size:12px;line-height:1.6">${logiDivDetalleTexto(it).map(e).join('<br>')}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${logiPrepDestinos(it).map(([k,n])=>bt(id,k,n,it['recibido_'+k])).join('')}</div></div>`; }).join('')}</div>`;
+}
+// Destinos a recibir: los de la división; si el corte no tiene división cargada (cortes viejos
+// marcados dividido a mano), se piden los dos sin cantidad.
+function logiPrepDestinos(it){
+  const sinDiv=it.division_avellaneda==null&&it.division_deposito==null;
+  const r=[];
+  if(sinDiv||it.division_avellaneda) r.push(['avellaneda',it.division_avellaneda||'']);
+  if(sinDiv||it.division_deposito) r.push(['deposito',it.division_deposito||'']);
+  return r;
+}
+// Una sola vez (26/11/2026): Ariel pidió que estos 4 cortes ya finalizados aparezcan en
+// "Preparar transferencia" porque la transferencia física todavía no se hizo.
+let logiPrepTransf2611Hecho=false;
+function logiMigrarPrepTransf2611(){
+  if(logiPrepTransf2611Hecho||!logiItemsData||!Object.keys(logiItemsData).length) return;
+  logiPrepTransf2611Hecho=true;
+  const ref=db.ref('fabrica_v5/migraciones/prep_transf_2611');
+  ref.once('value').then(snap=>{
+    if(snap.val()) return;
+    const quiero={'4705A':'298','5243':'218','4771':'205','1211':'219'};
+    const up={}, hechos=[];
+    Object.entries(logiItemsData).forEach(([id,it])=>{
+      if(!it||quiero[String(it.code||'').trim().toUpperCase()]!==String(it.numero_corte||'').trim()) return;
+      const b=`fabrica_v5/logistica/items/${id}`;
+      up[b+'/preparar_transf']=true;
+      ['avellaneda','deposito'].forEach(k=>{ up[`${b}/recibido_${k}`]=null; up[`${b}/recibido_${k}_por`]=null; up[`${b}/recibido_${k}_fecha`]=null; });
+      hechos.push(`${it.code} C${it.numero_corte}`);
+    });
+    up['fabrica_v5/migraciones/prep_transf_2611']={ts:Date.now(),hechos};
+    db.ref().update(up);
+  });
+}
+function logiPrepRecibido(itemId,destino){
+  if(!['emir','ariel'].includes(quienSoy())){ showToast('Esto lo marca Emir'); return; }
+  logiToggleRecibido(itemId,destino,true);
+  showToast(`✅ Recibido en ${destino==='avellaneda'?'Avellaneda':'Depósito'}`);
 }
 function logiMarcarDividido(itemId){
   if(currentUser!=='ariel'){ showToast('Solo Ariel puede marcar como dividido'); return; }

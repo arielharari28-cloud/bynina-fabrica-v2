@@ -19911,6 +19911,9 @@ const COSTEO_DEFAULT_MINISUR={gastos_fabrica:2000,etiqueta:60,bolsa:925,papel_se
 // Mini Sur (todos los cortes de Mini Sur cortados hasta el 26/11/2026, sin complementos), repartidos
 // entre todas las prendas de la tanda, sabiendo que ese costo queda inflado. Los cortes posteriores no llevan.
 const COSTEO_GG_TANDA_HASTA=new Date(2026,10,26,23,59,59).getTime();
+// Ariel (26/11): el total completo es exagerado para esta tanda → se carga solo el 60%. El 40% restante
+// queda sin asignar (para amortizar en cortes futuros, a definir).
+const COSTEO_GG_TANDA_PCT=0.6;
 const COSTEO_GASTOS_GENERALES_MINISUR=[
   {nombre:'Fichas',monto:315000},
   {nombre:'Moldes y progresiones',monto:1020000},
@@ -19962,7 +19965,7 @@ function costeoDefaultOtro(e,key,mapa){
     if(!costeoEsMinisurEntry(e,mapa)) return null;
     const pr=costeoGGMinisurTanda(mapa);
     if(!pr.prendas||!(corteKeyFrom(e.numero_corte) in pr.cortes)) return null;
-    return Math.round(costeoGGMinisurTotal()/pr.prendas*100)/100;
+    return Math.round(costeoGGMinisurTotal()*COSTEO_GG_TANDA_PCT/pr.prendas*100)/100;
   }
   if(!(key in COSTEO_DEFAULT_MINISUR)) return null;
   return costeoEsMinisurEntry(e,mapa)?COSTEO_DEFAULT_MINISUR[key]:null;
@@ -20880,7 +20883,7 @@ function renderCosteoDetail(){
     }).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 0">Sin avíos</div>';
     const otrosHtml=r.otros.map(o=>{
       const valor=o.propio?a[o.c.key]:(o.auto?o.unit.toFixed(2):(o.unit||''));
-      const t=o.c.key==='costo_taller'&&o.auto?tag('de Logística'):(o.def?(o.c.key==='gastos_generales'?tag('Mini Sur · $ '+costeoGGMinisurTotal().toLocaleString('es-AR')+' de la 1ª tanda ÷ '+costeoGGMinisurPrendas().toLocaleString('es-AR')+' prendas (cortes '+Object.values(costeoGGMinisurTanda().cortes).join(', ')+') · este artículo: '+costeoPesos(o.unit*r.piezas)+' · costo inflado','var(--warn-bg)','var(--warn-text)')+tag('sin desarrollo: '+costeoPesos(Math.max(0,r.costoU-o.unit))+' /u'):tag('Mini Sur')):'');
+      const t=o.c.key==='costo_taller'&&o.auto?tag('de Logística'):(o.def?(o.c.key==='gastos_generales'?tag('Mini Sur · 60% de $ '+costeoGGMinisurTotal().toLocaleString('es-AR')+' = $ '+Math.round(costeoGGMinisurTotal()*COSTEO_GG_TANDA_PCT).toLocaleString('es-AR')+' en la 1ª tanda ÷ '+costeoGGMinisurPrendas().toLocaleString('es-AR')+' prendas (cortes '+Object.values(costeoGGMinisurTanda().cortes).join(', ')+') · este artículo: '+costeoPesos(o.unit*r.piezas)+' · costo inflado','var(--warn-bg)','var(--warn-text)')+tag('sin desarrollo: '+costeoPesos(Math.max(0,r.costoU-o.unit))+' /u'):tag('Mini Sur')):'');
       return fila(`${o.c.label}${t}`,canEdit?`$ ${inp(o.propio?a[o.c.key]:'',`setCosteoArtCampo('${key}',${i},'${o.c.key}',this.value)`,80,valor===''?'0':String(valor))}`:'',costeoPesos(o.unit)+' /u');
     }).join('');
     const preciosHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${r.precios.map(p=>{

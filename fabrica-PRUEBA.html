@@ -20498,6 +20498,7 @@ function renderCosteoTab(){
         <option value="fecha" ${costeoOrdenPor==='fecha'?'selected':''}>Más nuevo primero</option>
         <option value="corte" ${costeoOrdenPor==='corte'?'selected':''}>N° de corte</option>
       </select>
+      ${pdfCliPuede()?`<button class="btn-sm" onclick="abrirPdfCliente()">📄 PDF para cliente</button>`:''}
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:var(--text2);margin-right:2px">Marca</span>${['',...marcasList].map(m=>`<button class="radio-btn${filtroMarca===m?' selected':''}" onclick="setFiltroMarca('${m.replace(/'/g,"\\'")}')">${m===''?'Todas':costeoEsc(m)}</button>`).join('')}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">${chipF('todos','Todos',total)}${chipF('pendiente','Costo pendiente',nPend)}${chipF('costo','Con costo',nCosto)}${chipF('sinctrl','Cortes con rollos sin controlar',nSinCtrl)}</div></div>`;
@@ -20954,6 +20955,149 @@ function renderCosteoDetail(){
 }
 // Guarda un campo propio de un artículo del corte (kilos, prendas, gastos por prenda o precios de venta).
 // Vacío = vuelve al valor automático / compartido del corte.
+// ===== PDF para cliente (nov 2026) =====
+// Desde Costeo: se eligen artículos (por defecto Mini Sur, solo finalizados) y se arma un PDF con
+// resumen + una ficha por artículo (foto, detalle del costo por prenda, talles entregados, notas).
+// Lo genera el navegador (que sí ve las fotos) y se guarda con "Guardar como PDF". Ariel y Peque.
+let pdfCliState={marca:null,soloFin:true,sel:{}};
+function pdfCliPuede(){ return currentUser==='ariel'||currentUser==='peque'; }
+function pdfCliFoto(e,r){ return costeoFotoLogistica(e&&e.numero_corte,r)||(r.fab&&r.fab.item&&r.fab.item.foto)||(r.a&&r.a.foto)||''; }
+function pdfCliMarca(e,filas){ const m=(filas.map(r=>r.fab&&r.fab.item&&r.fab.item.marca).find(Boolean))||e.marca||''; if(m) return m; return costeoEsMinisurEntry(e)?marcaMinisurNombre():((marcasList&&marcasList[0])||'By Nina'); }
+function pdfCliFilas(){
+  const mapa=costeoMapaFabrica(); const out=[];
+  Object.entries(costeosData||{}).forEach(([key,e])=>{
+    if(!e||!(e.articulos||[]).length) return;
+    let rs; try{ rs=e.articulos.map((a,i)=>costeoArtCalc(e,i,mapa)); }catch(err){ return; }
+    if(rs.some(r=>r.cmpDe)) return; // complementos: su costo va dentro del corte base
+    const marca=pdfCliMarca(e,rs);
+    rs.forEach((r,i)=>{
+      const est=costeoEtapaArt(e,r);
+      const falta=[]; if(!r.precioKg) falta.push('Falta precio de tela'); if(!r.piezas) falta.push('Faltan prendas'); if((r.avios||[]).some(x=>!x.precioEf)) falta.push('Avío sin precio');
+      out.push({id:key+'|'+i,key,i,e,r,marca,fin:!!(est&&est.key==='finalizado'),falta,ts:parseFechaArToTs(e.fecha_corte)||e.fecha_creado||0});
+    });
+  });
+  return out.sort((a,b)=>b.ts-a.ts);
+}
+function abrirPdfCliente(){
+  if(!pdfCliPuede()) return;
+  if(pdfCliState.marca==null) pdfCliState.marca=marcaMinisurNombre();
+  let m=document.getElementById('pdfcli-modal');
+  if(!m){ m=document.createElement('div'); m.id='pdfcli-modal'; m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'; m.onclick=ev=>{ if(ev.target===m) cerrarPdfCliente(); }; document.body.appendChild(m); }
+  renderPdfCliente();
+}
+function cerrarPdfCliente(){ const m=document.getElementById('pdfcli-modal'); if(m) m.remove(); }
+function pdfCliVisibles(){ const st=pdfCliState; return pdfCliFilas().filter(x=>(!st.marca||x.marca===st.marca)&&(!st.soloFin||x.fin)); }
+function renderPdfCliente(){
+  const m=document.getElementById('pdfcli-modal'); if(!m) return;
+  const st=pdfCliState, filas=pdfCliVisibles();
+  const marcas=[...new Set(pdfCliFilas().map(x=>x.marca))].sort((a,b)=>a.localeCompare(b,'es'));
+  const n=filas.filter(x=>st.sel[x.id]).length;
+  const fila=x=>{ const f=pdfCliFoto(x.e,x.r); return `<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer">
+    <input type="checkbox" ${st.sel[x.id]?'checked':''} onchange="pdfCliState.sel['${x.id}']=this.checked;renderPdfCliente()">
+    ${f?`<img src="${costeoEsc(f)}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;object-position:top center;background:var(--surface2)">`:'<div style="width:40px;height:40px;border-radius:8px;background:var(--surface2)"></div>'}
+    <div style="flex:1;min-width:0"><div style="font-family:'Poppins',sans-serif;font-size:14px;font-weight:500">${costeoEsc(x.r.a.name||'')} · ${costeoEsc(x.r.code||'')}</div><div style="font-size:12px;color:var(--text2)">Corte ${costeoEsc(x.e.numero_corte||'')} · ${x.r.piezas||0} u.${x.fin?'':' · sin finalizar'}</div></div>
+    ${x.falta.length?`<span style="font-size:11px;background:var(--warn-bg);color:var(--warn-text);padding:3px 8px;border-radius:20px;white-space:nowrap">${costeoEsc(x.falta.join(' · '))}</span>`:`<b style="white-space:nowrap">${costeoPesos(x.r.costoU)}</b>`}
+  </label>`; };
+  m.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:min(640px,100%);max-height:90vh;display:flex;flex-direction:column;padding:18px 20px">
+    <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-family:'Poppins',sans-serif;font-size:17px">PDF para cliente</b><button class="btn-sm" onclick="cerrarPdfCliente()">✕</button></div>
+    <div style="font-size:12px;color:var(--text2);margin:2px 0 12px">Elegí los artículos. Sale con resumen + una ficha por artículo.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <select class="filtro-corte-select" onchange="pdfCliState.marca=this.value;renderPdfCliente()"><option value="">Marca: todas</option>${marcas.map(x=>`<option value="${costeoEsc(x)}" ${st.marca===x?'selected':''}>Marca: ${costeoEsc(x)}</option>`).join('')}</select>
+      <select class="filtro-corte-select" onchange="pdfCliState.soloFin=this.value==='1';renderPdfCliente()"><option value="1" ${st.soloFin?'selected':''}>Solo finalizados</option><option value="0" ${st.soloFin?'':'selected'}>Todos</option></select>
+      <button class="btn-sm" onclick="pdfCliVisibles().forEach(x=>{pdfCliState.sel[x.id]=true});renderPdfCliente()">Tildar todos</button>
+      <button class="btn-sm" onclick="pdfCliState.sel={};renderPdfCliente()">Destildar</button>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow-y:auto;flex:1">${filas.length?filas.map(fila).join(''):'<div style="padding:16px;font-size:13px;color:var(--text3)">No hay artículos con este filtro.</div>'}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px"><span style="font-size:12px;color:var(--text2)">${n} artículo${n!==1?'s':''}${n?' · '+(n+1)+' páginas':''}</span>
+      <button class="btn-sm" style="background:var(--accent);color:#fff;border-color:var(--accent)" onclick="generarPdfCliente()">📄 Generar PDF</button></div>
+  </div>`;
+}
+function pdfCliRedondear(vals){
+  const total=Math.round(vals.reduce((s,v)=>s+v,0)); const base=vals.map(v=>Math.floor(v));
+  let falta=total-base.reduce((s,v)=>s+v,0);
+  vals.map((v,i)=>[v-base[i],i]).sort((a,b)=>b[0]-a[0]).forEach(([,i])=>{ if(falta>0){ base[i]++; falta--; } });
+  return {base,total};
+}
+function pdfCliDatos(x){
+  const {e,r}=x; const piezas=r.piezas||0;
+  const nf=(v,d)=>Number(v||0).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const L=[];
+  L.push(['Materiales','Tela',`${e.tela||''} · ${nf(r.kg,2)} kg × ${costeoPesos(r.precioKg)}/kg ÷ ${piezas} prendas`,piezas?r.costoTela/piezas:0]);
+  (r.avios||[]).forEach(a=>L.push(['Materiales',a.av.nombre||'Avío',`${nf(numAr2(a.av.cantidad),2).replace(/,00$/,'')} × ${costeoPesos(a.precioEf)}`,a.unit]));
+  if(r.costoCmp&&piezas) L.push(['Materiales','Complemento','tela + avíos',r.costoCmp/piezas]);
+  const G={costo_taller:['Confección','Taller'],gastos_fabrica:['Confección','Gastos de fábrica'],plancha_estampado:['Confección','Plancha / estampado'],etiqueta:['Packaging','Etiqueta'],bolsa:['Packaging','Bolsa'],papel_seda:['Packaging','Papel de seda'],carton:['Packaging','Cartón'],fletes:['Otros','Fletes'],tizas_moldes_muestras:['Desarrollo','Tizas / moldes / muestras'],gastos_generales:['Desarrollo','Gastos generales']};
+  const orden=['Materiales','Confección','Packaging','Desarrollo','Otros'];
+  (r.otros||[]).forEach(o=>{ if(!o.unit) return; const g=G[o.c.key]||['Otros',o.c.label]; let d='';
+    if(o.c.key==='gastos_generales'&&o.def) d=`${Math.round(COSTEO_GG_TANDA_PCT*100)}% del desarrollo de la 1ª tanda ÷ ${costeoGGMinisurPrendas()} prendas`;
+    L.push([g[0],g[1],d,o.unit]); });
+  L.sort((a,b)=>orden.indexOf(a[0])-orden.indexOf(b[0]));
+  const {base,total}=pdfCliRedondear(L.map(l=>l[3]));
+  const ents=Object.values(logiItemsData||{}).filter(it=>it&&corteKeyFrom(it.numero_corte)===corteKeyFrom(e.numero_corte)&&it.code===r.code);
+  const porT={}, colores=new Set(); let taller='';
+  ents.forEach(it=>{ if(it.taller&&!it.proceso&&!taller) taller=it.taller; Object.values(it.grilla||{}).forEach(f=>{ if(!f) return; if(f.color) colores.add(f.color); const ctrl=(parseInt(f.ok)||0)+(parseInt(f.detalle)||0); const u=ctrl||parseInt(f.contado)||0; porT[f.talle||'U']=(porT[f.talle||'U']||0)+u; }); });
+  if(!taller) taller=(r.fab&&r.fab.item&&(r.fab.item.taller_corte||r.fab.item.taller))||'';
+  const talles=tallesOrd(Object.keys(porT)).map(t=>[t,porT[t]]);
+  return {L,base,total,talles,colores:[...colores],taller,piezas};
+}
+function generarPdfCliente(){
+  const st=pdfCliState; const sel=pdfCliVisibles().filter(x=>st.sel[x.id]);
+  if(!sel.length){ showToast('Tildá al menos un artículo'); return; }
+  const E=costeoEsc, P=costeoPesos;
+  const w=window.open('','_blank'); if(!w){ showToast('El navegador bloqueó la ventana: permití ventanas emergentes'); return; }
+  const logo=E((st.marca||sel[0].marca||'').toLowerCase().replace(/\s+/g,''));
+  const hoy=new Date(); const mes=hoy.toLocaleDateString('es-AR',{month:'long',year:'numeric'}); const fechaHoy=hoy.toLocaleDateString('es-AR');
+  const hayGG=sel.some(x=>(x.r.otros||[]).some(o=>o.c.key==='gastos_generales'&&o.def));
+  const notas=`<div class="notas"><div class="nota alerta"><b>Falta sumar impuestos</b>Ingresos Brutos, impuesto al cheque y tasa municipal se calculan como % sobre el precio de venta. No están incluidos en este costo.</div>${hayGG?`<div class="nota"><b>Gastos generales</b>Incluye el ${Math.round(COSTEO_GG_TANDA_PCT*100)}% del desarrollo (fichas, moldes y progresiones, digitalización, muestras y fletes) repartido entre las ${costeoGGMinisurPrendas()} prendas de la primera tanda.</div>`:'<div></div>'}</div>`;
+  const foot=`<footer><span>Producido por By Nina · valores en pesos argentinos</span><span>Actualizado al ${fechaHoy}</span></footer>`;
+  const head=sub=>`<header><div class="logo">${logo}</div><div class="hdr"><b>COSTOS DE PRODUCCIÓN</b><br>${sub}</div></header>`;
+  const datos=sel.map(x=>({x,d:pdfCliDatos(x),foto:pdfCliFoto(x.e,x.r)}));
+  const resumen=`<div class="page">${head('Resumen · '+E(mes))}<p class="intro">Costo por prenda de cada artículo, con materiales, confección, packaging y gastos generales. El detalle de cada uno está en las páginas siguientes.</p><h2 style="margin-top:8mm">artículos</h2>
+   <table class="res"><tr><th></th><th>Artículo</th><th>Corte</th><th class="n">Cortadas</th><th class="n">Costo por prenda</th></tr>${datos.map(({x,d,foto})=>`<tr><td style="width:18mm">${foto?`<img src="${E(foto)}">`:'<div class="ph"></div>'}</td><td><b style="font-weight:500">${E(x.r.a.name||'')}</b><br><span class="mini">Art. ${E(x.r.code||'')} · ${E(x.e.tela||'')}</span></td><td>Corte ${E(x.e.numero_corte||'')}</td><td class="n">${d.piezas} u.</td><td class="n big">${P(d.total)}</td></tr>`).join('')}</table>${notas}${foot}</div>`;
+  const fichas=datos.map(({x,d,foto})=>{
+    let filas='', g=null, subt={};
+    d.L.forEach((l,i)=>{ subt[l[0]]=(subt[l[0]]||0)+d.base[i]; });
+    d.L.forEach((l,i)=>{ if(l[0]!==g){ g=l[0]; filas+=`<tr class="g"><td colspan="2">${E(g)}</td><td class="n">${P(subt[g])}</td></tr>`; }
+      filas+=`<tr><td class="c">${E(l[1])}${l[2]?`<span class="d">${E(l[2])}</span>`:''}</td><td class="bar"><i style="width:${d.total?(d.base[i]/d.total*100).toFixed(1):0}%"></i></td><td class="n">${P(d.base[i])}</td></tr>`; });
+    const ent=d.talles.reduce((s,t)=>s+t[1],0);
+    return `<div class="page">${head('Corte '+E(x.e.numero_corte||'')+' · '+E(mes))}
+     <section class="hero"><div class="foto">${foto?`<img src="${E(foto)}">`:''}</div><div class="info"><div class="code">ARTÍCULO ${E(x.r.code||'')}</div><h1>${E(x.r.a.name||'')}</h1>
+      <dl class="datos"><dt>Tela</dt><dd>${E(x.e.tela||'—')}</dd>${d.colores.length?`<dt>Color</dt><dd>${E(d.colores.map(c=>c.charAt(0).toUpperCase()+c.slice(1)).join(', '))}</dd>`:''}<dt>Corte</dt><dd>N° ${E(x.e.numero_corte||'')}${x.e.fecha_corte?' · '+E(x.e.fecha_corte):''}</dd><dt>Prendas cortadas</dt><dd>${d.piezas}</dd>${d.taller?`<dt>Taller</dt><dd>${E(d.taller)}</dd>`:''}</dl>
+      <div class="costo"><small>COSTO POR PRENDA</small><strong>${P(d.total)}</strong><em>sin impuestos · total del corte ${P(d.total*d.piezas)}</em></div></div></section>
+     <h2>detalle del costo por prenda</h2><table>${filas}<tr class="total"><td colspan="2">Costo por prenda</td><td class="n">${P(d.total)}</td></tr></table>
+     ${d.talles.length?`<h2>talles entregados</h2><div class="talles">${d.talles.map(t=>`<div class="t"><b>${E(t[0])}</b><span>${t[1]} u.</span></div>`).join('')}</div><div class="sub">${ent} prendas entregadas por el taller, de ${d.piezas} cortadas.</div>`:''}
+     ${x.falta.length?`<div class="aviso">⚠ ${E(x.falta.join(' · '))}: este costo todavía no está completo.</div>`:''}
+     ${notas}${foot}</div>`; }).join('');
+  const css=`@page{size:A4;margin:0}*{box-sizing:border-box;margin:0;padding:0}:root{--cream:#F6F1EA;--sand:#E6DACC;--choco:#4A362C;--brown:#7A5C4E;--soft:#9C8678;--line:#ECE4DA}
+body{font-family:'Inter',sans-serif;color:var(--choco);background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{width:210mm;height:297mm;padding:14mm 16mm 10mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}.page:last-child{page-break-after:auto}
+header{display:flex;justify-content:space-between;align-items:center;padding-bottom:5mm;border-bottom:1px solid var(--line)}.logo{font-family:'Poppins',sans-serif;font-weight:300;font-size:28px;letter-spacing:.06em}
+.hdr{text-align:right;font-size:10px;color:var(--soft);line-height:1.5}.hdr b{color:var(--brown);font-weight:600;letter-spacing:.08em;font-size:9.5px}
+.hero{display:grid;grid-template-columns:72mm 1fr;gap:9mm;margin-top:7mm}.foto{background:var(--cream);border-radius:18px;overflow:hidden;height:84mm}.foto img{width:100%;height:100%;object-fit:cover;display:block}
+.info{display:flex;flex-direction:column}.code{font-size:10px;color:var(--soft);letter-spacing:.14em}h1{font-family:'Poppins',sans-serif;font-weight:500;font-size:32px;line-height:1.1;margin:1.5mm 0 4mm;text-transform:lowercase}
+.datos{display:grid;grid-template-columns:30mm 1fr;row-gap:1.8mm;font-size:11px}.datos dt{color:var(--soft)}.datos dd{font-weight:500}
+.costo{margin-top:auto;background:var(--choco);color:#fff;border-radius:16px;padding:5mm 7mm}.costo small{display:block;font-size:9.5px;opacity:.75;letter-spacing:.1em}.costo strong{font-family:'Poppins',sans-serif;font-weight:500;font-size:36px;line-height:1.15;display:block}.costo em{font-style:normal;font-size:10px;opacity:.75}
+h2{font-family:'Poppins',sans-serif;font-weight:500;font-size:13px;margin:6mm 0 1.5mm;text-transform:lowercase}table{width:100%;border-collapse:collapse;font-size:11px}td{padding:1.5mm 0;border-bottom:1px solid var(--line);vertical-align:middle}
+tr.g td{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--brown);font-weight:600;padding-top:3mm;border-bottom:1px solid var(--sand)}td.c{width:55%}.d{font-size:9.5px;color:var(--soft);margin-left:2mm}
+td.bar{width:27%;padding-right:6mm}td.bar i{display:block;height:5px;border-radius:3px;background:var(--sand)}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:500}
+tr.total td{border-bottom:0;border-top:1.5px solid var(--choco);padding-top:2.5mm;font-family:'Poppins',sans-serif;font-size:13px;font-weight:500}
+.talles{display:flex;gap:2.5mm}.t{flex:1;background:var(--cream);border-radius:10px;padding:2.2mm 0;text-align:center}.t b{display:block;font-size:10.5px;font-weight:600}.t span{font-size:9.5px;color:var(--soft)}.sub{font-size:9.5px;color:var(--soft);margin-top:1.5mm}
+.aviso{margin-top:3mm;font-size:10px;background:#FBEBD0;color:#7A4A10;border-radius:10px;padding:2.5mm 4mm}
+.notas{margin-top:auto;display:grid;grid-template-columns:1fr 1fr;gap:4mm}.nota{border-radius:12px;padding:3.5mm 4.5mm;font-size:9.5px;line-height:1.5;background:var(--cream)}.nota b{display:block;font-size:10px;margin-bottom:.8mm}.nota.alerta{background:#F2E2D7}
+footer{margin-top:4mm;padding-top:2.5mm;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-size:8.5px;color:var(--soft)}
+.res td{padding:2.5mm 0;font-size:11.5px}.res img,.res .ph{width:14mm;height:14mm;object-fit:cover;object-position:top center;border-radius:8px;display:block;background:var(--cream)}.res th{text-align:left;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--brown);font-weight:600;padding:2mm 0;border-bottom:1px solid var(--sand)}.res th.n{text-align:right}.mini{font-size:9.5px;color:var(--soft)}.big{font-family:'Poppins',sans-serif;font-size:13px}
+.intro{font-size:11px;line-height:1.6;color:var(--brown);margin-top:7mm;max-width:150mm}
+@media screen{body{background:#e9e4dd}.page{background:#fff;margin:10px auto;box-shadow:0 2px 12px rgba(0,0,0,.12)}}`;
+  w.document.open();
+  w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${logo} · costos de producción</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@300;500&display=swap" rel="stylesheet"><style>${css}</style></head><body>${resumen}${fichas}</body></html>`);
+  w.document.close();
+  const imprimir=()=>{ try{ w.focus(); w.print(); }catch(err){} };
+  const imgs=[...w.document.images]; let pend=imgs.length;
+  const listo=()=>{ if(--pend<=0) setTimeout(imprimir,400); };
+  if(!pend) setTimeout(imprimir,800); else imgs.forEach(im=>{ if(im.complete) listo(); else { im.onload=listo; im.onerror=listo; } });
+  setTimeout(()=>{ if(pend>0){ pend=0; imprimir(); } },8000);
+  cerrarPdfCliente();
+}
+
 function setCosteoArtCampo(key,idx,campo,val){
   if(!(currentUser==='ariel'||currentUser==='stef')) return;
   const e=costeosData[key]||{};

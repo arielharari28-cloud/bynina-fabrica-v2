@@ -901,6 +901,9 @@
   .ld-head #logi-detail-photo img,.ld-head #logi-detail-photo .logi-noimg{width:76px;height:96px;object-fit:cover;border-radius:10px}
   .ld-meta{font-size:12.5px;color:var(--text2);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
   .ld-meta span:empty{display:none}
+  .ld-inline{font:inherit;color:inherit;background:transparent;border:1px solid transparent;border-radius:6px;padding:0 4px;margin:0 -4px;min-width:40px;max-width:100%}
+  .ld-inline:hover{border-color:var(--border)}
+  .ld-inline:focus{outline:none;border-color:var(--accent);background:#fff}
   .ld-meta #logi-detail-corte{color:var(--accent);font-weight:700}
   .ld-chip{font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;white-space:nowrap}
   .ld-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
@@ -1270,7 +1273,8 @@
       <div style="flex:1"><label style="font-size:11px;color:var(--text2);font-weight:600">N° de remito</label>
       <input type="text" id="logi-prov-remito" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px"></div>
       <div style="flex:1"><label style="font-size:11px;color:var(--text2);font-weight:600">Precio por prenda</label>
-      <input type="text" id="logi-prov-precio" inputmode="decimal" placeholder="Ej: 23000" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px;margin:2px 0 10px"></div>
+      <div style="display:flex;gap:4px;margin:2px 0 10px"><select id="logi-prov-moneda" style="border:1px solid var(--border);border-radius:8px;padding:6px;font-size:13px"><option value="ARS">$</option><option value="USD">US$</option></select>
+      <input type="text" id="logi-prov-precio" inputmode="decimal" placeholder="Ej: 23000" style="flex:1;min-width:0;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px"></div></div>
     </div>
     <div style="font-size:11px;color:var(--text3);margin:-4px 0 10px">Con el precio, a Meli le llega para facturar cuando se cierra el control (cantidad contada × precio).</div>
     <div class="logi-mbtns">
@@ -16054,7 +16058,7 @@ function renderResumenDia(){
       filas:[
         ...ingTela.map(([,r])=>({que:`Tela · ${r.proveedor||''}${r.numero?' · remito '+r.numero:''}`,det:`${r.tela||''} · ${r.rollos||0} rollos · ${(+r.cantidad||0).toLocaleString('es-AR')} ${r.unidad==='m'?'m':'kg'} · ${r.moneda==='USD'?'US$':'$'} ${Math.round(+r.importe||0).toLocaleString('es-AR')}`,h:hora(r.creadoEn),st:metaEstado(r.egresos_cargo_id,r.egresos_omitido)})),
         ...ingAvios.map(x=>({que:`Avío · ${x.proveedor||''}${x.remito?' · remito '+x.remito:''}`,det:`${x.detalle||''}${x.total?' · $ '+Math.round(x.total).toLocaleString('es-AR'):' · sin importe'} · cargó ${USER_DISPLAY[x.por]||x.por||''}`,h:hora(x.ts),st:metaEstado(x.egresos_cargo_id,x.egresos_omitido)})),
-        ...ingProv.map(it=>({que:`Producto · ${it.proveedor||''}${it.remito?' · remito '+it.remito:''}`,det:`${it.name||''}${it.precio_taller?' · $ '+Math.round(it.precio_taller).toLocaleString('es-AR')+' por prenda':' · sin precio'}`,h:hora(it.fecha_creado),
+        ...ingProv.map(it=>({que:`Producto · ${it.proveedor||''}${it.remito?' · remito '+it.remito:''}`,det:`${it.name||''}${it.precio_taller?(it.moneda_precio==='USD'?' · US$ ':' · $ ')+Math.round(it.precio_taller).toLocaleString('es-AR')+' por prenda':' · sin precio'}`,h:hora(it.fecha_creado),
           st:it.facturado_cta_cte?chip('Meli facturó',OK):chip(it.estado==='cerrado'?'Para facturar':'En conteo',PEND)})),
       ]},
   ];
@@ -16737,7 +16741,7 @@ function listaEntHtml(ctx){
     }
     if(plata){
       const editable=!it.facturado_cta_cte&&!it.no_facturar;
-      const lbl = precio ? `Precio <b>$${precio.toLocaleString('es-AR')}</b>` : 'Sin precio';
+      const lbl = precio ? `Precio <b>${it.moneda_precio==='USD'?'US$ ':'$'}${precio.toLocaleString('es-AR')}</b>` : 'Sin precio';
       nums+= editable
         ? `<span class="le-precio-edit" onclick="event.stopPropagation();listaEntEditarPrecio('${ctx}','${id}')" title="${(currentUser==='ariel'||currentUser==='noelia'||!precio)?'Editar precio':'Pedir cambio de precio'}">${lbl} ✎</span>`
         : `<span ${precio?'':'style="color:var(--text3)"'}>${lbl}</span>`;
@@ -17810,6 +17814,32 @@ function logiSetPrecioTaller(itemId,val){
 }
 // Costo/precios de venta para ítems de proveedor externo (sin N° de corte, no tienen entrada
 // en Costeo por tela) — se guardan directo en el ítem de Logística.
+// Prendas de proveedor en dólares (nov 2026)
+function logiProvCostoPesos(precio,coti){ return precio>0&&coti>0?Math.round(precio*coti):null; }
+function logiProvSetMoneda(id,m){
+  const it=logiItemsData[id]; if(!it||it.facturado_cta_cte) return;
+  const usd=m==='USD'; if(usd===(it.moneda_precio==='USD')) return;
+  const up={moneda_precio:usd?'USD':null};
+  if(usd) up.precio_costo=logiProvCostoPesos(Number(it.precio_taller)||0,Number(it.cotizacion_costo)||0);
+  db.ref(`fabrica_v5/logistica/items/${id}`).update(up);
+  logActivity('Cambió moneda del proveedor',`${it.code||it.name||''}: ${usd?'US$':'$'}`);
+}
+function logiProvSetPrecio(id,val){
+  const it=logiItemsData[id]; if(!it||it.facturado_cta_cte) return;
+  const n=numAr(val);
+  const up={precio_taller:n>0?n:null};
+  if(it.moneda_precio==='USD') up.precio_costo=logiProvCostoPesos(n,Number(it.cotizacion_costo)||0);
+  db.ref(`fabrica_v5/logistica/items/${id}`).update(up);
+  logActivity('Editó precio del proveedor',`${it.code||it.name||''}: ${it.moneda_precio==='USD'?'US$':'$'}${n}`);
+}
+function logiProvSetCoti(id,val){
+  const it=logiItemsData[id]; if(!it) return;
+  const n=numAr(val);
+  const up={cotizacion_costo:n>0?n:null,cotizacion_costo_fecha:n>0?new Date().toLocaleDateString('es-AR'):null,cotizacion_costo_por:n>0?quienSoy():null};
+  up.precio_costo=logiProvCostoPesos(Number(it.precio_taller)||0,n);
+  db.ref(`fabrica_v5/logistica/items/${id}`).update(up);
+  logActivity('Cargó cotización del costo (proveedor)',`${it.code||it.name||''}: $${n}`);
+}
 function setLogiPrecioVenta(itemId,campo,val){
   const n=parseFloat(String(val).replace(',','.'));
   if(isNaN(n)||n<0){ db.ref(`fabrica_v5/logistica/items/${itemId}/${campo}`).remove(); return; }
@@ -18125,6 +18155,7 @@ function logiOpenProveedorModal(){
   document.getElementById('logi-prov-proveedor').value='';
   document.getElementById('logi-prov-remito').value='';
   document.getElementById('logi-prov-precio').value='';
+  document.getElementById('logi-prov-moneda').value='ARS';
   const hoy=new Date();
   document.getElementById('logi-prov-fecha').value=hoy.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'});
   window._logiProvFotoFile=null;
@@ -18157,6 +18188,7 @@ async function logiConfirmarProveedor(){
   const fecha=document.getElementById('logi-prov-fecha').value.trim();
   const remitoProv=document.getElementById('logi-prov-remito').value.trim();
   const precioProv=numAr(document.getElementById('logi-prov-precio').value);
+  const monedaProv=document.getElementById('logi-prov-moneda').value==='USD'?'USD':null;
   if(!name){ showToast('Cargá al menos el nombre de la prenda'); return; }
   if(!precioProv&&!confirm('No pusiste el precio por prenda. Sin precio, a Meli le llega para facturar pero sin importe. ¿Guardar igual?')) return;
   let foto='';
@@ -18177,7 +18209,7 @@ async function logiConfirmarProveedor(){
     numero_corte:'', taller:'',
     proveedor,
     origen:'proveedor',
-    remito:remitoProv||null, precio_taller:precioProv||null, abierta_por:quienSoy(),
+    remito:remitoProv||null, precio_taller:precioProv||null, moneda_precio:monedaProv, abierta_por:quienSoy(),
     fecha_entregado:fecha, fecha_creado:Date.now(),
     estado:'pendiente_conteo', grilla:{}
   };
@@ -18229,15 +18261,26 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
     const u=totalOk+totalDetalle;
     plata.innerHTML=`<div class="ld-card"><div class="ld-title">Plata</div>
       ${it.origen==='proveedor'?(()=>{const inp=(campo,ph)=>`<input type="number" value="${it[campo]||''}" placeholder="${ph}" style="width:90px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="setLogiPrecioVenta('${id}','${campo}',this.value)">`;
-        return `<div class="ld-row"><span>Costo proveedor</span><span>$ ${inp('precio_costo','0')} / u.</span></div>
-      <div class="ld-row"><span>Se le debe al proveedor</span><b style="color:var(--accent)">${it.precio_costo?'$ '+(it.precio_costo*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>
+        // Nov 2026: el proveedor puede ser en dólares. precio_taller = lo que se le factura (en su moneda);
+        // la cotización queda anotada en la entrega y precio_costo = costo en pesos.
+        const usd=it.moneda_precio==='USD', fact=!!it.facturado_cta_cte;
+        const fmtN=n=>Number(n).toLocaleString('es-AR',{maximumFractionDigits:2});
+        const pill=(m,txt)=>`<span ${fact?'':`onclick="logiProvSetMoneda('${id}','${m}')"`} style="padding:3px 11px;cursor:${fact?'default':'pointer'};${(usd?m==='USD':m==='ARS')?'background:var(--accent);color:#fff':'color:var(--text2)'}">${txt}</span>`;
+        const inpS=(val,fn,ph,w)=>fact?`<b>${val?fmtN(val):'—'}</b>`:`<input type="text" inputmode="decimal" value="${val?fmtN(val):''}" placeholder="${ph}" style="width:${w}px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="${fn}('${id}',this.value)">`;
+        const sim=usd?'US$':'$';
+        const costoPesos=usd?(it.cotizacion_costo&&it.precio_taller?Math.round(it.precio_taller*it.cotizacion_costo):0):(it.precio_costo||it.precio_taller||0);
+        return `<div class="ld-row"><span>Moneda del proveedor</span><span style="display:inline-flex;border:1px solid var(--border);border-radius:20px;overflow:hidden;font-size:12px">${pill('ARS','$ Pesos')}${pill('USD','US$ Dólares')}</span></div>
+      <div class="ld-row"><span>Precio proveedor</span><span>${sim} ${inpS(it.precio_taller,'logiProvSetPrecio','0',80)} / u.${fact?' <small style="color:var(--text3)">· ya facturado</small>':''}</span></div>
+      ${usd?`<div class="ld-row"><span>Cotización del costo</span><span>$ ${inpS(it.cotizacion_costo,'logiProvSetCoti','cotización',90)}${it.cotizacion_costo_fecha?` <small style="color:var(--text3)">${it.cotizacion_costo_fecha}${it.cotizacion_costo_por?' · '+(USER_DISPLAY[it.cotizacion_costo_por]||it.cotizacion_costo_por):''}</small>`:''}</span></div>`:''}
+      <div class="ld-row"><span>Costo por prenda</span>${usd?`<b>${costoPesos?'$ '+costoPesos.toLocaleString('es-AR')+` <small style="font-weight:400;color:var(--text3)">(US$ ${fmtN(it.precio_taller)} × ${fmtN(it.cotizacion_costo)})</small>`:'<small style="color:var(--warn-text,#b45309)">Cargá la cotización para ver el costo en pesos</small>'}</b>`:`<span>$ ${inp('precio_costo',it.precio_taller?fmtN(it.precio_taller):'0')}</span>`}</div>
+      <div class="ld-row"><span>Se le debe al proveedor</span><b style="color:var(--accent)">${it.precio_taller?sim+' '+fmtN(it.precio_taller*u)+' ('+u+' u.)':'—'}</b></div>
       <div class="ld-row"><span>Lista local</span><span>$ ${inp('precio_lista_local','—')}</span></div>
       <div class="ld-row"><span>TN minorista</span><span>$ ${inp('precio_tn_minorista','—')}</span></div>
       <div class="ld-row"><span>TN mayorista</span><span>$ ${inp('precio_tn_mayorista','—')}</span></div>`})():`<div class="ld-row"><span>Precio taller</span><span>${(pqPlata&&it.precio_taller)
         ? `<b>$ ${Number(it.precio_taller).toLocaleString('es-AR')}</b> / u. ${it.facturado_cta_cte?'':(it.precio_solicitud?`<small style="color:#b8860b">⏳ pediste $${Number(it.precio_solicitud.valor).toLocaleString('es-AR')}</small>`:`<button class="btn-sm" onclick="listaEntEditarPrecio('logistica','${id}');setTimeout(()=>logiRenderDetail('${id}'),400)">📝 Pedir cambio</button>`)}`
         : `$ <input type="number" value="${it.precio_taller||''}" placeholder="0" style="width:80px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:13px" onchange="logiSetPrecioTaller('${id}',this.value)"> / u.`}</span></div>
       <div class="ld-row"><span>Se le debe al taller</span><b style="color:var(--accent)">${it.precio_taller?'$ '+(it.precio_taller*u).toLocaleString('es-AR')+' ('+u+' u.)':'—'}</b></div>`}
-      <div class="ld-row"><span>Costo por prenda</span><b>${costo}${it.costo_confirmado?'':' <small style="font-weight:500;color:var(--text2)">· sin confirmar</small>'}</b></div>
+      ${it.origen==='proveedor'?'':`<div class="ld-row"><span>Costo por prenda</span><b>${costo}${it.costo_confirmado?'':' <small style="font-weight:500;color:var(--text2)">· sin confirmar</small>'}</b></div>`}
       ${it.origen==='proveedor'?'':costoConfirmadoCheckboxHtml(id,it.costo_confirmado)}
       ${ck?`<button class="btn-sm" style="margin-top:6px" onclick="openCosteoDetail('${ck}')">Precios de venta → Costeo</button>`:''}
     </div>`;
@@ -18316,7 +18359,7 @@ function logiExtraCerradoHtml(id,it,cerrado){
         ${campoPrecioLogi('precio_tn_mayorista','TN mayorista',costeoEntry?costeoPrecioArt(costeoEntry,artCosteo,'precio_tn_mayorista'):'')}
         <button class="btn-sm" onclick="event.stopPropagation();openCosteoDetail('${corteKeyCosteo}')" style="padding:2px 8px;font-size:11px">✏️ Editar en Costeo</button>
       </div>` : (it.origen==='proveedor' ? `<div class="logi-fecha" style="margin-top:4px;display:flex;gap:14px;flex-wrap:wrap;align-items:center">
-        ${campoPrecioLogi2(id,'precio_costo','Costo',it.precio_costo)}
+        ${it.moneda_precio==='USD'?`<span>💲 Costo: <strong>${it.precio_costo?'$'+Number(it.precio_costo).toLocaleString('es-AR'):'falta cotización'}</strong> <small>(US$ ${Number(it.precio_taller||0).toLocaleString('es-AR')})</small></span>`:campoPrecioLogi2(id,'precio_costo','Costo',it.precio_costo)}
         ${campoPrecioLogi2(id,'precio_lista_local','Lista local',it.precio_lista_local)}
         ${campoPrecioLogi2(id,'precio_tn_minorista','TN minorista',it.precio_tn_minorista)}
         ${campoPrecioLogi2(id,'precio_tn_mayorista','TN mayorista',it.precio_tn_mayorista)}
@@ -18576,15 +18619,18 @@ function logiEditNombre(id){
   logActivity('Corrigió nombre en Logística', `${it.name||''} → ${nuevo.trim()}`);
   showToast('✓ Nombre actualizado');
 }
-function logiEditProveedor(id){
-  if(!puedeCargarIngreso()) return;
+function logiInlineSet(id,campo,el){
   const it=logiItemsData[id];
   if(!it) return;
-  const nuevo=prompt('Proveedor:', it.proveedor||'');
-  if(nuevo===null||!nuevo.trim()) return;
-  db.ref(`fabrica_v5/logistica/items/${id}/proveedor`).set(nuevo.trim());
-  logActivity('Corrigió proveedor en Logística', `${it.code||it.name||''}: ${it.proveedor||'—'} → ${nuevo.trim()}`);
-  showToast('✓ Proveedor actualizado');
+  const permitido = campo==='proveedor' ? puedeCargarIngreso() : currentUser==='ariel';
+  if(!permitido){ el.value=it[campo]||''; return; }
+  const nuevo=el.value.trim(), antes=it[campo]||'';
+  if(nuevo===antes) return;
+  if(campo==='proveedor'&&!nuevo){ el.value=antes; showToast('El proveedor no puede quedar vacío'); return; }
+  db.ref(`fabrica_v5/logistica/items/${id}/${campo}`).set(nuevo);
+  const etiqueta={code:'código',name:'nombre',proveedor:'proveedor'}[campo];
+  logActivity(`Corrigió ${etiqueta} en Logística`, `${it.code||it.name||''}: ${antes||'—'} → ${nuevo}`);
+  showToast(`✓ ${etiqueta[0].toUpperCase()+etiqueta.slice(1)} actualizado`);
 }
 function logiOpenDetail(id){
   logiCurrentItemId = id;
@@ -18645,15 +18691,18 @@ function logiRenderDetail(id){
   const pqMS = logiPequeMS(it); // Peque en una entrega de Mini Sur: mismos permisos que Emir
   const fotoEditableAttrs = puedeEditarFotoLogi(it) ? ` onclick="logiEditFoto('${id}')" style="cursor:pointer" title="Tocá para cambiar la foto"` : '';
   document.getElementById('logi-detail-photo').outerHTML = `<div id="logi-detail-photo"${fotoEditableAttrs}>${it.foto ? `<img src="${it.foto}">` : `<div class="logi-noimg">📦</div>`}</div>`;
-  document.getElementById('logi-detail-code').innerHTML = `${it.code||'(sin código)'}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditCodigo('${id}')" style="cursor:pointer;font-size:13px;color:var(--accent)" title="Editar código">✏️</span>`:''}`;
-  document.getElementById('logi-detail-name').innerHTML = `${it.name||''}${puedeEditarNombreCodigo?` <span onclick="event.stopPropagation();logiEditNombre('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar nombre">✏️</span>`:''}`;
+  // Nov 2026: código, nombre y proveedor se editan directo en el encabezado (sin pop-up)
+  const escA=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const inlineInp=(campo,val,ph)=>`<input class="ld-inline" value="${escA(val)}" placeholder="${ph}" size="${Math.max(String(val||ph).length+1,6)}" title="Tocá para editar" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.value=this.defaultValue;this.blur()}" onchange="logiInlineSet('${id}','${campo}',this)">`;
+  document.getElementById('logi-detail-code').innerHTML = puedeEditarNombreCodigo ? inlineInp('code',it.code,'(sin código)') : escA(it.code||'(sin código)');
+  document.getElementById('logi-detail-name').innerHTML = puedeEditarNombreCodigo ? inlineInp('name',it.name,'Nombre de la prenda') : escA(it.name||'');
   const corteTallerParts=[];
   if(it.numero_corte) corteTallerParts.push(`N° de corte: ${it.numero_corte}`);
   if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
   const escT=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const corteTallerHtml=corteTallerParts.map(escT);
   // Nov 2026: el proveedor de una prenda de proveedor se puede corregir (Ariel y Noelia)
-  if(it.origen==='proveedor') corteTallerHtml.push(`🏷️ Proveedor${it.proveedor?': '+escT(it.proveedor):': <em>sin cargar</em>'}${puedeCargarIngreso()?` <span onclick="event.stopPropagation();logiEditProveedor('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar proveedor">✏️</span>`:''}`);
+  if(it.origen==='proveedor') corteTallerHtml.push(`🏷️ Proveedor: ${puedeCargarIngreso()?inlineInp('proveedor',it.proveedor,'sin cargar'):(it.proveedor?escT(it.proveedor):'<em>sin cargar</em>')}`);
   document.getElementById('logi-detail-corte').innerHTML = corteTallerHtml.join(' · ');
   document.getElementById('logi-detail-fecha').textContent = 'Entregado: '+(it.fecha_entregado||'—');
   const quienesDet=logiQuienes(it);

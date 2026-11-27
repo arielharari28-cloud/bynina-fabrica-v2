@@ -19895,10 +19895,34 @@ const COSTEO_OTROS_CAMPOS=[
   {key:'costo_taller',label:'Costo de Taller'},
   {key:'plancha_estampado',label:'Plancha / Estampado'},
   {key:'etiqueta',label:'Etiqueta'},
+  {key:'bolsa',label:'Bolsa'},
   {key:'carton',label:'Cartón'},
   {key:'fletes',label:'Fletes'},
   {key:'tizas_moldes_muestras',label:'Tizas / Moldes / Muestras (desarrollo)'},
 ];
+// Valores por defecto por marca (nov 2026, pedido de Ariel): en Mini Sur cada prenda lleva
+// gasto de fábrica $2.000, etiqueta $60 y bolsa $925. Se usan solo si ni el artículo ni el corte
+// tienen un valor cargado a mano (lo cargado a mano gana siempre). No se aplica a complementos
+// (cuello, puño…): no son prendas y su costo se suma al corte base.
+const COSTEO_DEFAULT_MINISUR={gastos_fabrica:2000,etiqueta:60,bolsa:925};
+function costeoEsMinisurEntry(e,mapa){
+  if(!e) return false;
+  try{
+    const k=corteKeyFrom(e.numero_corte); if(!k) return e.marca?esMinisur({marca:e.marca}):false;
+    mapa=mapa||costeoMapaFabrica();
+    if(costeoCmpIndice(mapa).baseDe[k]) return false;
+    let fabMarca=null;
+    Object.keys(mapa).some(mk=>{ if(mk.indexOf(k+'|')!==0) return false; const f=mapa[mk]; if(f&&f.item&&f.item.marca){ fabMarca=f.item.marca; return true; } return false; });
+    if(fabMarca) return esMinisur({marca:fabMarca});
+    if(e.marca) return esMinisur({marca:e.marca});
+    return Object.values(logiItemsData||{}).some(it=>it&&!it.es_complemento&&corteKeyFrom(it.numero_corte)===k&&logiEsMinisur(it));
+  }catch(err){ return false; }
+}
+function costeoDefaultOtro(e,key,mapa){
+  if(!(key in COSTEO_DEFAULT_MINISUR)) return null;
+  return costeoEsMinisurEntry(e,mapa)?COSTEO_DEFAULT_MINISUR[key]:null;
+}
+const costeoVacio=v=>v==null||v==='';
 // Costo de taller automático: suma precio_taller × cantidad (OK + Detalle) de todos los
 // ítems de Logística que compartan este N° de corte — así no hay que tipearlo a mano si ya
 // está cargado en Logística. Si Ariel/Stef cargan un valor manual en "Costo de Taller", ese
@@ -19990,7 +20014,8 @@ function costeoTotales(entry){
         if(c.key==='costo_taller'&&!tienePropio&&!entry.costo_taller){
           return s+costoTallerAutomatico(entry,a.code||a.name);
         }
-        const valor=tienePropio?propio:entry[c.key];
+        let valor=tienePropio?propio:entry[c.key];
+        if(!tienePropio&&costeoVacio(entry[c.key])){ const d=costeoDefaultOtro(entry,c.key); if(d!=null) valor=d; }
         return s+numAr2(valor)*piezasArt;
       },0);
     },0);
@@ -20001,7 +20026,9 @@ function costeoTotales(entry){
     // un valor automático (de Logística) cuando no se cargó nada a mano, y ese ya viene como total.
     costoOtros=COSTEO_OTROS_CAMPOS.reduce((s,c)=>{
       if(c.key==='costo_taller'&&!entry.costo_taller) return s+costoTallerAutomatico(entry);
-      return s+numAr2(entry[c.key])*piezas;
+      let v=entry[c.key];
+      if(costeoVacio(v)){ const d=costeoDefaultOtro(entry,c.key); if(d!=null) v=d; }
+      return s+numAr2(v)*piezas;
     },0);
   }
   const costoAvios=aviosPorPrenda*(piezas||0);
@@ -20298,6 +20325,10 @@ function costeoArtCalcPropio(e,i,mapa){
       const tot=costoTallerAutomatico(e,a.code||a.name), cant=costoTallerAutomaticoCantidad(e,a.code||a.name);
       const unit=cant?tot/cant:0;
       return {c,unit,auto:!!unit,propio:false};
+    }
+    if(!propio&&costeoVacio(e[c.key])){
+      const d=costeoDefaultOtro(e,c.key,mapa);
+      if(d!=null) return {c,unit:d,auto:false,propio:false,def:true};
     }
     const v=propio?a[c.key]:e[c.key];
     return {c,unit:numAr2(v),auto:false,propio};
@@ -20804,7 +20835,7 @@ function renderCosteoDetail(){
     }).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 0">Sin avíos</div>';
     const otrosHtml=r.otros.map(o=>{
       const valor=o.propio?a[o.c.key]:(o.auto?o.unit.toFixed(2):(o.unit||''));
-      const t=o.c.key==='costo_taller'&&o.auto?tag('de Logística'):'';
+      const t=o.c.key==='costo_taller'&&o.auto?tag('de Logística'):(o.def?tag('Mini Sur'):'');
       return fila(`${o.c.label}${t}`,canEdit?`$ ${inp(o.propio?a[o.c.key]:'',`setCosteoArtCampo('${key}',${i},'${o.c.key}',this.value)`,80,valor===''?'0':String(valor))}`:'',costeoPesos(o.unit)+' /u');
     }).join('');
     const preciosHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${r.precios.map(p=>{

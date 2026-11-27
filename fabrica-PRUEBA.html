@@ -17819,9 +17819,10 @@ function logiProvCostoPesos(precio,coti){ return precio>0&&coti>0?Math.round(pre
 function logiProvSetMoneda(id,m){
   const it=logiItemsData[id]; if(!it||it.facturado_cta_cte) return;
   const usd=m==='USD'; if(usd===(it.moneda_precio==='USD')) return;
-  const up={moneda_precio:usd?'USD':null};
-  if(usd) up.precio_costo=logiProvCostoPesos(Number(it.precio_taller)||0,Number(it.cotizacion_costo)||0);
+  // Al cambiar de moneda el precio anterior queda sin sentido (ej. $33.000 no son US$ 33.000): se borra y se vuelve a cargar
+  const up={moneda_precio:usd?'USD':null,precio_taller:null,precio_costo:null};
   db.ref(`fabrica_v5/logistica/items/${id}`).update(up);
+  if(it.precio_taller) showToast(`Cargá el precio en ${usd?'dólares':'pesos'} (el anterior era ${usd?'$':'US$'} ${Number(it.precio_taller).toLocaleString('es-AR')})`);
   logActivity('Cambió moneda del proveedor',`${it.code||it.name||''}: ${usd?'US$':'$'}`);
 }
 function logiProvSetPrecio(id,val){
@@ -18227,7 +18228,9 @@ async function logiConfirmarProveedor(){
 // Detalle de entrega (rediseño): pendientes como botones, Plata (solo Ariel y Meli) y Web resumido.
 function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   const pend=document.getElementById('logi-detail-pend'), plata=document.getElementById('logi-detail-plata'), web=document.getElementById('logi-detail-web');
-  if(!cerrado){
+  // Nov 2026: en prendas de proveedor la caja Plata (moneda, precio, cotización) se ve desde que entra, no solo al cerrar
+  const provAbierta=!cerrado&&it.origen==='proveedor'&&(currentUser==='ariel'||currentUser==='noelia');
+  if(!cerrado&&!provAbierta){
     pend.innerHTML=''; web.innerHTML='';
     // Nov 2026: Peque ve el precio del taller en las entregas de Mini Sur desde que se abren
     // (antes solo al cerrar, y Mini Sur sale de Logística al terminar el control).
@@ -18249,7 +18252,7 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   botones.push(btn(it.costo_sacado,'Sacar costo',`Costo sacado <small>${quien(it.costo_sacado_por)}</small>`,`logiToggleCostoSacado('${id}',${!it.costo_sacado})`));
   const minisurCliente=logiEsMinisur(it);
   if(!minisurCliente) botones.push(btn(it.cargado_ninox,'Cargar a Ninox',`Cargado a Ninox <small>${quien(it.cargado_ninox_por)}</small>`,`logiToggleCargadoNinox('${id}',${!it.cargado_ninox})`));
-  pend.innerHTML=`<div class="ld-card ld-pend"><div class="ld-pend-t">Pendientes de este corte</div><div class="ld-pend-row">${botones.join('')}</div></div>`;
+  pend.innerHTML=provAbierta?'':`<div class="ld-card ld-pend"><div class="ld-pend-t">Pendientes de este corte</div><div class="ld-pend-row">${botones.join('')}</div></div>`;
   // Plata: Ariel y Meli; Peque en Mini Sur también (precio ya cargado: pide permiso)
   const pqPlata=logiPequeMS(it);
   if(currentUser==='ariel'||currentUser==='noelia'||pqPlata){
@@ -18290,7 +18293,7 @@ function logiDetalleCajas(id,it,cerrado,totalOk,totalDetalle){
   const may=colores.filter(c=>it.web_colores_may&&it.web_colores_may[webColorSlug(c)]).length;
   const min=colores.filter(c=>it.web_colores&&it.web_colores[webColorSlug(c)]).length;
   let medOk=false; try{ medOk=medidasCompletas(it); }catch(e){}
-  web.innerHTML=(colores.length&&!minisurCliente)?`<div class="ld-card"><div class="ld-title">Web</div>
+  web.innerHTML=(colores.length&&!minisurCliente&&!provAbierta)?`<div class="ld-card"><div class="ld-title">Web</div>
     <div class="ld-row"><span>Minorista</span><b style="color:${min===colores.length?'#15803d':'#b91c1c'}">${min}/${colores.length} colores</b></div>
     <div class="ld-row"><span>Mayorista</span><b style="color:${may===colores.length?'#15803d':'#b91c1c'}">${may}/${colores.length} colores</b></div>
     <div class="ld-row"><span>Medidas</span><b style="color:${medOk?'#15803d':'#b91c1c'}">${medOk?'cargadas':'sin cargar'}${it.medidas_subidas_web?' · en web':''}</b></div>

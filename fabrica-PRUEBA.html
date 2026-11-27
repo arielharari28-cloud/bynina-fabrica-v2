@@ -18576,6 +18576,16 @@ function logiEditNombre(id){
   logActivity('Corrigió nombre en Logística', `${it.name||''} → ${nuevo.trim()}`);
   showToast('✓ Nombre actualizado');
 }
+function logiEditProveedor(id){
+  if(!puedeCargarIngreso()) return;
+  const it=logiItemsData[id];
+  if(!it) return;
+  const nuevo=prompt('Proveedor:', it.proveedor||'');
+  if(nuevo===null||!nuevo.trim()) return;
+  db.ref(`fabrica_v5/logistica/items/${id}/proveedor`).set(nuevo.trim());
+  logActivity('Corrigió proveedor en Logística', `${it.code||it.name||''}: ${it.proveedor||'—'} → ${nuevo.trim()}`);
+  showToast('✓ Proveedor actualizado');
+}
 function logiOpenDetail(id){
   logiCurrentItemId = id;
   document.getElementById('logi-board-screen').classList.add('hidden');
@@ -18640,8 +18650,11 @@ function logiRenderDetail(id){
   const corteTallerParts=[];
   if(it.numero_corte) corteTallerParts.push(`N° de corte: ${it.numero_corte}`);
   if(it.taller) corteTallerParts.push(`Taller: ${it.taller}`);
-  if(it.origen==='proveedor') corteTallerParts.push(`🏷️ Proveedor${it.proveedor?': '+it.proveedor:''}`);
-  document.getElementById('logi-detail-corte').textContent = corteTallerParts.length ? corteTallerParts.join(' · ') : '';
+  const escT=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const corteTallerHtml=corteTallerParts.map(escT);
+  // Nov 2026: el proveedor de una prenda de proveedor se puede corregir (Ariel y Noelia)
+  if(it.origen==='proveedor') corteTallerHtml.push(`🏷️ Proveedor${it.proveedor?': '+escT(it.proveedor):': <em>sin cargar</em>'}${puedeCargarIngreso()?` <span onclick="event.stopPropagation();logiEditProveedor('${id}')" style="cursor:pointer;font-size:12px;color:var(--accent)" title="Editar proveedor">✏️</span>`:''}`);
+  document.getElementById('logi-detail-corte').innerHTML = corteTallerHtml.join(' · ');
   document.getElementById('logi-detail-fecha').textContent = 'Entregado: '+(it.fecha_entregado||'—');
   const quienesDet=logiQuienes(it);
   document.getElementById('logi-detail-quienes').textContent =

@@ -16612,6 +16612,14 @@ function listaEntFiltrar(ctx){
 // Ariel lo cambia directo. Emir y Meli: si el corte todavía no tiene precio lo cargan directo;
 // para cambiar uno que ya existe piden permiso — queda el pedido en la fila hasta que Ariel
 // lo apruebe o rechace. Un corte ya facturado no se toca desde acá.
+function listaEntPrecioInline(id,val){
+  const it=(logiItemsData||{})[id]; if(!it||it.facturado_cta_cte) return;
+  if(!['ariel','noelia','peque'].includes(currentUser)){ showToast('El precio de taller lo carga Noelia'); return; }
+  const n=numAr(val);
+  logiSetPrecioTaller(id,n>0?n:'');
+  if(it.precio_solicitud) db.ref(`fabrica_v5/logistica/items/${id}/precio_solicitud`).remove();
+  showToast('✓ Precio guardado');
+}
 function listaEntEditarPrecio(ctx,id){
   const it=(logiItemsData||{})[id];
   if(!it) return;
@@ -16742,7 +16750,21 @@ function listaEntHtml(ctx){
     if(plata){
       const editable=!it.facturado_cta_cte&&!it.no_facturar;
       const lbl = precio ? `Precio <b>${it.moneda_precio==='USD'?'US$ ':'$'}${precio.toLocaleString('es-AR')}</b>` : 'Sin precio';
-      nums+= editable
+      // Nov 2026: Ariel y Noelia (o cualquiera si no hay precio) editan el precio directo en la fila, sin pop-up
+      const directoInl = editable && (currentUser==='ariel'||currentUser==='noelia'||!precio);
+      if(directoInl){
+        const stop='onclick="event.stopPropagation()"';
+        const fN=n=>Number(n).toLocaleString('es-AR',{maximumFractionDigits:2});
+        const inS=(val,fn,ph,w)=>`<input type="text" inputmode="decimal" ${stop} value="${val?fN(val):''}" placeholder="${ph}" onkeydown="if(event.key==='Enter')this.blur()" onchange="${fn}('${id}',this.value)" style="width:${w}px;border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:13px;font-weight:700">`;
+        if(it.origen==='proveedor'&&(currentUser==='ariel'||currentUser==='noelia')){
+          const usd=it.moneda_precio==='USD';
+          const pill=(m,t)=>`<span onclick="event.stopPropagation();logiProvSetMoneda('${id}','${m}')" style="padding:1px 9px;cursor:pointer;${(usd?m==='USD':m==='ARS')?'background:var(--accent);color:#fff':'color:var(--text2)'}">${t}</span>`;
+          nums+=`<span ${stop} style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">Precio <span style="display:inline-flex;border:1px solid var(--border);border-radius:20px;overflow:hidden;font-size:11.5px">${pill('ARS','$')}${pill('USD','US$')}</span>${inS(precio,'logiProvSetPrecio','0',75)}`
+            +(usd?` · Cotiz. $ ${inS(it.cotizacion_costo,'logiProvSetCoti','cotización',80)}${it.precio_costo?` · Costo <b>$${Number(it.precio_costo).toLocaleString('es-AR')}</b>`:''}`:'')+`</span>`;
+        } else {
+          nums+=`<span ${stop}>Precio $ ${inS(precio,'listaEntPrecioInline','0',80)}</span>`;
+        }
+      } else nums+= editable
         ? `<span class="le-precio-edit" onclick="event.stopPropagation();listaEntEditarPrecio('${ctx}','${id}')" title="${(currentUser==='ariel'||currentUser==='noelia'||!precio)?'Editar precio':'Pedir cambio de precio'}">${lbl} ✎</span>`
         : `<span ${precio?'':'style="color:var(--text3)"'}>${lbl}</span>`;
     }

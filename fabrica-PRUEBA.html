@@ -20200,9 +20200,11 @@ function costeoTotales(entry){
     },0);
   }
   const costoAvios=aviosPorPrenda*(piezas||0);
-  const costoTotal=costoTela+costoAvios+costoOtros;
+  let costoCol=0;
+  try{ (entry.articulos||[]).forEach(a=>{ const c=a&&costeoColCalc(entry,a,a.code||a.name); if(c) costoCol+=c.costo; }); }catch(err){ console.error('costeo collareta',err); }
+  const costoTotal=costoTela+costoCol+costoAvios+costoOtros;
   const costoPrenda=piezas?costoTotal/piezas:0;
-  return{kgCargado,kgSobrante,kgTotal,costoTela,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:!(kgCargado>0)&&sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
+  return{kgCargado,kgSobrante,kgTotal,costoTela,costoCol,costoAvios,costoOtros,costoTotal,piezas,costoPrenda,kgDeArticulos:!(kgCargado>0)&&sumKgArticulos>0,piezasDeArticulos:sumPiezasArticulos>0};
 }
 // Costo real de UN artículo puntual dentro de un corte con varios artículos (no el promedio de
 // todo el corte) — mismo cálculo que usa el bloque "💵 Costeo — {código}", pero reutilizable acá
@@ -20289,10 +20291,10 @@ function costeoLisoFichaHtml(e,key,lc,canEdit,inp,fila,sec,tag){
 function costeoArticuloTotales(entry,articuloCode){
   const articulos=entry.articulos||[];
   const idx=articulos.findIndex(a=>(a.code||a.name)===articuloCode);
-  if(idx<0){ const lc=costeoLisoCalc(entry,articuloCode); return lc&&lc.hayCosto?{costoArt:lc.r.costoTela/(lc.r.piezas||1)*lc.unidades,costoOtrosArt:0,piezasArt:lc.unidades,costoTotalArt:lc.costoU*lc.unidades,costoPrenda:lc.costoU}:null; }
+  if(idx<0){ const lc=costeoLisoCalc(entry,articuloCode); return lc&&lc.hayCosto?{costoArt:(lc.r.costoTela+(lc.r.costoCol||0))/(lc.r.piezas||1)*lc.unidades,costoOtrosArt:0,piezasArt:lc.unidades,costoTotalArt:lc.costoU*lc.unidades,costoPrenda:lc.costoU}:null; }
   let r; try{ r=costeoArtCalc(entry,idx); }catch(err){ console.error('costeoArtCalc',err); return null; }
   if(!r.piezas) return null;
-  return{costoArt:r.costoTela,costoOtrosArt:r.costoAvios+r.costoOtros,piezasArt:r.piezas,costoTotalArt:r.total,costoPrenda:r.costoU};
+  return{costoArt:r.costoTela+(r.costoCol||0),costoOtrosArt:r.costoAvios+r.costoOtros,piezasArt:r.piezas,costoTotalArt:r.total,costoPrenda:r.costoU};
 }
 // Devuelve true si fechaStr (formato DD/MM/AAAA) es una fecha anterior al día de hoy. Si no
 // matchea el formato, se considera que no es una fecha retroactiva (no bloqueamos ni avisamos
@@ -20420,7 +20422,7 @@ function costeoArtCalc(e,i,mapa){
           if(!rc.hayCosto){ pendiente=true; return; }
           // Se suma tela + avíos (+ otros gastos propios del complemento, sin taller: va en el precio del base).
           const otrosSinTaller=rc.otros.filter(o=>o.c.key!=='costo_taller').reduce((s,o)=>s+o.unit*rc.piezas,0);
-          const tot=rc.costoTela+rc.costoAvios+otrosSinTaller;
+          const tot=rc.costoTela+(rc.costoCol||0)+rc.costoAvios+otrosSinTaller;
           monto+=propio?tot:tot*share;
         });
         if(monto||pendiente) r.cmps.push({key:ck,numero:ce.numero_corte||ck,monto,pendiente});
@@ -20434,6 +20436,31 @@ function costeoArtCalc(e,i,mapa){
     }
   }catch(err){ console.error('costeo complemento',err); }
   return r;
+}
+// Collareta de OTRA tela (nov 2026): los rollos cargados en "Rollos de collareta usados" del artículo
+// (usos que no son "deCorte") no están en los rollos del corte, así que se suman aparte al costo del
+// artículo: kilos (o metros) usados × precio de la última compra de esa tela. La collareta que sale de
+// los mismos rollos del corte ya entra en la tela del corte y no se vuelve a contar.
+function costeoColItem(e,code){
+  const k=corteKeyFrom(e&&e.numero_corte); if(!k||!code) return null;
+  let col=null;
+  Object.values(sectionsData||{}).forEach(sec=>Object.values((sec&&sec.items)||{}).forEach(it=>{
+    if(!col&&it&&it.collareta&&it.code===code&&corteKeyFrom(it.numero_corte)===k) col=it.collareta; }));
+  return col;
+}
+function costeoColCalc(e,a,code){
+  const c=costeoColItem(e,code); if(!c) return null;
+  let cant=0, rollos=0, unidad='kg';
+  Object.values(c.usos||{}).forEach(u=>{ if(!u||u.deCorte) return; const n=numAr2(u.usado); if(!(n>0)) return;
+    cant+=n; rollos++; const r=u.stockId&&tsData&&tsData.rollos?tsData.rollos[u.stockId]:null; if(r&&r.unidad==='m') unidad='m'; });
+  if(!(cant>0)) return null;
+  const tela=c.tela||'';
+  const manual=numAr2(a&&a.col_precio_kg);
+  const ult=tela&&typeof tsUltimaCompra==='function'?tsUltimaCompra(tela):null;
+  const usd=!!(ult&&ult.moneda==='USD'), coti=numAr2(e.cotizacion_usd);
+  const auto=ult?(usd?(coti?tsNum(ult.precio)*coti:0):tsNum(ult.precio)):0;
+  const precio=manual||auto;
+  return {tela,modo:c.modo||'tono',cant,unidad,rollos,precio,manual:!!manual,ult,usd,faltaCoti:!manual&&usd&&!coti,costo:precio?cant*precio:0};
 }
 function costeoArtCalcPropio(e,i,mapa){
   const arts=e.articulos||[];
@@ -20502,14 +20529,16 @@ function costeoArtCalcPropio(e,i,mapa){
     return {c,unit:numAr2(v),auto:false,propio};
   });
   const costoOtros=otros.reduce((s,o)=>s+o.unit*piezas,0);
-  const total=costoTela+costoAvios+costoOtros;
+  const col=costeoColCalc(e,a,code);
+  const costoCol=col?col.costo:0;
+  const total=costoTela+costoCol+costoAvios+costoOtros;
   const costoU=piezas?total/piezas:0;
   const precios=['precio_lista_local','precio_tn_minorista','precio_tn_mayorista'].map(campo=>{
     const p=costeoPrecioArt(e,a,campo);
     return {campo,p,margen:(p&&costoU)?(p-costoU)/p*100:null};
   });
   const finalizadoTs=fab&&fab.estado.key==='finalizado'?(fab.item.fecha_entregado_revision||null):null;
-  return {a,code,fab,piezas,piezasTot,piezasManual:parseInt(a.piezas,10)>0,kg,kgManual,kgCorte,kgCarg,kgSob,precioKg,costoTela,
+  return {a,code,fab,piezas,piezasTot,piezasManual:parseInt(a.piezas,10)>0,kg,kgManual,kgCorte,kgCarg,kgSob,precioKg,costoTela,col,costoCol,
     avios,costoAvios,otros,costoOtros,total,costoU,precios,hayCosto:!!(precioKg&&piezas),consumoU:piezas?kg/piezas:0,finalizadoTs};
 }
 // Etapa del artículo para la lista de Costeo (si ya salió de fábrica, se busca en Logística).
@@ -20985,12 +21014,18 @@ function renderCosteoDetail(){
     if(!abierto){
       const m=r.precios[0];
       return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 14px;margin-bottom:8px">${cabeza}
-        <div style="font-size:12px;color:var(--text2);margin-top:4px">Tela ${costeoKg(r.kg,1)} kg · avíos ${r.avios.length} · taller ${costeoPesos(r.otros.find(o=>o.c.key==='costo_taller')?.unit)}${(r.cmps||[]).map(c=>' · incl. '+costeoEsc(c.numero)+' '+costeoPesos(r.piezas?c.monto/r.piezas:0)).join('')}${r.cmpDe?' · sumado al '+costeoEsc(r.cmpDe):''}${!r.cmpDe&&m.margen!=null?' · margen lista local '+Math.round(m.margen)+'%':''}</div></div>`+lisosHtml(a);
+        <div style="font-size:12px;color:var(--text2);margin-top:4px">Tela ${costeoKg(r.kg,1)} kg${r.col?' · collareta '+costeoKg(r.col.cant,1)+' '+(r.col.unidad==='m'?'m':'kg'):''} · avíos ${r.avios.length} · taller ${costeoPesos(r.otros.find(o=>o.c.key==='costo_taller')?.unit)}${(r.cmps||[]).map(c=>' · incl. '+costeoEsc(c.numero)+' '+costeoPesos(r.piezas?c.monto/r.piezas:0)).join('')}${r.cmpDe?' · sumado al '+costeoEsc(r.cmpDe):''}${!r.cmpDe&&m.margen!=null?' · margen lista local '+Math.round(m.margen)+'%':''}</div></div>`+lisosHtml(a);
     }
     const piezasIn=canEdit?inp(r.piezasManual?a.piezas:'',`setCosteoArtCampo('${key}',${i},'piezas',this.value)`,70,String(r.piezas||0)):`<b>${r.piezas}</b>`;
     const kgIn=canEdit?inp(r.kgManual?a.kg:'',`setCosteoArtCampo('${key}',${i},'kg',this.value)`,70,costeoKg(r.kg,1).replace(/\./g,'').replace(',','.')):`<b>${costeoKg(r.kg,1)}</b>`;
     const telaFila=fila(`Kilos del artículo ${r.kgManual?tag('a mano','var(--warn-bg)','var(--warn-text)'):tag(arts.length>1?'proporcional':'todo el corte')}`,
       `${kgIn} kg × ${r.precioKg?costeoPesos(r.precioKg):'—'}`, r.piezas&&r.precioKg?costeoPesos(r.costoTela/r.piezas)+' /u':'—');
+    const colFila=r.col?(()=>{ const c=r.col, un=c.unidad==='m'?'m':'kg';
+      const pIn=canEdit?inp(c.manual?a.col_precio_kg:'',`setCosteoArtCampo('${key}',${i},'col_precio_kg',this.value)`,80,c.precio&&!c.manual?String(Math.round(c.precio*100)/100):'0','title="Precio x '+un+' de la tela de la collareta. Vacío = última compra."'):(c.precio?costeoPesos(c.precio):'—');
+      const etq=c.manual?tag('manual','var(--warn-bg)','var(--warn-text)'):(c.ult?tag('última compra'):'');
+      const aviso=!c.precio?`<div style="font-size:11px;color:var(--warn-text);margin-top:2px">⚠️ ${c.faltaCoti?'La última compra de '+costeoEsc(c.tela)+' es en US$: falta la cotización del corte.':'Falta el precio x '+un+' de '+costeoEsc(c.tela||'la tela de la collareta')+': sin él la collareta no suma al costo.'}</div>`:'';
+      return fila(`Collareta · ${costeoEsc(c.tela||'tela sin definir')} ${tag(c.modo==='comb'?'combinada':'a tono')}${etq}`,
+        `${costeoKg(c.cant,2)} ${un} × ${pIn}`, r.piezas&&c.precio?costeoPesos(c.costo/r.piezas)+' /u':'—')+aviso; })():'';
     const aviosHtml=r.avios.length?r.avios.map(x=>{
       const av=x.av;
       const asignar=(arts.length>1&&canEditAvios)?`<select onclick="event.stopPropagation()" onchange="setCosteoAvioArticulo('${key}',${x.idx},this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:6px;padding:1px 4px;margin-left:4px">
@@ -21017,7 +21052,7 @@ function renderCosteoDetail(){
         <div style="font-weight:700;color:${col}">${p.margen!=null?Math.round(p.margen)+'% margen':'—'}</div></div>`}).join('')}</div>`;
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px">${cabeza}
       ${fila('Prendas cortadas'+(r.piezasManual?tag('a mano','var(--warn-bg)','var(--warn-text)'):''),piezasIn,'')}
-      ${sec('Tela')}${telaFila}
+      ${sec('Tela')}${telaFila}${colFila}
       ${sec('Avíos')}${aviosHtml}
       ${sec('Taller y otros gastos (por prenda)')}${otrosHtml}
       ${(r.cmps||[]).length?sec('Complemento')+r.cmps.map(c=>fila(`<span style="cursor:pointer;border-bottom:1px dashed var(--text3)" onclick="event.stopPropagation();openCosteoDetail('${c.key}')">Corte ${costeoEsc(c.numero)}</span> (tela + avíos)${c.pendiente?tag('falta costo','var(--warn-bg)','var(--warn-text)'):''}`,'',r.piezas?costeoPesos(c.monto/r.piezas)+' /u':'—')).join(''):''}
@@ -21109,7 +21144,7 @@ function pdfCliDatos(x){
   const {e,r}=x; const piezas=r.piezas||0;
   const nf=(v,d)=>Number(v||0).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
   const L=[];
-  L.push(['Materiales','Tela',`${e.tela||''} · ${nf(r.kg,2)} kg × ${costeoPesos(r.precioKg)}/kg ÷ ${piezas} prendas`,piezas?r.costoTela/piezas:0]);
+  L.push(['Materiales','Tela',`${e.tela||''} · ${nf(r.kg,2)} kg × ${costeoPesos(r.precioKg)}/kg${r.costoCol?` + collareta ${r.col.tela||''} ${nf(r.col.cant,2)} ${r.col.unidad==='m'?'m':'kg'} × ${costeoPesos(r.col.precio)}`:''} ÷ ${piezas} prendas`,piezas?(r.costoTela+(r.costoCol||0))/piezas:0]);
   (r.avios||[]).forEach(a=>L.push(['Materiales',a.av.nombre||'Avío',`${nf(numAr2(a.av.cantidad),2).replace(/,00$/,'')} × ${costeoPesos(a.precioEf)}`,a.unit]));
   if(r.costoCmp&&piezas) L.push(['Materiales','Complemento','tela + avíos',r.costoCmp/piezas]);
   const G={costo_taller:['Confección','Taller'],gastos_fabrica:['Confección','Gastos de fábrica'],plancha_estampado:['Confección','Plancha / estampado'],etiqueta:['Packaging','Etiqueta'],bolsa:['Packaging','Bolsa'],papel_seda:['Packaging','Papel de seda'],carton:['Packaging','Cartón'],fletes:['Otros','Fletes'],tizas_moldes_muestras:['Desarrollo','Tizas / moldes / muestras'],gastos_generales:['Desarrollo','Gastos generales']};

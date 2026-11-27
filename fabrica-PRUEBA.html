@@ -2391,7 +2391,7 @@ function buildNameHtml(secId,itemId,item,canEdit,big){
 }
 
 function buildCapasHtml(item,secId,itemId,canEditCapas){
-  const talles=item.capas_talles||[];
+  const talles=tallesOrd(item.capas_talles);
   const filas=Object.values(item.capas||{});
   const rows=filas.filter(f=>f&&(f.color||f.capas||Object.values(f.cant||{}).some(v=>parseInt(v)>0)));
   if(!talles.length||!rows.length){
@@ -2482,7 +2482,7 @@ function buildRollosHtml(item,secId,itemId,canEditRollos){
 // Emir/depósito cuando el corte ya está terminado, por si se cortaron más o menos capas
 // de las planeadas.
 function buildRealesHtml(item,secId,itemId){
-  const talles=item.capas_talles||[];
+  const talles=tallesOrd(item.capas_talles);
   const curva=item.curva_valores||{};
   if(!talles.length||!Object.keys(curva).length) return '';
   const rollos=Object.values(item.rollos||{}).filter(r=>r&&r.color&&r.capas);
@@ -5100,7 +5100,7 @@ function toggleEntregaModelista(secId,itemId){
 
 // --- Calcula la grilla esperada talle/color en base a rollos + curva (capas reales cortadas) ---
 function calcularGrillaEsperada(item){
-  const talles=item.capas_talles||[];
+  const talles=tallesOrd(item.capas_talles);
   const curva=item.curva_valores||{};
   const rollos=Object.values(item.rollos||{}).filter(r=>r&&r.color&&r.capas);
   const filas=[];
@@ -8814,7 +8814,7 @@ function ocStockColores(tela){ const m={}; if(!tela||typeof tsData==='undefined'
   Object.values(tsData.rollos||{}).forEach(r=>{ if(!r||r.tela!==tela||r.estado==='usado'||r.estado==='devuelto'||!r.color) return; const c=r.color.trim(); const x=m[c]||(m[c]={n:0,kg:0}); x.n++; x.kg+=tsRestanteDe(r); }); return m; }
 function buildOrdenCtx(secId,itemId){
   const item=sectionsData[secId].items[itemId];
-  const talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
+  const talles=tallesOrd(item.capas_talles);
   const curvaValores=item.curva_valores||{};
   const corteKey=corteKeyFrom(item.numero_corte);
   const ctx={secId,itemId,talles,curvaValores,corteKey};
@@ -8854,7 +8854,7 @@ function openOrdenCorteModal(secId,itemId){
     openEditModal(secId,itemId);
     return;
   }
-  const talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
+  const talles=tallesOrd(item.capas_talles);
   const curvaValores=item.curva_valores||{};
   if(!talles.length||!Object.keys(curvaValores).length){
     if(confirm('Todavía no definiste la curva (talles + cantidad por capa) de este ítem.\n\n¿Querés definirla ahora?')){
@@ -9053,7 +9053,7 @@ function ordenCortePorArticuloInner(){
   const totalCapas=ordenCtx.colores.reduce((s,r)=>s+(parseInt(r.capas)||0),0);
   let totalCorte=0;
   const filas=miembros.map(([id,it])=>{
-    const talles=Array.isArray(it.capas_talles)?it.capas_talles:[];
+    const talles=tallesOrd(it.capas_talles);
     const cv=it.curva_valores||{};
     const porTalle=talles.map(t=>({t,n:totalCapas*(parseInt(cv[t])||0)}));
     const total=porTalle.reduce((s,x)=>s+x.n,0);
@@ -9925,7 +9925,7 @@ function marcarCorteRealizado(secId,itemId){
   miembros.forEach(([mId,mItem])=>{
     // Congela las capas/rollos compartidos del corte en cada artículo — la cantidad por talle
     // se calcula con la curva propia de CADA artículo (las curvas pueden diferir entre ellos).
-    const talles=Array.isArray(mItem.capas_talles)?mItem.capas_talles:[];
+    const talles=tallesOrd(mItem.capas_talles);
     const curvaValores=mItem.curva_valores||{};
     const capasFuente=(grupo.capas)||mItem.capas||{};
     const capasCongeladas={};
@@ -10460,7 +10460,7 @@ let curvaCtx={};
 function editCurvaPrompt(secId,itemId){
   const item=sectionsData[secId].items[itemId];
   curvaCtx={secId,itemId};
-  curvaCtx.talles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
+  curvaCtx.talles=tallesOrd(item.capas_talles);
   curvaCtx.valores={...(item.curva_valores||{})};
   document.getElementById('curva-talles-input').value=curvaCtx.talles.join(', ');
   renderCurvaTable();
@@ -10478,7 +10478,7 @@ function syncCurvaValoresFromDOM(){
 function updateCurvaTalles(){
   syncCurvaValoresFromDOM();
   const raw=document.getElementById('curva-talles-input').value||'';
-  curvaCtx.talles=raw.split(',').map(s=>s.trim()).filter(Boolean);
+  curvaCtx.talles=tallesOrd(raw.split(',').map(s=>s.trim()).filter(Boolean));
   renderCurvaTable();
 }
 function renderCurvaTable(){
@@ -11204,7 +11204,7 @@ function openEditModal(secId,itemId){
   const esCorte=!sec.tipo; // secciones de cortes no tienen tipo (vs muestra_*)
 
   // Inicializar estado del editor de capas a partir del item
-  editCtx.capasTalles=Array.isArray(item.capas_talles)?[...item.capas_talles]:[];
+  editCtx.capasTalles=tallesOrd(item.capas_talles);
   const filasExistentes=Object.entries(item.capas||{}).map(([id,f])=>({id,color:f.color||'',cant:{...(f.cant||{})}}));
   editCtx.capasRows=filasExistentes.length?filasExistentes:[{id:'r'+Date.now(),color:'',cant:{}}];
 
@@ -11288,7 +11288,7 @@ function renderCapasEditor(){
 function updateCapasTalles(){
   syncCapasFromDOM();
   const raw=document.getElementById('e-talles').value||'';
-  editCtx.capasTalles=raw.split(',').map(s=>s.trim()).filter(Boolean);
+  editCtx.capasTalles=tallesOrd(raw.split(',').map(s=>s.trim()).filter(Boolean));
   if(!editCtx.capasRows||editCtx.capasRows.length===0) editCtx.capasRows=[{id:'r'+Date.now(),color:'',cant:{}}];
   renderCapasEditor();
 }
@@ -13764,7 +13764,7 @@ function cmpArticulosTxt(item){
 function cmpReferenciaHtml(parent){
   const filas=cmpFilasCorteBase(parent);
   if(!filas.length) return '<div style="font-size:11.5px;color:var(--text2)">Todavía no hay rollos cargados en el corte base para calcular lo cortado.</div>';
-  const talles=[...new Set(filas.map(f=>f.talle))], colores=[...new Set(filas.map(f=>f.color))];
+  const talles=tallesOrd([...new Set(filas.map(f=>f.talle))]), colores=[...new Set(filas.map(f=>f.color))];
   const q=(c,t)=>filas.filter(f=>f.color===c&&f.talle===t).reduce((s,f)=>s+(f.esperado||0),0);
   const total=filas.reduce((s,f)=>s+(f.esperado||0),0);
   return `<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11.5px;min-width:100%">
@@ -14695,7 +14695,7 @@ function renderObjetivoDisenoPanel(){
 // (según corte)": capas realmente usadas por color (cargadas en Rollos) × curva de talles.
 // item.capas NO se usa acá porque ese campo no se llega a poblar en el flujo actual.
 function unidadesRealesDeItem(item){
-  const talles=item.capas_talles||[];
+  const talles=tallesOrd(item.capas_talles);
   const curva=item.curva_valores||{};
   if(!talles.length||!Object.keys(curva).length) return 0;
   const rollos=Object.values(item.rollos||{}).filter(r=>r&&r.color&&r.capas);
@@ -18366,8 +18366,26 @@ function talleSortIndex(talle){
   const i = TALLE_ORDEN.indexOf(t);
   if(i!==-1) return i;
   if(/^\d+$/.test(t)) return 100 + Number(t); // talles numéricos (38, 40, 42...) ordenados entre sí
+  // Talles de bebé/niño (Mini Sur, nov 2026): 0-3, 3/6, 6-9, 9/12, 12/18, 18-24 (meses) y 2-3 (años).
+  // Se ordenan por edad de inicio en meses, del más chico al más grande.
+  const bb=talleBebeMeses(t);
+  if(bb!=null) return 200 + bb;
   return 9999; // desconocidos, al final
 }
+const TALLES_BEBE_MESES=['0-3','3-6','6-9','9-12','12-18','18-24'];
+function talleBebeMeses(t){
+  const m=String(t||'').toUpperCase().match(/^(\d{1,2})\s*[-\/]\s*(\d{1,2})\s*([A-ZÑÁÉÍÓÚ.]*)\s*$/);
+  if(m){
+    const a=+m[1], b=+m[2], suf=m[3]||'';
+    const anios=/^A/.test(suf), meses=/^M/.test(suf);
+    if(meses||(!anios&&TALLES_BEBE_MESES.includes(a+'-'+b))) return a + b/100;
+    return a*12 + b/100; // años (ej. 2-3)
+  }
+  const u=String(t||'').toUpperCase().match(/^(\d{1,2})\s*(M|MESES|A|AÑOS|ANOS)$/);
+  if(u) return /^M/.test(u[2])?+u[1]:(+u[1])*12;
+  return null;
+}
+function tallesOrd(arr){ return (Array.isArray(arr)?[...arr]:[]).sort(compareTalles); }
 function compareTalles(a,b){
   const ia = talleSortIndex(a), ib = talleSortIndex(b);
   if(ia!==ib) return ia-ib;
@@ -19370,7 +19388,7 @@ function logiDivCeldas(it){
     if(!talles.includes(t)) talles.push(t);
     const k=logiDivKey(c,t); m[k]=(m[k]||0)+u;
   });
-  return {m,colores,talles};
+  return {m,colores,talles:tallesOrd(talles)};
 }
 function logiDivTotales(it){
   const {m}=logiDivCeldas(it), d=it.division_detalle||{};

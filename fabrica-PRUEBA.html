@@ -17978,6 +17978,21 @@ function setCostoConfirmado(itemId,val){
 }
 // Encuentra el ítem de Logística correspondiente a un artículo de Costeo (mismo N° de corte +
 // código) — así el checkbox de Costeo puede tildar el mismo flag que vive en Logística.
+// Foto más reciente cargada en Logística para un artículo de un corte (la que se actualiza ahí).
+function costeoFotoLogistica(numeroCorte,r){
+  try{
+    const code=r&&r.a&&r.a.code; if(!code) return '';
+    const ck=corteKeyFrom(numeroCorte||(r.e&&r.e.numero_corte)||r.corteNum||'');
+    let mejor=null;
+    Object.values(logiItemsData||{}).forEach(it=>{
+      if(!it||!it.foto||it.code!==code) return;
+      if(ck&&corteKeyFrom(it.numero_corte)!==ck) return;
+      const ts=it.fotoAt||it.fecha_creado||0;
+      if(!mejor||ts>mejor.ts) mejor={ts,foto:it.foto};
+    });
+    return mejor?mejor.foto:'';
+  }catch(err){ return ''; }
+}
 function logiItemDeArticuloCosteo(numeroCorte,code){
   if(!numeroCorte||!code) return null;
   const ents=Object.entries(logiItemsData||{}).filter(([,lit])=>lit.numero_corte===numeroCorte&&lit.code===code);
@@ -20493,8 +20508,9 @@ function renderCosteoTab(){
   const fotoCod={};
   Object.values(sectionsData||{}).forEach(sec=>Object.values(sec.items||{}).forEach(it=>{ if(it&&it.foto&&it.code&&!fotoCod[it.code]) fotoCod[it.code]=it.foto; }));
   Object.values(logiItemsData||{}).forEach(it=>{ if(it&&it.foto&&it.code&&!fotoCod[it.code]) fotoCod[it.code]=it.foto; });
-  const fotoArt=r=>(r.fab&&r.fab.item&&r.fab.item.foto)||r.a.foto||fotoCod[r.a.code]||'';
-  const fotoMini=r=>{ const u=fotoArt(r); return u?`<img src="${costeoEsc(u)}" loading="lazy" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;object-position:top center;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)">`:`<div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)"></div>`; };
+  // Nov 2026: la foto que se actualiza en Logística (la entrega de ese corte + código) tiene prioridad.
+  const fotoArt=(r,e)=>costeoFotoLogistica(e&&e.numero_corte,r)||(r.fab&&r.fab.item&&r.fab.item.foto)||r.a.foto||fotoCod[r.a.code]||'';
+  const fotoMini=(r,e)=>{ const u=fotoArt(r,e); return u?`<img src="${costeoEsc(u)}" loading="lazy" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover;object-position:top center;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)">`:`<div style="width:48px;height:48px;border-radius:8px;flex-shrink:0;background:var(--surface2);border:1px solid var(--border)"></div>`; };
   const filasHtml=grupos.map(({key,e,filas,marca:marcaG})=>{
     const tela=e.tela||'';
     const nArts=(e.articulos||[]).length;
@@ -20514,7 +20530,7 @@ function renderCosteoTab(){
         :`<div>${r.consumoU?costeoKg(r.consumoU,3)+' kg/u':'—'}</div><div style="font-size:11px;color:var(--warn-text)">${r.precioKg?'faltan prendas':'falta precio x kg'}</div>`;
       return `<tr style="border-bottom:1px solid var(--border);cursor:pointer${r.cmpDe?';color:var(--text2)':''}" onclick="costeoDetailArt=${i};openCosteoDetail('${key}')">
         ${td(`<span title="${costeoEsc(e.numero_corte||'')}">${costeoEsc(e.numero_corte||'—')}</span>`,(r.cmpDe?'padding-left:14px;':'font-weight:700;color:var(--accent);')+'white-space:nowrap;overflow:hidden;text-overflow:ellipsis')}
-        ${td(`<div style="display:flex;align-items:center;gap:10px;min-width:0">${fotoMini(r)}<div style="min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Poppins',sans-serif;font-size:14px;font-weight:500">${costeoEsc(r.a.name||'')}</div><div style="font-size:12px;color:var(--text2)">${costeoEsc(r.a.code||'—')}</div></div></div>`,'padding-top:6px;padding-bottom:6px;overflow:hidden')}
+        ${td(`<div style="display:flex;align-items:center;gap:10px;min-width:0">${fotoMini(r,e)}<div style="min-width:0"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Poppins',sans-serif;font-size:14px;font-weight:500">${costeoEsc(r.a.name||'')}</div><div style="font-size:12px;color:var(--text2)">${costeoEsc(r.a.code||'—')}</div></div></div>`,'padding-top:6px;padding-bottom:6px;overflow:hidden')}
         ${td(r.piezas?`<b style="font-size:13px">${Number(r.piezas).toLocaleString('es-AR')}</b> <span style="font-size:11px;color:var(--text2)">u</span>`:'<span style="color:var(--text3)">—</span>','text-align:right;white-space:nowrap')}
         ${td(costeoEsc(costeoFechaCorteCorta(e.fecha_corte))||'—')}
         ${td(r.finalizadoTs?costeoFechaCorta(r.finalizadoTs):'<span style="color:var(--text3)">—</span>')}

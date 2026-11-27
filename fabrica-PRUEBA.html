@@ -19907,8 +19907,9 @@ const COSTEO_OTROS_CAMPOS=[
 // tienen un valor cargado a mano (lo cargado a mano gana siempre). No se aplica a complementos
 // (cuello, puño…): no son prendas y su costo se suma al corte base.
 const COSTEO_DEFAULT_MINISUR={gastos_fabrica:2000,etiqueta:60,bolsa:925,papel_seda:430};
-// Gastos generales de Mini Sur (nov 2026): el total se reparte entre TODAS las prendas de Mini Sur
-// cortadas (sin complementos). A medida que se cortan más prendas, el costo por prenda baja.
+// Gastos generales de Mini Sur (nov 2026): decisión de Ariel — se cargan ENTEROS al primer corte de
+// Mini Sur (el de fecha de corte más vieja, sin complementos), sabiendo que ese costo queda inflado.
+// Los cortes siguientes de Mini Sur no llevan gastos generales.
 const COSTEO_GASTOS_GENERALES_MINISUR=[
   {nombre:'Fichas',monto:315000},
   {nombre:'Moldes y progresiones',monto:1020000},
@@ -19926,14 +19927,21 @@ function costeoPiezasCorte(e,mapa){
   return conocidas+(lista.some(p=>!p)||!lista.length?resto:0);
 }
 let _costeoGGCache=null;
-function costeoGGMinisurPrendas(mapa){
-  if(_costeoGGCache!=null) return _costeoGGCache;
+function costeoGGMinisurPrimero(mapa){
+  if(_costeoGGCache) return _costeoGGCache;
   mapa=mapa||costeoMapaFabrica();
-  let n=0;
-  Object.values(costeosData||{}).forEach(e=>{ if(e&&costeoEsMinisurEntry(e,mapa)) n+=costeoPiezasCorte(e,mapa); });
-  _costeoGGCache=n; setTimeout(()=>{_costeoGGCache=null},0);
-  return n;
+  let mejor=null;
+  Object.entries(costeosData||{}).forEach(([k,e])=>{
+    if(!e||!costeoEsMinisurEntry(e,mapa)) return;
+    const ts=(typeof parseFechaArToTs==='function'&&parseFechaArToTs(e.fecha_corte))||e.fecha_creado||Infinity;
+    const ck=corteKeyFrom(e.numero_corte)||k;
+    if(!mejor||ts<mejor.ts||(ts===mejor.ts&&String(ck).localeCompare(String(mejor.ck),'es',{numeric:true})<0)) mejor={ck,ts,e};
+  });
+  const res=mejor?{ck:mejor.ck,numero:mejor.e.numero_corte||mejor.ck,prendas:costeoPiezasCorte(mejor.e,mapa)}:{ck:null,prendas:0};
+  _costeoGGCache=res; setTimeout(()=>{_costeoGGCache=null},0);
+  return res;
 }
+function costeoGGMinisurPrendas(mapa){ return costeoGGMinisurPrimero(mapa).prendas; }
 function costeoEsMinisurEntry(e,mapa){
   if(!e) return false;
   try{
@@ -19950,8 +19958,9 @@ function costeoEsMinisurEntry(e,mapa){
 function costeoDefaultOtro(e,key,mapa){
   if(key==='gastos_generales'){
     if(!costeoEsMinisurEntry(e,mapa)) return null;
-    const n=costeoGGMinisurPrendas(mapa);
-    return n?Math.round(costeoGGMinisurTotal()/n*100)/100:null;
+    const pr=costeoGGMinisurPrimero(mapa);
+    if(!pr.ck||corteKeyFrom(e.numero_corte)!==pr.ck||!pr.prendas) return null;
+    return Math.round(costeoGGMinisurTotal()/pr.prendas*100)/100;
   }
   if(!(key in COSTEO_DEFAULT_MINISUR)) return null;
   return costeoEsMinisurEntry(e,mapa)?COSTEO_DEFAULT_MINISUR[key]:null;
@@ -20869,7 +20878,7 @@ function renderCosteoDetail(){
     }).join(''):'<div style="font-size:12px;color:var(--text3);padding:4px 0">Sin avíos</div>';
     const otrosHtml=r.otros.map(o=>{
       const valor=o.propio?a[o.c.key]:(o.auto?o.unit.toFixed(2):(o.unit||''));
-      const t=o.c.key==='costo_taller'&&o.auto?tag('de Logística'):(o.def?(o.c.key==='gastos_generales'?tag('Mini Sur · $ '+costeoGGMinisurTotal().toLocaleString('es-AR')+' ÷ '+costeoGGMinisurPrendas().toLocaleString('es-AR')+' prendas'):tag('Mini Sur')):'');
+      const t=o.c.key==='costo_taller'&&o.auto?tag('de Logística'):(o.def?(o.c.key==='gastos_generales'?tag('Mini Sur · todo el desarrollo en este corte ($ '+costeoGGMinisurTotal().toLocaleString('es-AR')+' ÷ '+costeoGGMinisurPrendas().toLocaleString('es-AR')+' prendas) · costo inflado','var(--warn-bg)','var(--warn-text)')+tag('sin desarrollo: '+costeoPesos(Math.max(0,r.costoU-o.unit))+' /u'):tag('Mini Sur')):'');
       return fila(`${o.c.label}${t}`,canEdit?`$ ${inp(o.propio?a[o.c.key]:'',`setCosteoArtCampo('${key}',${i},'${o.c.key}',this.value)`,80,valor===''?'0':String(valor))}`:'',costeoPesos(o.unit)+' /u');
     }).join('');
     const preciosHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${r.precios.map(p=>{
